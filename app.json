@@ -1,0 +1,31 @@
+{
+  "$schema": "https://expo.dev/schemas/app.json",
+  "expo": {
+    "name": "Gabay PhilCSE",
+    "slug": "gabay_philcse",
+    "version": "1.0.0",
+    "updates": {
+      "enabled": false
+    },
+    "orientation": "portrait",
+    "icon": "./assets/loading.png",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#ffffff"
+    },
+    "ios": {
+      "supportsTablet": true
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#ffffff"
+      }
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    }
+  }
+}
