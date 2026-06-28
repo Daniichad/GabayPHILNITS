@@ -1,5 +1,4 @@
 {
-  "$schema": "https://expo.dev/schemas/app.json",
   "expo": {
     "name": "Gabay PhilCSE",
     "slug": "gabay_philcse",

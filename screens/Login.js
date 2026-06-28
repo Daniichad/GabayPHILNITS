@@ -52,7 +52,7 @@ export default function Login({ navigation }) {
           {/* Google Button */}
           <TouchableOpacity style={styles.googleButton}>
             <Text style={styles.googleButtonText}>Continue with Google </Text>
-            <Text style={styles.googleLogo}>🔍</Text>
+            <Text style={styles.googleLogo}></Text>
           </TouchableOpacity>
 
           <View style={styles.divider} />
@@ -70,7 +70,7 @@ export default function Login({ navigation }) {
           />
 
           {/* Password Input */}
-          <Text style={styles.label}>Password 🔒</Text>
+          <Text style={styles.label}>Password</Text>
           <TextInput
             placeholder="Password"
             value={password}
