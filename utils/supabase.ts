@@ -5,6 +5,9 @@ const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL
 const supabaseKey = process.env.EXPO_PUBLIC_SUPABASE_KEY
 
 export const supabase = createClient(supabaseUrl || '', supabaseKey || '', {
+  db: {
+    schema: 'public',
+  },
   auth: {
     storage: AsyncStorage,
     autoRefreshToken: true,

@@ -1,17 +1,28 @@
 import React, { useState } from 'react'
-import { View, Text, TextInput, TouchableOpacity, Alert, StyleSheet, CheckBox } from 'react-native'
+import { Modal, ScrollView, View, Text, TextInput, TouchableOpacity, Alert, StyleSheet } from 'react-native'
 import { supabase } from '../utils/supabase'
 
 export default function Register({ navigation }) {
   const [fullName, setFullName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
   const [agreeTerms, setAgreeTerms] = useState(false)
   const [loading, setLoading] = useState(false)
+  const [showPassword, setShowPassword] = useState(false)
+  const [termsVisible, setTermsVisible] = useState(false)
+  const [verifyVisible, setVerifyVisible] = useState(false)
+  const [otpCode, setOtpCode] = useState('')
+  const [verifying, setVerifying] = useState(false)
 
   const handleRegister = async () => {
-    if (!fullName || !email || !password) {
+    if (!fullName || !email || !password || !confirmPassword) {
       Alert.alert('Error', 'Please fill in all fields')
+      return
+    }
+
+    if (password !== confirmPassword) {
+      Alert.alert('Error', 'Passwords do not match')
       return
     }
 
@@ -22,21 +33,100 @@ export default function Register({ navigation }) {
 
     setLoading(true)
     try {
-      const { data, error } = await supabase
-        .from('user')
-        .insert([{ full_name: fullName, email, password, role: 'user' }])
+      const { data, error } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          data: {
+            full_name: fullName,
+          },
+        },
+      })
 
       if (error) {
         Alert.alert('Registration error', error.message || 'Could not create account')
         return
       }
 
-      Alert.alert('Success', 'Account created')
+      const profileError = await supabase.from('users').upsert(
+        [
+          {
+            fullname: fullName,
+            email,
+            role: 'user',
+          },
+        ],
+        {
+          onConflict: 'email',
+        }
+      )
+
+      if (profileError.error) {
+        Alert.alert(
+          'Registration warning',
+          `${profileError.error.message || 'Account created, but profile data could not be saved.'}`
+        )
+      }
+
+      const { error: otpError } = await supabase.auth.signInWithOtp({
+        email,
+        options: {
+          shouldCreateUser: false,
+        },
+      })
+
+      if (otpError) {
+        Alert.alert(
+          'Verification warning',
+          otpError.message || 'Account created, but the verification code could not be sent.'
+        )
+      } else {
+        setVerifyVisible(true)
+      }
+
+      if (data.session) {
+        Alert.alert('Success', `Account created for ${data.user?.email || email}`)
+        return
+      }
+
+      Alert.alert('Success', 'Account created. Enter the code sent to your email to verify it.')
       if (navigation) navigation.navigate('Login')
     } catch (err) {
       Alert.alert('Registration error', err.message || String(err))
     } finally {
       setLoading(false)
+    }
+  }
+
+  const handleVerifyEmail = async () => {
+    if (!otpCode.trim()) {
+      Alert.alert('Error', 'Please enter the verification code')
+      return
+    }
+
+    setVerifying(true)
+    try {
+      const { data, error } = await supabase.auth.verifyOtp({
+        email,
+        token: otpCode.trim(),
+        type: 'email',
+      })
+
+      if (error) {
+        Alert.alert('Verification error', error.message || 'Invalid code')
+        return
+      }
+
+      if (data.session) {
+        setVerifyVisible(false)
+        setOtpCode('')
+        Alert.alert('Success', 'Email verified successfully')
+        navigation?.replace('Home')
+      }
+    } catch (err) {
+      Alert.alert('Verification error', err.message || String(err))
+    } finally {
+      setVerifying(false)
     }
   }
 
@@ -75,15 +165,36 @@ export default function Register({ navigation }) {
           />
 
           {/* Password Input */}
-          <Text style={styles.label}>Password 🔒</Text>
-          <TextInput
-            placeholder="Password"
-            value={password}
-            onChangeText={setPassword}
-            secureTextEntry
-            style={styles.input}
-            placeholderTextColor="#999"
-          />
+          <Text style={styles.label}>Password</Text>
+          <View style={styles.passwordRow}>
+            <TextInput
+              placeholder="Password"
+              value={password}
+              onChangeText={setPassword}
+              secureTextEntry={!showPassword}
+              style={[styles.input, styles.passwordInput]}
+              placeholderTextColor="#999"
+            />
+            <TouchableOpacity style={styles.eyeButton} onPress={() => setShowPassword((value) => !value)}>
+              <Text style={styles.eyeButtonText}>{showPassword ? '👁' : '👁‍🗨'}</Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* Confirm Password Input */}
+          <Text style={styles.label}>Confirm Password</Text>
+          <View style={styles.passwordRow}>
+            <TextInput
+              placeholder="Confirm Password"
+              value={confirmPassword}
+              onChangeText={setConfirmPassword}
+              secureTextEntry={!showPassword}
+              style={[styles.input, styles.passwordInput]}
+              placeholderTextColor="#999"
+            />
+            <TouchableOpacity style={styles.eyeButton} onPress={() => setShowPassword((value) => !value)}>
+              <Text style={styles.eyeButtonText}>{showPassword ? '👁' : '👁‍🗨'}</Text>
+            </TouchableOpacity>
+          </View>
 
           {/* Terms Checkbox */}
           <View style={styles.checkboxContainer}>
@@ -94,7 +205,7 @@ export default function Register({ navigation }) {
               {agreeTerms && <Text style={styles.checkboxMark}>✓</Text>}
             </TouchableOpacity>
             <Text style={styles.checkboxLabel}>I agree to the </Text>
-            <TouchableOpacity>
+            <TouchableOpacity onPress={() => setTermsVisible(true)}>
               <Text style={styles.termsLink}>terms and conditions</Text>
             </TouchableOpacity>
           </View>
@@ -105,7 +216,7 @@ export default function Register({ navigation }) {
             onPress={handleRegister}
             disabled={loading}
           >
-            <Text style={styles.sendOtpButtonText}>{loading ? 'Sending...' : 'Send OTP'}</Text>
+            <Text style={styles.sendOtpButtonText}>{loading ? 'Creating...' : 'Create Account'}</Text>
           </TouchableOpacity>
 
           {/* Login Link */}
@@ -125,6 +236,48 @@ export default function Register({ navigation }) {
 
       {/* Bottom Text */}
       <Text style={styles.bottomText}>Start your Civil Service Exam Preparation Journey</Text>
+
+      <Modal transparent visible={termsVisible} animationType="fade" onRequestClose={() => setTermsVisible(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>Terms & Conditions</Text>
+            <ScrollView style={styles.modalBody} contentContainerStyle={{ paddingBottom: 12 }}>
+              <Text style={styles.modalText}>
+                By creating an account, you agree to provide accurate information, keep your login details secure,
+                and use the app responsibly. Your email may be used for account verification, password recovery,
+                and important service updates. Continued use of the app means you accept any future updates to these
+                terms.
+              </Text>
+            </ScrollView>
+            <TouchableOpacity style={styles.modalButton} onPress={() => setTermsVisible(false)}>
+              <Text style={styles.modalButtonText}>Close</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal transparent visible={verifyVisible} animationType="fade" onRequestClose={() => setVerifyVisible(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>Verify Email</Text>
+            <Text style={styles.modalSubtitle}>Enter the one-time code we sent to {email}</Text>
+            <TextInput
+              placeholder="Enter OTP"
+              value={otpCode}
+              onChangeText={setOtpCode}
+              keyboardType="number-pad"
+              style={styles.modalInput}
+              placeholderTextColor="#9CA3AF"
+            />
+            <TouchableOpacity style={styles.modalButton} onPress={handleVerifyEmail} disabled={verifying}>
+              <Text style={styles.modalButtonText}>{verifying ? 'Verifying...' : 'Verify OTP'}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => setVerifyVisible(false)}>
+              <Text style={styles.modalLink}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </View>
   )
 }
@@ -179,6 +332,26 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     fontSize: 16,
     color: '#1a1a1a',
+  },
+  passwordRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  passwordInput: {
+    flex: 1,
+    marginBottom: 12,
+  },
+  eyeButton: {
+    marginLeft: -48,
+    marginBottom: 12,
+    width: 44,
+    height: 44,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  eyeButtonText: {
+    fontSize: 18,
+    color: '#3B82B8',
   },
   checkboxContainer: {
     flexDirection: 'row',
@@ -252,5 +425,70 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 14,
     textAlign: 'center',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(15, 30, 53, 0.78)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  modalCard: {
+    width: '100%',
+    backgroundColor: '#fff',
+    borderRadius: 24,
+    padding: 20,
+    maxWidth: 420,
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#111827',
+    textAlign: 'center',
+    marginBottom: 10,
+  },
+  modalSubtitle: {
+    fontSize: 14,
+    color: '#4B5563',
+    textAlign: 'center',
+    marginBottom: 12,
+  },
+  modalBody: {
+    maxHeight: 220,
+    marginBottom: 16,
+  },
+  modalText: {
+    fontSize: 14,
+    lineHeight: 22,
+    color: '#374151',
+  },
+  modalInput: {
+    borderWidth: 1,
+    borderColor: '#D1D5DB',
+    borderRadius: 14,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    fontSize: 16,
+    color: '#111827',
+    marginBottom: 14,
+  },
+  modalButton: {
+    backgroundColor: '#D9989E',
+    borderRadius: 12,
+    paddingVertical: 13,
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  modalButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  modalLink: {
+    color: '#3B82B8',
+    textAlign: 'center',
+    fontSize: 14,
+    fontWeight: '600',
+    marginTop: 4,
   },
 })
