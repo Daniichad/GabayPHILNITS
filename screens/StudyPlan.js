@@ -99,8 +99,8 @@ function BottomBar({ navigation, active }) {
   return (
     <View style={styles.bottomNav}>
       <NavButton active={active === 'home'} icon={<Ionicons name="home" size={26} color={active === 'home' ? '#13294b' : '#64748b'} />} onPress={() => navigation?.navigate('Home')} />
-      <NavButton active={active === 'study'} icon={<Ionicons name="document-text" size={26} color={active === 'study' ? '#13294b' : '#64748b'} />} onPress={() => navigation?.navigate('StudyPlan')} />
-      <NavButton icon={<Feather name="clipboard" size={24} color="#64748b" />} onPress={() => navigation?.navigate('Library')} />
+      <NavButton active={active === 'Library'} icon={<Ionicons name="document-text" size={26} color={active === 'Library' ? '#13294b' : '#64748b'} />} onPress={() => navigation?.navigate('StudyPlan')} />
+      <NavButton icon={<Feather name="clipboard" size={24} color="#64748b" />} onPress={() => navigation?.navigate('Home')} />
       <NavButton icon={<Feather name="bar-chart-2" size={24} color="#64748b" />} onPress={() => navigation?.navigate('Home')} />
       <NavButton icon={<Feather name="user" size={24} color="#64748b" />} onPress={() => navigation?.navigate('Home')} />
     </View>

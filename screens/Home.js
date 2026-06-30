@@ -117,8 +117,8 @@ export default function Home({ session, navigation }) {
 
 				<View style={styles.bottomNav}>
 					<NavIcon active icon={<Ionicons name="home" size={26} color="#0f2747" />} onPress={() => navigation?.navigate('Home')} />
-					<NavIcon icon={<Ionicons name="document-text-outline" size={26} color="#64748b" />} onPress={() => navigation?.navigate('StudyPlan')} />
-					<NavIcon icon={<Feather name="clipboard" size={24} color="#64748b" />} onPress={() => navigation?.navigate('Library')} />
+					<NavIcon icon={<Ionicons name="document-text-outline" size={26} color="#64748b" />} onPress={() => navigation?.navigate('Library')} />
+					<NavIcon icon={<Feather name="clipboard" size={24} color="#64748b" />} onPress={() => navigation?.navigate('')} />
 					<NavIcon icon={<Feather name="bar-chart-2" size={24} color="#64748b" />} onPress={() => navigation?.navigate('DiagnosticAssessment')} />
 					<NavIcon icon={<Feather name="user" size={24} color="#64748b" />} onPress={() => navigation?.navigate('PersonalInfo')} />
 			</View>

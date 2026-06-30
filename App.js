@@ -38,7 +38,7 @@ export default function App() {
 					headerShown: false,
 					animationEnabled: true,
 				}}
-				initialRouteName="Library"
+				initialRouteName="Onboarding"
 			>
 				<Stack.Screen name="Onboarding" component={Onboarding} />
 				<Stack.Screen name="Login" component={Login} />
