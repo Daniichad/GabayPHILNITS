@@ -1,0 +1,1 @@
+if mag testing kayo ibahin nyo lang  value ng initialRouteName sa App.js tapos mapupunta na sya sa screen na gusto nyo
