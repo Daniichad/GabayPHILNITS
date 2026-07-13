@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import { Modal, ScrollView, View, Text, TextInput, TouchableOpacity, Alert, StyleSheet } from 'react-native'
-import { supabase } from '../utils/supabase'
+import { supabase } from '../../utils/supabase'
 
 export default function Register({ navigation }) {
   const [fullName, setFullName] = useState('')

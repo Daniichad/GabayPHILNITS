@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import { Modal, View, Text, TextInput, TouchableOpacity, Alert, StyleSheet } from 'react-native'
-import { supabase } from '../utils/supabase'
+import { supabase } from '../../utils/supabase'
 
 export default function Login({ navigation }) {
   const [email, setEmail] = useState('')
@@ -151,7 +151,7 @@ export default function Login({ navigation }) {
       <View style={styles.content}>
         {/* Logo */}
         <View style={styles.logoContainer}>
-          <Text style={styles.logo}>G</Text>
+          <Text style={styles.logo}>assets/icon.png</Text>
         </View>
 
         {/* Form */}

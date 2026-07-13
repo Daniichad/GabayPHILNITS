@@ -1,6 +1,6 @@
 import React from 'react'
 import { Alert, Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
-import { supabase } from '../utils/supabase'
+import { supabase } from '../../utils/supabase'
 
 const QUESTIONS = [
   {

@@ -1,6 +1,6 @@
 import React from 'react'
 import { Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
-import { supabase } from '../utils/supabase'
+import { supabase } from '../../../utils/supabase'
 import { Ionicons, MaterialCommunityIcons, Feather } from '@expo/vector-icons'
 
 export default function Home({ session, navigation }) {

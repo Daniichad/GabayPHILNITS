@@ -1,6 +1,6 @@
 import React from 'react'
 import { Alert, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
-import { supabase } from '../utils/supabase'
+import { supabase } from '../../../utils/supabase'
 import { Feather, Ionicons } from '@expo/vector-icons'
 
 const REVIEW_SPEEDS = ['Slow', 'Normal', 'Fast']

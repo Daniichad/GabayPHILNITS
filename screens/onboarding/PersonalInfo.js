@@ -1,6 +1,6 @@
 import React from 'react'
 import { Alert, ActivityIndicator, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native'
-import { supabase } from '../utils/supabase'
+import { supabase } from '../../utils/supabase'
 
 function Field({ label, placeholder, value, onChangeText, keyboardType = 'default' }) {
   return (
