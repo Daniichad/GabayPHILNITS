@@ -1,163 +1,160 @@
-import React, { useState } from 'react';
+﻿import React, { useState, useEffect } from 'react';
 import {
-  SafeAreaView,
-  View,
-  Text,
-  StyleSheet,
-  TouchableOpacity,
-  StatusBar,
-  Platform,
+  SafeAreaView, View, Text, StyleSheet, TouchableOpacity,
+  StatusBar, Platform, ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { supabase } from '../../../supabase';
 
-// ---------------------------------------------------------------------------
-// STATIC DATA
-// Each question has a prompt, a list of options (A, B, C, ...), the index of
-// the correct option, and an explanation shown after answering.
-// ---------------------------------------------------------------------------
-const DECK_TITLE = 'Multiple Choice';
-const DECK_SUBTITLE = '1 HP - P Flashcards';
+const NAVY = '#0B2540';
 
-const QUESTIONS = [
-  {
-    id: 'q1',
-    prompt: 'Which of the following is the best synonym for "rapid"?',
-    options: ['Slow', 'Quick', 'Late'],
-    correctIndex: 1,
-    explanation:
-      '"Quick" means happening fast, which matches the meaning of "rapid." "Slow" and "late" mean the opposite.',
-  },
-  {
-    id: 'q2',
-    prompt: 'Which sentence uses an idiom correctly?',
-    options: [
-      'It was raining cats and dogs outside.',
-      'The cat was raining outside.',
-      'Dogs and cats fell from the sky.',
-    ],
-    correctIndex: 0,
-    explanation:
-      '"Raining cats and dogs" is a common idiom meaning it\'s raining very heavily — it\'s not meant literally.',
-  },
-  {
-    id: 'q3',
-    prompt: 'What is the main idea of a paragraph about hurricanes forming over warm ocean water?',
-    options: [
-      'Hurricanes only happen in summer.',
-      'Warm ocean water is a key ingredient in hurricane formation.',
-      'Hurricanes are named after people.',
-    ],
-    correctIndex: 1,
-    explanation:
-      'The main idea is the central point the passage focuses on — here, that warm ocean water helps hurricanes form.',
-  },
-  {
-    id: 'q4',
-    prompt: 'Which word means the opposite of "transparent"?',
-    options: ['Clear', 'Opaque', 'Visible'],
-    correctIndex: 1,
-    explanation:
-      '"Opaque" means light cannot pass through, the opposite of "transparent." "Clear" and "visible" are closer in meaning to transparent.',
-  },
-];
+export default function MultipleChoice({ navigation, route }) {
+  const categoryId = route?.params?.categoryId ?? null;
 
-export default function MultipleChoice() {
-  const [index, setIndex] = useState(0);
-  const [selected, setSelected] = useState(null); // selected option index | null
+  const [questions, setQuestions] = useState([]);
+  const [index,     setIndex]     = useState(0);
+  const [selected,  setSelected]  = useState(null);
+  const [loading,   setLoading]   = useState(true);
+  const [error,     setError]     = useState(null);
+  const [userId,    setUserId]    = useState(null);
 
-  const question = QUESTIONS[index];
-  const isLast = index === QUESTIONS.length - 1;
+  useEffect(() => { loadData(); }, []);
+
+  // ------------------------------------------------------------
+  const loadData = async () => {
+    try {
+      setLoading(true); setError(null);
+      const { data: { session } } = await supabase.auth.getSession();
+      setUserId(session?.user?.id ?? null);
+
+      let q = supabase.from('multiple_choice_questions')
+        .select('*').eq('is_published', true).order('sort_order');
+      if (categoryId) q = q.eq('category_id', categoryId);
+
+      const { data, error: qErr } = await q;
+      if (qErr) throw qErr;
+      setQuestions(data ?? []);
+    } catch (err) {
+      console.error('MCQ load error:', err);
+      setError('Failed to load questions.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const logResult = async (question, selectedIdx) => {
+    if (!userId) return;
+    await supabase.from('multiple_choice_results').insert({
+      user_id:        userId,
+      question_id:    question.id,
+      selected_index: selectedIdx,
+      is_correct:     selectedIdx === question.correct_index,
+    });
+  };
+
+  // ------------------------------------------------------------
+  const question   = questions[index];
+  const isLast     = index === questions.length - 1;
   const hasAnswered = selected !== null;
-  const isCorrect = hasAnswered && selected === question.correctIndex;
+  const isCorrect  = hasAnswered && selected === question?.correct_index;
 
-  const handleSelect = (optionIndex) => {
+  const handleSelect = (optIdx) => {
     if (hasAnswered) return;
-    setSelected(optionIndex);
+    setSelected(optIdx);
+    logResult(question, optIdx);
   };
 
   const goToNext = () => {
     setSelected(null);
-    setIndex((prev) => (prev + 1) % QUESTIONS.length);
+    setIndex((p) => (p + 1) % questions.length);
   };
 
-  const getLetter = (i) => String.fromCharCode(65 + i); // 0 -> A, 1 -> B, ...
+  const getLetter = (i) => String.fromCharCode(65 + i);
+
+  // ------------------------------------------------------------
+  if (loading) {
+    return (
+      <SafeAreaView style={styles.safeArea}>
+        <StatusBar barStyle="dark-content" />
+        <View style={styles.centered}>
+          <ActivityIndicator size="large" color={NAVY} />
+          <Text style={styles.loadingText}>Loading questions…</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  if (error || questions.length === 0) {
+    return (
+      <SafeAreaView style={styles.safeArea}>
+        <StatusBar barStyle="dark-content" />
+        <View style={styles.header}>
+          <TouchableOpacity style={styles.iconButton} onPress={() => navigation?.goBack?.()}>
+            <Ionicons name="chevron-back" size={26} color={NAVY} />
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>Multiple Choice</Text>
+          <View style={styles.iconButton} />
+        </View>
+        <View style={styles.centered}>
+          <Ionicons name="help-circle-outline" size={52} color="#9AA5B1" />
+          <Text style={styles.emptyText}>{error ?? 'No questions available.'}</Text>
+          <TouchableOpacity style={styles.retryBtn} onPress={loadData}>
+            <Text style={styles.retryText}>Retry</Text>
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.safeArea}>
       <StatusBar barStyle="dark-content" />
 
-      {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity style={styles.iconButton}>
-          <Ionicons name="chevron-back" size={26} color="#0B2540" />
+        <TouchableOpacity style={styles.iconButton} onPress={() => navigation?.goBack?.()}>
+          <Ionicons name="chevron-back" size={26} color={NAVY} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>{DECK_TITLE}</Text>
+        <Text style={styles.headerTitle}>Multiple Choice</Text>
         <TouchableOpacity style={styles.iconButton}>
-          <Ionicons name="settings-outline" size={22} color="#0B2540" />
+          <Ionicons name="settings-outline" size={22} color={NAVY} />
         </TouchableOpacity>
       </View>
 
       <View style={styles.body}>
-        {/* Prompt card */}
         <View style={styles.card}>
           <Text style={styles.promptText}>{question.prompt}</Text>
         </View>
 
-        {/* Options */}
         <View style={styles.optionsList}>
-          {question.options.map((option, optionIndex) => {
-            const isSelected = selected === optionIndex;
-            const isTheCorrectOne = optionIndex === question.correctIndex;
+          {question.options.map((option, optIdx) => {
+            const isSelected      = selected === optIdx;
+            const isTheCorrectOne = optIdx === question.correct_index;
 
             let optionStyle = styles.optionButton;
-            let textStyle = styles.optionText;
+            let textStyle   = styles.optionText;
 
             if (hasAnswered) {
-              if (isSelected && isCorrect) {
-                optionStyle = [styles.optionButton, styles.optionCorrect];
-                textStyle = [styles.optionText, styles.optionTextActive];
-              } else if (isSelected && !isCorrect) {
-                optionStyle = [styles.optionButton, styles.optionIncorrect];
-                textStyle = [styles.optionText, styles.optionTextActive];
-              } else if (isTheCorrectOne) {
-                optionStyle = [styles.optionButton, styles.optionReveal];
-                textStyle = [styles.optionText, styles.optionTextReveal];
-              }
+              if (isSelected && isCorrect)  { optionStyle = [styles.optionButton, styles.optionCorrect];   textStyle = [styles.optionText, styles.optionTextActive]; }
+              else if (isSelected)           { optionStyle = [styles.optionButton, styles.optionIncorrect]; textStyle = [styles.optionText, styles.optionTextActive]; }
+              else if (isTheCorrectOne)      { optionStyle = [styles.optionButton, styles.optionReveal];    textStyle = [styles.optionText, styles.optionTextReveal]; }
             } else if (isSelected) {
               optionStyle = [styles.optionButton, styles.optionSelected];
-              textStyle = [styles.optionText, styles.optionTextActive];
+              textStyle   = [styles.optionText, styles.optionTextActive];
             }
 
             return (
-              <TouchableOpacity
-                key={optionIndex}
-                disabled={hasAnswered}
-                style={optionStyle}
-                onPress={() => handleSelect(optionIndex)}
-              >
-                <Text style={textStyle}>
-                  {getLetter(optionIndex)}. {option}
-                </Text>
+              <TouchableOpacity key={optIdx} disabled={hasAnswered} style={optionStyle} onPress={() => handleSelect(optIdx)}>
+                <Text style={textStyle}>{getLetter(optIdx)}. {option}</Text>
               </TouchableOpacity>
             );
           })}
         </View>
 
-        {/* Correct / incorrect indicator + explanation */}
         {hasAnswered && (
           <View style={styles.feedbackArea}>
             <View style={styles.resultRow}>
-              <Ionicons
-                name={isCorrect ? 'checkmark-circle' : 'close-circle'}
-                size={20}
-                color={isCorrect ? '#3CB878' : '#E0475A'}
-              />
-              <Text
-                style={[
-                  styles.resultText,
-                  { color: isCorrect ? '#3CB878' : '#E0475A' },
-                ]}
-              >
+              <Ionicons name={isCorrect ? 'checkmark-circle' : 'close-circle'} size={20} color={isCorrect ? '#3CB878' : '#E0475A'} />
+              <Text style={[styles.resultText, { color: isCorrect ? '#3CB878' : '#E0475A' }]}>
                 {isCorrect ? 'Correct' : 'Incorrect'}
               </Text>
             </View>
@@ -165,12 +162,9 @@ export default function MultipleChoice() {
           </View>
         )}
 
-        <Text style={styles.progressText}>
-          {index + 1} / {QUESTIONS.length}
-        </Text>
+        <Text style={styles.progressText}>{index + 1} / {questions.length}</Text>
       </View>
 
-      {/* Next */}
       {hasAnswered && (
         <View style={styles.footer}>
           <TouchableOpacity style={styles.nextButton} onPress={goToNext}>
@@ -183,145 +177,34 @@ export default function MultipleChoice() {
   );
 }
 
-const NAVY = '#0B2540';
-
 const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: '#FFFFFF',
-    paddingTop: Platform.OS === 'android' ? 30 : 0,
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 8,
-    paddingTop: 8,
-    paddingBottom: 4,
-  },
-  iconButton: {
-    width: 40,
-    height: 40,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  headerTitle: {
-    fontSize: 17,
-    fontWeight: '700',
-    color: NAVY,
-  },
-  body: {
-    flex: 1,
-    justifyContent: 'center',
-    paddingHorizontal: 28,
-  },
-  card: {
-    width: '100%',
-    minHeight: 110,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: '#D7DEE8',
-    backgroundColor: '#FFFFFF',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 24,
-    paddingVertical: 22,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.08,
-    shadowRadius: 12,
-    elevation: 3,
-  },
-  promptText: {
-    fontSize: 16,
-    lineHeight: 22,
-    fontWeight: '600',
-    color: NAVY,
-    textAlign: 'center',
-  },
-  optionsList: {
-    marginTop: 20,
-  },
-  optionButton: {
-    borderWidth: 1.5,
-    borderColor: '#D7DEE8',
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    paddingVertical: 14,
-    paddingHorizontal: 18,
-    marginBottom: 12,
-  },
-  optionSelected: {
-    backgroundColor: NAVY,
-    borderColor: NAVY,
-  },
-  optionCorrect: {
-    backgroundColor: '#3CB878',
-    borderColor: '#3CB878',
-  },
-  optionIncorrect: {
-    backgroundColor: '#E0475A',
-    borderColor: '#E0475A',
-  },
-  optionReveal: {
-    borderColor: '#3CB878',
-    backgroundColor: '#EAFBF2',
-  },
-  optionText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: NAVY,
-  },
-  optionTextActive: {
-    color: '#FFFFFF',
-  },
-  optionTextReveal: {
-    color: '#3CB878',
-  },
-  feedbackArea: {
-    marginTop: 8,
-    padding: 16,
-    borderRadius: 14,
-    backgroundColor: '#F5F7FA',
-  },
-  resultRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    marginBottom: 6,
-  },
-  resultText: {
-    fontSize: 14,
-    fontWeight: '700',
-  },
-  explanationText: {
-    fontSize: 13,
-    lineHeight: 19,
-    color: '#4A5563',
-  },
-  progressText: {
-    marginTop: 16,
-    fontSize: 13,
-    color: '#9AA5B1',
-    textAlign: 'center',
-  },
-  footer: {
-    alignItems: 'center',
-    paddingBottom: 30,
-    paddingTop: 4,
-  },
-  nextButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    paddingHorizontal: 22,
-    paddingVertical: 12,
-    borderRadius: 24,
-    backgroundColor: NAVY,
-  },
-  nextButtonText: {
-    color: '#FFFFFF',
-    fontWeight: '700',
-    fontSize: 14,
-  },
+  safeArea:       { flex: 1, backgroundColor: '#FFFFFF', paddingTop: Platform.OS === 'android' ? 30 : 0 },
+  header:         { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 8, paddingTop: 8, paddingBottom: 4 },
+  iconButton:     { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
+  headerTitle:    { fontSize: 17, fontWeight: '700', color: NAVY },
+  centered:       { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 28 },
+  loadingText:    { marginTop: 12, fontSize: 14, color: '#9AA5B1', fontWeight: '600' },
+  emptyText:      { marginTop: 12, fontSize: 14, color: '#9AA5B1', fontWeight: '600', textAlign: 'center' },
+  retryBtn:       { marginTop: 16, paddingHorizontal: 24, paddingVertical: 10, backgroundColor: NAVY, borderRadius: 20 },
+  retryText:      { color: '#fff', fontWeight: '700', fontSize: 14 },
+  body:           { flex: 1, justifyContent: 'center', paddingHorizontal: 28 },
+  card:           { width: '100%', minHeight: 110, borderRadius: 20, borderWidth: 1, borderColor: '#D7DEE8', backgroundColor: '#FFFFFF', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 24, paddingVertical: 22, shadowColor: '#000', shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.08, shadowRadius: 12, elevation: 3 },
+  promptText:     { fontSize: 16, lineHeight: 22, fontWeight: '600', color: NAVY, textAlign: 'center' },
+  optionsList:    { marginTop: 20 },
+  optionButton:   { borderWidth: 1.5, borderColor: '#D7DEE8', backgroundColor: '#FFFFFF', borderRadius: 16, paddingVertical: 14, paddingHorizontal: 18, marginBottom: 12 },
+  optionSelected: { backgroundColor: NAVY, borderColor: NAVY },
+  optionCorrect:  { backgroundColor: '#3CB878', borderColor: '#3CB878' },
+  optionIncorrect:{ backgroundColor: '#E0475A', borderColor: '#E0475A' },
+  optionReveal:   { borderColor: '#3CB878', backgroundColor: '#EAFBF2' },
+  optionText:     { fontSize: 14, fontWeight: '600', color: NAVY },
+  optionTextActive:{ color: '#FFFFFF' },
+  optionTextReveal:{ color: '#3CB878' },
+  feedbackArea:   { marginTop: 8, padding: 16, borderRadius: 14, backgroundColor: '#F5F7FA' },
+  resultRow:      { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 },
+  resultText:     { fontSize: 14, fontWeight: '700' },
+  explanationText:{ fontSize: 13, lineHeight: 19, color: '#4A5563' },
+  progressText:   { marginTop: 16, fontSize: 13, color: '#9AA5B1', textAlign: 'center' },
+  footer:         { alignItems: 'center', paddingBottom: 30, paddingTop: 4 },
+  nextButton:     { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 22, paddingVertical: 12, borderRadius: 24, backgroundColor: NAVY },
+  nextButtonText: { color: '#FFFFFF', fontWeight: '700', fontSize: 14 },
 });

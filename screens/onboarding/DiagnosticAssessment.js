@@ -1,93 +1,9 @@
-import React from 'react'
-import { Alert, Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
-import { supabase } from '../../utils/supabase'
-
-const QUESTIONS = [
-  {
-    id: 1,
-    category: 'Verbal Ability',
-    question: 'Choose the word that is closest in meaning to the underlined word: Confusing',
-    options: ['Confusing', 'Lengthy', 'Expressive', 'Mysterious'],
-    answer: 'Mysterious',
-  },
-  {
-    id: 2,
-    category: 'Verbal Ability',
-    question: 'Choose the correct sentence.',
-    options: ["She don't like studying.", "She doesn't like studying.", "She doesn't likes studying.", "She don't likes studying."],
-    answer: "She doesn't like studying.",
-  },
-  {
-    id: 3,
-    category: 'Numerical Ability',
-    question: 'A government employee earns ₱18,500 per month. If he receives a 15% salary increase, how much will his new monthly salary be?',
-    options: ['₱20,175', '₱21,275', '₱21,500', '₱20,500'],
-    answer: '₱21,275',
-  },
-  {
-    id: 4,
-    category: 'Numerical Ability',
-    question: 'What is 25% of 160?',
-    options: ['20', '30', '40', '50'],
-    answer: '40',
-  },
-  {
-    id: 5,
-    category: 'Analytical Ability',
-    question: 'Which figure completes the pattern: triangle, triangle, square, triangle, triangle, square, ?',
-    options: ['Triangle', 'Square', 'Circle', 'Hexagon'],
-    answer: 'Triangle',
-  },
-  {
-    id: 6,
-    category: 'Analytical Ability',
-    question: 'If all cats are animals and all animals need water, which statement is true?',
-    options: ['All cats need water', 'All water are cats', 'All animals are cats', 'No cats need water'],
-    answer: 'All cats need water',
-  },
-  {
-    id: 7,
-    category: 'Logical Reasoning',
-    question: 'If today is Monday, what day will it be after 3 days?',
-    options: ['Tuesday', 'Wednesday', 'Thursday', 'Friday'],
-    answer: 'Thursday',
-  },
-  {
-    id: 8,
-    category: 'Logical Reasoning',
-    question: 'What number comes next: 2, 4, 8, 16, ?',
-    options: ['18', '20', '24', '32'],
-    answer: '32',
-  },
-  {
-    id: 9,
-    category: 'General Information',
-    question: 'What is the capital city of the Philippines?',
-    options: ['Cebu City', 'Davao City', 'Quezon City', 'Manila'],
-    answer: 'Manila',
-  },
-  {
-    id: 10,
-    category: 'General Information',
-    question: 'Who is the current President of the Philippines?',
-    options: ['Rodrigo Duterte', 'Ferdinand Marcos Jr.', 'Gloria Arroyo', 'Benigno Aquino III'],
-    answer: 'Ferdinand Marcos Jr.',
-  },
-  {
-    id: 11,
-    category: 'Clerical Operations',
-    question: 'Which is the correct alphabetical order?',
-    options: ['Banana, Apple, Orange', 'Apple, Banana, Orange', 'Orange, Apple, Banana', 'Apple, Orange, Banana'],
-    answer: 'Apple, Banana, Orange',
-  },
-  {
-    id: 12,
-    category: 'Clerical Operations',
-    question: 'Which is the largest unit of data?',
-    options: ['Byte', 'Bit', 'Kilobyte', 'Megabyte'],
-    answer: 'Megabyte',
-  },
-]
+﻿import React from 'react'
+import {
+  Alert, ActivityIndicator, Modal, ScrollView,
+  StyleSheet, Text, TouchableOpacity, View,
+} from 'react-native'
+import { supabase } from '../../supabase'
 
 const CATEGORY_ORDER = [
   'Verbal Ability',
@@ -99,110 +15,117 @@ const CATEGORY_ORDER = [
 ]
 
 export default function DiagnosticAssessment({ navigation }) {
-  const [started, setStarted] = React.useState(false)
-  const [questionIndex, setQuestionIndex] = React.useState(0)
+  const [questions,      setQuestions]      = React.useState([])
+  const [loading,        setLoading]        = React.useState(true)
+  const [loadError,      setLoadError]      = React.useState(null)
+  const [started,        setStarted]        = React.useState(false)
+  const [questionIndex,  setQuestionIndex]  = React.useState(0)
   const [selectedAnswer, setSelectedAnswer] = React.useState('')
-  const [answers, setAnswers] = React.useState({})
-  const [exitVisible, setExitVisible] = React.useState(false)
-  const [finished, setFinished] = React.useState(false)
-  const [saving, setSaving] = React.useState(false)
-  const [result, setResult] = React.useState(null)
+  const [answers,        setAnswers]        = React.useState({})
+  const [exitVisible,    setExitVisible]    = React.useState(false)
+  const [finished,       setFinished]       = React.useState(false)
+  const [saving,         setSaving]         = React.useState(false)
+  const [result,         setResult]         = React.useState(null)
 
-  const currentQuestion = QUESTIONS[questionIndex]
-  const progress = `${Math.min(questionIndex + 1, QUESTIONS.length)} / ${QUESTIONS.length}`
+  // ── Load questions from Supabase ───────────────────────────
+  React.useEffect(() => { loadQuestions() }, [])
 
+  const loadQuestions = async () => {
+    try {
+      setLoading(true); setLoadError(null)
+      const { data, error } = await supabase
+        .from('diagnostic_questions')
+        .select('id, category, question, options, correct_answer, sort_order')
+        .eq('is_active', true)
+        .order('category')
+        .order('sort_order')
+      if (error) throw error
+      if (!data || data.length === 0) throw new Error('No diagnostic questions found. Please contact an admin.')
+      setQuestions(data)
+    } catch (e) {
+      console.error('Diagnostic load error:', e)
+      setLoadError(e.message ?? 'Failed to load questions.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const currentQuestion = questions[questionIndex]
+  const progress        = `${Math.min(questionIndex + 1, questions.length)} / ${questions.length}`
+
+  // ── Compute results ────────────────────────────────────────
   const computeResults = React.useCallback((answerMap) => {
-    const categoryScores = CATEGORY_ORDER.reduce((accumulator, category) => {
-      accumulator[category] = { correct: 0, total: 0 }
-      return accumulator
+    const categoryScores = CATEGORY_ORDER.reduce((acc, cat) => {
+      acc[cat] = { correct: 0, total: 0 }
+      return acc
     }, {})
 
     let correctCount = 0
-
-    QUESTIONS.forEach((question) => {
-      const categoryBucket = categoryScores[question.category]
-      categoryBucket.total += 1
-
-      if (answerMap[question.id] === question.answer) {
-        categoryBucket.correct += 1
-        correctCount += 1
+    questions.forEach((q) => {
+      const bucket = categoryScores[q.category]
+      if (bucket) {
+        bucket.total += 1
+        if (answerMap[q.id] === q.correct_answer) {
+          bucket.correct += 1
+          correctCount++
+        }
       }
     })
 
-    const scorePercent = Math.round((correctCount / QUESTIONS.length) * 100)
-    const level = scorePercent >= 80 ? 'Advanced' : scorePercent >= 60 ? 'Intermediate' : scorePercent >= 40 ? 'Beginner' : 'Needs Practice'
+    const scorePercent = Math.round((correctCount / questions.length) * 100)
+    const level = scorePercent >= 80 ? 'Advanced'
+                : scorePercent >= 60 ? 'Intermediate'
+                : scorePercent >= 40 ? 'Beginner'
+                : 'Needs Practice'
 
-    return {
-      correctCount,
-      totalQuestions: QUESTIONS.length,
-      scorePercent,
-      level,
-      categoryScores,
-      answerMap,
-    }
-  }, [])
+    return { correctCount, totalQuestions: questions.length, scorePercent, level, categoryScores, answerMap }
+  }, [questions])
 
+  // ── Save attempt ───────────────────────────────────────────
   const saveAttempt = React.useCallback(async (summary) => {
     const { data: userData, error: userError } = await supabase.auth.getUser()
-
-    if (userError) {
-      throw new Error(userError.message || 'Could not load user session')
-    }
-
+    if (userError) throw new Error(userError.message)
     const userId = userData.user?.id
-
-    if (!userId) {
-      throw new Error('No logged-in user found')
-    }
+    if (!userId) throw new Error('No logged-in user found')
 
     const { error } = await supabase.from('diagnostic_assessment_attempts').insert({
-      user_id: userId,
-      total_questions: summary.totalQuestions,
-      correct_answers: summary.correctCount,
-      score_percent: summary.scorePercent,
-      level: summary.level,
-      category_scores: summary.categoryScores,
-      answers: summary.answerMap,
-      completed_at: new Date().toISOString(),
+      user_id:        userId,
+      total_questions:summary.totalQuestions,
+      correct_answers:summary.correctCount,
+      score_percent:  summary.scorePercent,
+      level:          summary.level,
+      category_scores:summary.categoryScores,
+      answers:        summary.answerMap,
+      completed_at:   new Date().toISOString(),
     })
-
-    if (error) {
-      throw new Error(error.message || 'Could not save diagnostic assessment')
-    }
+    if (error) throw new Error(error.message)
   }, [])
 
-  const handleChoose = (option) => {
-    setSelectedAnswer(option)
-  }
+  // ── Handlers ───────────────────────────────────────────────
+  const handleChoose = (option) => setSelectedAnswer(option)
 
   const handleNext = async () => {
     if (!selectedAnswer) {
       Alert.alert('Select an answer', 'Please choose one option before continuing.')
       return
     }
-
-    const updatedAnswers = {
-      ...answers,
-      [currentQuestion.id]: selectedAnswer,
-    }
-
+    const updatedAnswers = { ...answers, [currentQuestion.id]: selectedAnswer }
     setAnswers(updatedAnswers)
     setSelectedAnswer('')
 
-    if (questionIndex < QUESTIONS.length - 1) {
-      setQuestionIndex((value) => value + 1)
+    if (questionIndex < questions.length - 1) {
+      setQuestionIndex((v) => v + 1)
       return
     }
 
     const summary = computeResults(updatedAnswers)
     setFinished(true)
     setSaving(true)
-
     try {
       await saveAttempt(summary)
       setResult(summary)
-    } catch (error) {
-      Alert.alert('Save warning', error.message || String(error))
+    } catch (err) {
+      Alert.alert('Save warning', err.message || String(err))
       setResult(summary)
     } finally {
       setSaving(false)
@@ -214,35 +137,54 @@ export default function DiagnosticAssessment({ navigation }) {
     navigation?.goBack()
   }
 
+  // ─────────────────────────────── LOADING STATE ────────────
+  if (loading) {
+    return (
+      <View style={styles.centered}>
+        <ActivityIndicator size="large" color="#0F2747" />
+        <Text style={styles.loadingText}>Loading questions…</Text>
+      </View>
+    )
+  }
+
+  if (loadError) {
+    return (
+      <View style={styles.centered}>
+        <Text style={styles.errorText}>{loadError}</Text>
+        <TouchableOpacity style={styles.retryBtn} onPress={loadQuestions}>
+          <Text style={styles.retryText}>Retry</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.laterLinkBtn} onPress={() => navigation?.replace('Home')}>
+          <Text style={styles.laterText}>Go to Home</Text>
+        </TouchableOpacity>
+      </View>
+    )
+  }
+
+  // ─────────────────────────────── RESULT STATE ────────────
   if (finished && result) {
-    const weakCategories = CATEGORY_ORDER.filter((category) => {
-      const bucket = result.categoryScores[category]
-      return bucket.total > 0 && bucket.correct < bucket.total
+    const weakCategories = CATEGORY_ORDER.filter((cat) => {
+      const b = result.categoryScores[cat]
+      return b.total > 0 && b.correct < b.total
     }).slice(0, 3)
 
-    const strongCategories = CATEGORY_ORDER.filter((category) => {
-      const bucket = result.categoryScores[category]
-      return bucket.total > 0 && bucket.correct === bucket.total
+    const strongCategories = CATEGORY_ORDER.filter((cat) => {
+      const b = result.categoryScores[cat]
+      return b.total > 0 && b.correct === b.total
     }).slice(0, 3)
 
     return (
       <View style={styles.resultContainer}>
-        <ScrollView
-          style={styles.resultScroll}
-          contentContainerStyle={styles.resultScrollContent}
-          showsVerticalScrollIndicator={false}
-        >
+        <ScrollView style={styles.resultScroll} contentContainerStyle={styles.resultScrollContent} showsVerticalScrollIndicator={false}>
           <View style={styles.resultCard}>
             <View style={styles.resultIconWrap}>
               <Text style={styles.resultIcon}>✓</Text>
             </View>
             <Text style={styles.resultTitle}>Assessment Complete!</Text>
-            <Text style={styles.resultSubtitle}>Here’s your score</Text>
+            <Text style={styles.resultSubtitle}>Here's your score</Text>
 
             <View style={styles.scoreBox}>
-              <Text style={styles.scoreText}>
-                {result.correctCount} / {result.totalQuestions}
-              </Text>
+              <Text style={styles.scoreText}>{result.correctCount} / {result.totalQuestions}</Text>
               <Text style={styles.scorePercent}>{result.scorePercent}%</Text>
             </View>
 
@@ -252,14 +194,12 @@ export default function DiagnosticAssessment({ navigation }) {
 
             <Text style={styles.sectionTitle}>Category Breakdown</Text>
             <View style={styles.breakdownBox}>
-              {CATEGORY_ORDER.map((category) => {
-                const bucket = result.categoryScores[category]
+              {CATEGORY_ORDER.map((cat) => {
+                const b = result.categoryScores[cat]
                 return (
-                  <View key={category} style={styles.breakdownRow}>
-                    <Text style={styles.breakdownLabel}>{category}</Text>
-                    <Text style={styles.breakdownValue}>
-                      {bucket.correct}/{bucket.total}
-                    </Text>
+                  <View key={cat} style={styles.breakdownRow}>
+                    <Text style={styles.breakdownLabel}>{cat}</Text>
+                    <Text style={styles.breakdownValue}>{b.correct}/{b.total}</Text>
                   </View>
                 )
               })}
@@ -267,20 +207,16 @@ export default function DiagnosticAssessment({ navigation }) {
 
             <View style={styles.insightDangerBox}>
               <Text style={styles.insightTitle}>Areas for Improvement</Text>
-              {weakCategories.length > 0 ? (
-                weakCategories.map((category) => <Text key={category} style={styles.insightItem}>• {category}</Text>)
-              ) : (
-                <Text style={styles.insightItem}>• None detected</Text>
-              )}
+              {weakCategories.length > 0
+                ? weakCategories.map((cat) => <Text key={cat} style={styles.insightItem}>• {cat}</Text>)
+                : <Text style={styles.insightItem}>• None detected</Text>}
             </View>
 
             <View style={styles.insightSafeBox}>
               <Text style={styles.insightTitle}>Strong Areas</Text>
-              {strongCategories.length > 0 ? (
-                strongCategories.map((category) => <Text key={category} style={styles.insightItem}>• {category}</Text>)
-              ) : (
-                <Text style={styles.insightItem}>• Keep practicing to build stronger areas</Text>
-              )}
+              {strongCategories.length > 0
+                ? strongCategories.map((cat) => <Text key={cat} style={styles.insightItem}>• {cat}</Text>)
+                : <Text style={styles.insightItem}>• Keep practicing to build stronger areas</Text>}
             </View>
 
             <TouchableOpacity style={styles.finalButton} activeOpacity={0.85} onPress={() => navigation?.replace('Home')}>
@@ -292,6 +228,7 @@ export default function DiagnosticAssessment({ navigation }) {
     )
   }
 
+  // ─────────────────────────────── INTRO STATE ────────────
   if (!started) {
     return (
       <View style={styles.introContainer}>
@@ -305,21 +242,18 @@ export default function DiagnosticAssessment({ navigation }) {
 
         <View style={styles.introCard}>
           <Text style={styles.introTitle}>Diagnostic Assessment</Text>
-          <Text style={styles.introSubtitle}>Let’s see how prepared you are</Text>
+          <Text style={styles.introSubtitle}>Let's see how prepared you are</Text>
           <Text style={styles.introBody}>
             Check your knowledge level and get study recommendations based on your results.
           </Text>
-
           <View style={styles.bulletBox}>
-            <Text style={styles.bulletText}>• 12 questions covering all core areas</Text>
-            <Text style={styles.bulletText}>• Takes about 5 minutes</Text>
+            <Text style={styles.bulletText}>• {questions.length} questions covering all core areas</Text>
+            <Text style={styles.bulletText}>• Takes about {Math.ceil(questions.length / 2.5)} minutes</Text>
             <Text style={styles.bulletText}>• Receive personalized study recommendations</Text>
           </View>
-
           <TouchableOpacity style={styles.startButton} activeOpacity={0.85} onPress={() => setStarted(true)}>
             <Text style={styles.startButtonText}>START ASSESSMENT</Text>
           </TouchableOpacity>
-
           <TouchableOpacity onPress={() => navigation?.replace('Home')}>
             <Text style={styles.laterText}>Maybe Later</Text>
           </TouchableOpacity>
@@ -343,6 +277,7 @@ export default function DiagnosticAssessment({ navigation }) {
     )
   }
 
+  // ─────────────────────────────── QUESTION STATE ────────────
   return (
     <View style={styles.questionContainer}>
       <View style={styles.questionTopBar}>
@@ -353,11 +288,16 @@ export default function DiagnosticAssessment({ navigation }) {
         <View style={styles.backSpacer} />
       </View>
 
+      {/* Progress bar */}
+      <View style={styles.progressTrack}>
+        <View style={[styles.progressFill, { width: `${((questionIndex + 1) / questions.length) * 100}%` }]} />
+      </View>
+
       <Text style={styles.questionHeader}>{currentQuestion.category}</Text>
       <Text style={styles.questionText}>{currentQuestion.question}</Text>
 
       <View style={styles.optionsWrap}>
-        {currentQuestion.options.map((option) => {
+        {(currentQuestion.options ?? []).map((option) => {
           const active = selectedAnswer === option
           return (
             <TouchableOpacity
@@ -373,7 +313,9 @@ export default function DiagnosticAssessment({ navigation }) {
       </View>
 
       <TouchableOpacity style={styles.questionNextButton} activeOpacity={0.85} onPress={handleNext}>
-        <Text style={styles.questionNextButtonText}>{questionIndex === QUESTIONS.length - 1 ? 'FINISH' : 'NEXT'}</Text>
+        <Text style={styles.questionNextButtonText}>
+          {questionIndex === questions.length - 1 ? 'FINISH' : 'NEXT'}
+        </Text>
       </TouchableOpacity>
 
       <Modal transparent visible={exitVisible} animationType="fade" onRequestClose={() => setExitVisible(false)}>
@@ -395,336 +337,68 @@ export default function DiagnosticAssessment({ navigation }) {
 }
 
 const styles = StyleSheet.create({
-  introContainer: {
-    flex: 1,
-    backgroundColor: '#ffffff',
-    paddingHorizontal: 22,
-    paddingTop: 18,
-  },
-  questionContainer: {
-    flex: 1,
-    backgroundColor: '#ffffff',
-    paddingHorizontal: 22,
-    paddingTop: 18,
-  },
-  resultContainer: {
-    flex: 1,
-    backgroundColor: '#ffffff',
-  },
-  resultScroll: {
-    flex: 1,
-    backgroundColor: '#ffffff',
-  },
-  resultScrollContent: {
-    paddingHorizontal: 16,
-    paddingVertical: 18,
-    backgroundColor: '#ffffff',
-    flexGrow: 1,
-  },
-  topBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 18,
-  },
-  questionTopBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 14,
-  },
-  backText: {
-    fontSize: 24,
-    color: '#1f2937',
-    width: 24,
-  },
-  backSpacer: {
-    width: 24,
-  },
-  stepText: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: '#6b7280',
-  },
-  introCard: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingBottom: 28,
-  },
-  introTitle: {
-    fontSize: 28,
-    fontWeight: '800',
-    color: '#111827',
-    textAlign: 'center',
-    marginBottom: 6,
-  },
-  introSubtitle: {
-    fontSize: 15,
-    color: '#6b7280',
-    textAlign: 'center',
-    marginBottom: 18,
-  },
-  introBody: {
-    fontSize: 14,
-    lineHeight: 22,
-    color: '#374151',
-    textAlign: 'center',
-    marginBottom: 18,
-  },
-  bulletBox: {
-    width: '100%',
-    backgroundColor: '#f8fafc',
-    borderRadius: 22,
-    padding: 18,
-    marginBottom: 20,
-    borderWidth: 1,
-    borderColor: '#e5e7eb',
-  },
-  bulletText: {
-    fontSize: 14,
-    color: '#1f2937',
-    marginBottom: 10,
-  },
-  startButton: {
-    width: '100%',
-    backgroundColor: '#0F2747',
-    borderRadius: 14,
-    paddingVertical: 13,
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  startButtonText: {
-    color: '#fff',
-    fontSize: 15,
-    fontWeight: '800',
-  },
-  laterText: {
-    color: '#6b7280',
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  questionHeader: {
-    fontSize: 13,
-    color: '#6b7280',
-    marginBottom: 8,
-    fontWeight: '600',
-  },
-  questionText: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#111827',
-    marginBottom: 18,
-  },
-  optionsWrap: {
-    flex: 1,
-  },
-  optionButton: {
-    borderWidth: 1,
-    borderColor: '#d1d5db',
-    borderRadius: 14,
-    paddingVertical: 13,
-    paddingHorizontal: 14,
-    marginBottom: 12,
-    backgroundColor: '#fff',
-  },
-  optionButtonActive: {
-    borderColor: '#0F2747',
-    backgroundColor: '#eef2ff',
-  },
-  optionText: {
-    fontSize: 15,
-    color: '#111827',
-  },
-  optionTextActive: {
-    fontWeight: '700',
-  },
-  questionNextButton: {
-    backgroundColor: '#0F2747',
-    borderRadius: 14,
-    paddingVertical: 13,
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  questionNextButtonText: {
-    color: '#fff',
-    fontSize: 15,
-    fontWeight: '800',
-  },
-  exitOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(15, 30, 53, 0.72)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 20,
-  },
-  exitCard: {
-    width: '100%',
-    maxWidth: 320,
-    backgroundColor: '#fff',
-    borderRadius: 22,
-    padding: 22,
-    alignItems: 'center',
-  },
-  exitTitle: {
-    fontSize: 18,
-    fontWeight: '800',
-    textAlign: 'center',
-    color: '#111827',
-    marginBottom: 10,
-  },
-  exitSubtitle: {
-    fontSize: 14,
-    color: '#6b7280',
-    textAlign: 'center',
-    marginBottom: 18,
-  },
-  exitPrimaryButton: {
-    backgroundColor: '#0F2747',
-    borderRadius: 12,
-    paddingVertical: 12,
-    paddingHorizontal: 18,
-    width: '100%',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  exitPrimaryButtonText: {
-    color: '#fff',
-    fontSize: 14,
-    fontWeight: '700',
-  },
-  exitSecondaryText: {
-    color: '#3B82B8',
-    fontSize: 14,
-    fontWeight: '700',
-  },
-  resultCard: {
-    flexGrow: 1,
-    backgroundColor: '#ffffff',
-    borderRadius: 24,
-    padding: 18,
-  },
-  resultIconWrap: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
-    borderWidth: 2,
-    borderColor: '#3B82B8',
-    alignSelf: 'center',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 10,
-  },
-  resultIcon: {
-    fontSize: 24,
-    color: '#3B82B8',
-    fontWeight: '800',
-  },
-  resultTitle: {
-    textAlign: 'center',
-    fontSize: 20,
-    fontWeight: '800',
-    color: '#111827',
-  },
-  resultSubtitle: {
-    textAlign: 'center',
-    fontSize: 13,
-    color: '#6b7280',
-    marginBottom: 12,
-  },
-  scoreBox: {
-    borderWidth: 1.5,
-    borderColor: '#D8E0F0',
-    borderRadius: 16,
-    paddingVertical: 14,
-    alignItems: 'center',
-    marginBottom: 10,
-  },
-  scoreText: {
-    fontSize: 24,
-    fontWeight: '800',
-    color: '#0F2747',
-  },
-  scorePercent: {
-    fontSize: 15,
-    color: '#3B82B8',
-    fontWeight: '700',
-  },
-  levelBox: {
-    backgroundColor: '#dbeafe',
-    borderRadius: 16,
-    paddingVertical: 14,
-    marginBottom: 16,
-  },
-  levelText: {
-    textAlign: 'center',
-    fontSize: 22,
-    fontWeight: '800',
-    color: '#2563eb',
-  },
-  sectionTitle: {
-    fontSize: 14,
-    fontWeight: '800',
-    color: '#111827',
-    marginBottom: 8,
-  },
-  breakdownBox: {
-    borderWidth: 1.2,
-    borderColor: '#d1d5db',
-    borderRadius: 16,
-    padding: 12,
-    marginBottom: 12,
-  },
-  breakdownRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingVertical: 6,
-    borderBottomWidth: 1,
-    borderBottomColor: '#eef2f7',
-  },
-  breakdownLabel: {
-    fontSize: 13,
-    color: '#111827',
-    flex: 1,
-    paddingRight: 12,
-  },
-  breakdownValue: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: '#0F2747',
-  },
-  insightDangerBox: {
-    backgroundColor: '#fee2e2',
-    borderRadius: 16,
-    padding: 14,
-    marginBottom: 12,
-  },
-  insightSafeBox: {
-    backgroundColor: '#d1fae5',
-    borderRadius: 16,
-    padding: 14,
-    marginBottom: 14,
-  },
-  insightTitle: {
-    fontSize: 14,
-    fontWeight: '800',
-    marginBottom: 8,
-    color: '#111827',
-  },
-  insightItem: {
-    fontSize: 13,
-    color: '#111827',
-    marginBottom: 4,
-  },
-  finalButton: {
-    backgroundColor: '#0F2747',
-    borderRadius: 14,
-    paddingVertical: 14,
-    alignItems: 'center',
-  },
-  finalButtonText: {
-    color: '#fff',
-    fontSize: 14,
-    fontWeight: '800',
-  },
+  centered:          { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#fff', paddingHorizontal: 24 },
+  loadingText:       { marginTop: 14, fontSize: 14, color: '#6b7280', fontWeight: '600' },
+  errorText:         { fontSize: 15, color: '#dc2626', textAlign: 'center', marginBottom: 20, fontWeight: '600' },
+  retryBtn:          { backgroundColor: '#0F2747', borderRadius: 12, paddingVertical: 12, paddingHorizontal: 28, marginBottom: 12 },
+  retryText:         { color: '#fff', fontWeight: '700', fontSize: 14 },
+  laterLinkBtn:      { padding: 8 },
+  introContainer:    { flex: 1, backgroundColor: '#ffffff', paddingHorizontal: 22, paddingTop: 18 },
+  questionContainer: { flex: 1, backgroundColor: '#ffffff', paddingHorizontal: 22, paddingTop: 18 },
+  resultContainer:   { flex: 1, backgroundColor: '#ffffff' },
+  resultScroll:      { flex: 1, backgroundColor: '#ffffff' },
+  resultScrollContent:{ paddingHorizontal: 16, paddingVertical: 18, backgroundColor: '#ffffff', flexGrow: 1 },
+  topBar:            { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 },
+  questionTopBar:    { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 },
+  backText:          { fontSize: 24, color: '#1f2937', width: 24 },
+  backSpacer:        { width: 24 },
+  stepText:          { fontSize: 13, fontWeight: '700', color: '#6b7280' },
+  progressTrack:     { height: 5, borderRadius: 999, backgroundColor: '#e5e7eb', overflow: 'hidden', marginBottom: 18 },
+  progressFill:      { height: '100%', borderRadius: 999, backgroundColor: '#0F2747' },
+  introCard:         { flex: 1, alignItems: 'center', justifyContent: 'center', paddingBottom: 28 },
+  introTitle:        { fontSize: 28, fontWeight: '800', color: '#111827', textAlign: 'center', marginBottom: 6 },
+  introSubtitle:     { fontSize: 15, color: '#6b7280', textAlign: 'center', marginBottom: 18 },
+  introBody:         { fontSize: 14, lineHeight: 22, color: '#374151', textAlign: 'center', marginBottom: 18 },
+  bulletBox:         { width: '100%', backgroundColor: '#f8fafc', borderRadius: 22, padding: 18, marginBottom: 20, borderWidth: 1, borderColor: '#e5e7eb' },
+  bulletText:        { fontSize: 14, color: '#1f2937', marginBottom: 10 },
+  startButton:       { width: '100%', backgroundColor: '#0F2747', borderRadius: 14, paddingVertical: 13, alignItems: 'center', marginBottom: 12 },
+  startButtonText:   { color: '#fff', fontSize: 15, fontWeight: '800' },
+  laterText:         { color: '#6b7280', fontSize: 14, fontWeight: '600' },
+  questionHeader:    { fontSize: 13, color: '#6b7280', marginBottom: 8, fontWeight: '600' },
+  questionText:      { fontSize: 18, fontWeight: '700', color: '#111827', marginBottom: 18 },
+  optionsWrap:       { flex: 1 },
+  optionButton:      { borderWidth: 1, borderColor: '#d1d5db', borderRadius: 14, paddingVertical: 13, paddingHorizontal: 14, marginBottom: 12, backgroundColor: '#fff' },
+  optionButtonActive:{ borderColor: '#0F2747', backgroundColor: '#eef2ff' },
+  optionText:        { fontSize: 15, color: '#111827' },
+  optionTextActive:  { fontWeight: '700' },
+  questionNextButton:    { backgroundColor: '#0F2747', borderRadius: 14, paddingVertical: 13, alignItems: 'center', marginBottom: 16 },
+  questionNextButtonText:{ color: '#fff', fontSize: 15, fontWeight: '800' },
+  exitOverlay:       { flex: 1, backgroundColor: 'rgba(15,30,53,0.72)', justifyContent: 'center', alignItems: 'center', padding: 20 },
+  exitCard:          { width: '100%', maxWidth: 320, backgroundColor: '#fff', borderRadius: 22, padding: 22, alignItems: 'center' },
+  exitTitle:         { fontSize: 18, fontWeight: '800', textAlign: 'center', color: '#111827', marginBottom: 10 },
+  exitSubtitle:      { fontSize: 14, color: '#6b7280', textAlign: 'center', marginBottom: 18 },
+  exitPrimaryButton: { backgroundColor: '#0F2747', borderRadius: 12, paddingVertical: 12, paddingHorizontal: 18, width: '100%', alignItems: 'center', marginBottom: 12 },
+  exitPrimaryButtonText: { color: '#fff', fontSize: 14, fontWeight: '700' },
+  exitSecondaryText: { color: '#3B82B8', fontSize: 14, fontWeight: '700' },
+  resultCard:        { flexGrow: 1, backgroundColor: '#ffffff', borderRadius: 24, padding: 18 },
+  resultIconWrap:    { width: 52, height: 52, borderRadius: 26, borderWidth: 2, borderColor: '#3B82B8', alignSelf: 'center', alignItems: 'center', justifyContent: 'center', marginBottom: 10 },
+  resultIcon:        { fontSize: 24, color: '#3B82B8', fontWeight: '800' },
+  resultTitle:       { textAlign: 'center', fontSize: 20, fontWeight: '800', color: '#111827' },
+  resultSubtitle:    { textAlign: 'center', fontSize: 13, color: '#6b7280', marginBottom: 12 },
+  scoreBox:          { borderWidth: 1.5, borderColor: '#D8E0F0', borderRadius: 16, paddingVertical: 14, alignItems: 'center', marginBottom: 10 },
+  scoreText:         { fontSize: 24, fontWeight: '800', color: '#0F2747' },
+  scorePercent:      { fontSize: 15, color: '#3B82B8', fontWeight: '700' },
+  levelBox:          { backgroundColor: '#dbeafe', borderRadius: 16, paddingVertical: 14, marginBottom: 16 },
+  levelText:         { textAlign: 'center', fontSize: 22, fontWeight: '800', color: '#2563eb' },
+  sectionTitle:      { fontSize: 14, fontWeight: '800', color: '#111827', marginBottom: 8 },
+  breakdownBox:      { borderWidth: 1.2, borderColor: '#d1d5db', borderRadius: 16, padding: 12, marginBottom: 12 },
+  breakdownRow:      { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: '#eef2f7' },
+  breakdownLabel:    { fontSize: 13, color: '#111827', flex: 1, paddingRight: 12 },
+  breakdownValue:    { fontSize: 13, fontWeight: '700', color: '#0F2747' },
+  insightDangerBox:  { backgroundColor: '#fee2e2', borderRadius: 16, padding: 14, marginBottom: 12 },
+  insightSafeBox:    { backgroundColor: '#d1fae5', borderRadius: 16, padding: 14, marginBottom: 14 },
+  insightTitle:      { fontSize: 14, fontWeight: '800', marginBottom: 8, color: '#111827' },
+  insightItem:       { fontSize: 13, color: '#111827', marginBottom: 4 },
+  finalButton:       { backgroundColor: '#0F2747', borderRadius: 14, paddingVertical: 14, alignItems: 'center' },
+  finalButtonText:   { color: '#fff', fontSize: 14, fontWeight: '800' },
 })

@@ -1,366 +1,294 @@
-import React, { useState } from 'react'
+import React from 'react'
 import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
-  TouchableOpacity,
-  FlatList,
-  Dimensions,
-  SafeAreaView,
+  View, Text, StyleSheet, ScrollView,
+  TouchableOpacity, SafeAreaView, StatusBar, Platform,
 } from 'react-native'
-import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons'
-import { Ionicons, Feather } from '@expo/vector-icons'
+import { Ionicons, Feather, MaterialCommunityIcons } from '@expo/vector-icons'
 
-const { width } = Dimensions.get('window')
+// ─── Colours matching the image ────────────────────────────────
+const NAVY = '#0f2747'
 
-export default function PracticeLibraryScreen({ navigation }) {
-  const [selectedActivity, setSelectedActivity] = useState('vocabulary')
+// ─── Practice type buttons (ordered as in image) ───────────────
+const PRACTICE_TYPES = [
+  { id: 'Flashcards',    label: 'FLASHCARDS',      bg: '#3B5BA5', text: '#fff'     },
+  { id: 'Matching',      label: 'MATCHING',         bg: '#E8967A', text: '#fff'     },
+  { id: 'TrueFalse',    label: 'TRUE OR FALSE',    bg: '#9B2335', text: '#fff'     },
+  { id: 'MultipleChoice',label: 'MULTIPLE CHOICE',  bg: '#B8D4EA', text: '#1e3a5f'  },
+  { id: 'MockExamHome',  label: 'MOCK EXAMINATION', bg: '#fff',    text: NAVY, outlined: true },
+]
 
-  const practiceTypes = [
-    { id: 1, label: 'FLASHCARDS', color: '#2563eb' },
-    { id: 2, label: 'MATCHING', color: '#f97316' },
-    { id: 3, label: 'TRUE OR FALSE', color: '#dc2626' },
-    { id: 4, label: 'MULTIPLE CHOICE', color: '#dbeafe', textColor: '#1e40af' },
-    { id: 5, label: 'MODE EXAMINATION', color: '#f5f5f5', textColor: '#1f2937' },
-  ]
+// ─── Recent activity data (static for now) ────────────────────
+const RECENT = [
+  {
+    section: 'Flashcard sets',
+    items: [
+      { id: 1, title: 'Vocabulary',           count: '21 items', hasIcon: true },
+      { id: 2, title: 'Reading Comprehension', count: '21 items', hasIcon: false },
+    ],
+  },
+  {
+    section: 'True or False',
+    items: [
+      { id: 3, title: 'Fractions & Decimals', count: '21 items', hasIcon: false },
+    ],
+  },
+]
 
-  const libraries = [
-    {
-      id: 1,
-      title: 'Vocabulary',
-      category: 'Language & Communication',
-      time: '2 hours',
-      progress: 75,
-      icon: 'book-open',
-    },
-    {
-      id: 2,
-      title: 'Fractions & Decimals',
-      category: 'Mathematics',
-      time: '5 hours',
-      progress: 60,
-      icon: 'percent',
-    },
-    {
-      id: 3,
-      title: 'Sentence Completion',
-      category: 'Reading Comprehension',
-      time: '3 hours',
-      progress: 85,
-      icon: 'format-quote-close',
-    },
-  ]
-
-  const renderPracticeButton = ({ item }) => (
+// ─── Bottom nav helper ────────────────────────────────────────
+function NavIcon({ icon, onPress, active }) {
+  return (
     <TouchableOpacity
-      style={[
-        styles.practiceButton,
-        { 
-          backgroundColor: item.color,
-          borderWidth: item.id === 5 ? 1 : 0,
-          borderColor: '#e5e7eb',
-        },
-      ]}
       activeOpacity={0.8}
+      onPress={onPress}
+      style={[styles.navIconWrap, active && styles.navIconActive]}
     >
-      <Text
-        style={[
-          styles.practiceButtonText,
-          {
-            color: item.textColor || '#fff',
-          },
-        ]}
-      >
-        {item.label}
-      </Text>
-    </TouchableOpacity>
-  )
-
-  const renderActivityItem = ({ item, index }) => (
-    <View style={styles.activityCard}>
-      <View style={styles.activityContent}>
-        <View style={styles.activityMain}>
-          <Text style={styles.activityTitle}>{item.title}</Text>
-          <Text style={styles.activityCategory}>{item.category}</Text>
-          <Text style={styles.activityTime}>{item.time}</Text>
-        </View>
-        {index === 0 && (
-          <TouchableOpacity style={styles.closeBtn}>
-            <MaterialCommunityIcons name="close" size={20} color="#fff" />
-          </TouchableOpacity>
-        )}
-      </View>
-    </View>
-  )
-
-  const renderLibraryItem = ({ item }) => (
-    <TouchableOpacity style={styles.libraryCard} activeOpacity={0.8}>
-      <View style={styles.libraryContent}>
-        <View style={styles.libraryIcon}>
-          <MaterialCommunityIcons name={item.icon} size={24} color="#fff" />
-        </View>
-        <View style={styles.libraryInfo}>
-          <Text style={styles.libraryTitle}>{item.title}</Text>
-          <Text style={styles.libraryCategory}>{item.category}</Text>
-        </View>
-      </View>
-      <Text style={styles.libraryTime}>{item.time}</Text>
-    </TouchableOpacity>
-  )
-
-  return (
-    <SafeAreaView style={styles.container}>
-      {/* Header */}
-      <View style={styles.header}>
-        <Text style={styles.headerTitle}>PRACTICE</Text>
-        <TouchableOpacity style={styles.shareBtn}>
-          <MaterialCommunityIcons name="share-variant" size={20} color="#0f2747" />
-        </TouchableOpacity>
-      </View>
-
-      <ScrollView
-        style={styles.scrollView}
-        showsVerticalScrollIndicator={false}
-        scrollEventThrottle={16}
-      >
-        {/* Practice Type Buttons - Vertical Stack */}
-        <View style={styles.practiceSection}>
-          <FlatList
-            data={practiceTypes}
-            renderItem={renderPracticeButton}
-            keyExtractor={(item) => item.id.toString()}
-            scrollEnabled={false}
-            ItemSeparatorComponent={() => <View style={{ height: 10 }} />}
-          />
-        </View>
-
-        {/* Recent Activity Section */}
-        <View style={styles.activitySection}>
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Recent Activity</Text>
-            <TouchableOpacity>
-              <Text style={styles.viewAllText}>View all</Text>
-            </TouchableOpacity>
-          </View>
-          <FlatList
-            data={[libraries[0]]}
-            renderItem={renderActivityItem}
-            keyExtractor={(item) => item.id.toString()}
-            scrollEnabled={false}
-          />
-        </View>
-
-        {/* Library Section */}
-        <View style={styles.librarySection}>
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Library</Text>
-            <TouchableOpacity>
-              <Text style={styles.viewAllText}>View all</Text>
-            </TouchableOpacity>
-          </View>
-          <FlatList
-            data={libraries.slice(1)}
-            renderItem={renderLibraryItem}
-            keyExtractor={(item) => item.id.toString()}
-            scrollEnabled={false}
-            ItemSeparatorComponent={() => <View style={{ height: 10 }} />}
-          />
-        </View>
-
-        <View style={{ height: 100 }} />
-      </ScrollView>
-
-      {/* Bottom Navigation - From Home.js */}
-      <View style={styles.bottomNav}>
-        <NavIcon icon={<Ionicons name="home" size={26} color="#64748b" />} onPress={() => navigation?.navigate('Home')}  />
-        <NavIcon icon={<Ionicons name="document-text-outline" size={26} color="#64748b" />} onPress={() => navigation?.navigate('Library')} />
-        <NavIcon icon={<Feather name="clipboard" size={24} color="#0f2747" />} onPress={() => navigation?.navigate('PracticeLibrary')} active/>
-        <NavIcon icon={<Feather name="bar-chart-2" size={24} color="#64748b" />} onPress={() => navigation?.navigate('DiagnosticAssessment')} />
-        <NavIcon icon={<Feather name="user" size={24} color="#64748b" />} onPress={() => navigation?.navigate('PersonalInfo')} />
-      </View>
-    </SafeAreaView>
-  )
-}
-
-function NavIcon({ icon, onPress, active = false }) {
-  return (
-    <TouchableOpacity activeOpacity={0.8} onPress={onPress} style={[styles.navIconWrap, active && styles.navIconActive]}>
       {icon}
     </TouchableOpacity>
   )
 }
 
+// ─── Main component ───────────────────────────────────────────
+export default function PracticeLibraryScreen({ navigation }) {
+  return (
+    <SafeAreaView style={styles.safeArea}>
+      <StatusBar barStyle="dark-content" backgroundColor="#fff" />
+
+      {/* ── Header ── */}
+      <View style={styles.header}>
+        <View style={{ width: 36 }} />
+        <Text style={styles.headerTitle}>PRACTICE</Text>
+        <TouchableOpacity style={styles.headerIcon} onPress={() => navigation.navigate('PracticeScreen')}>
+          <MaterialCommunityIcons name="folder-outline" size={22} color={NAVY} />
+        </TouchableOpacity>
+      </View>
+
+      <ScrollView
+        style={styles.scroll}
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* ── Practice Type Buttons ── */}
+        <View style={styles.practiceSection}>
+          {PRACTICE_TYPES.map((pt) => (
+            <TouchableOpacity
+              key={pt.id}
+              activeOpacity={0.82}
+              style={[
+                styles.practiceBtn,
+                { backgroundColor: pt.bg },
+                pt.outlined && styles.practiceBtnOutlined,
+              ]}
+              onPress={() => navigation.navigate(pt.id)}
+            >
+              <Text style={[styles.practiceBtnText, { color: pt.text }]}>
+                {pt.label}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+
+        {/* ── Recent Activity ── */}
+        <View style={styles.recentSection}>
+          <Text style={styles.recentTitle}>Recent Activity</Text>
+
+          {RECENT.map((group) => (
+            <View key={group.section} style={styles.activityGroup}>
+              {/* Section header */}
+              <View style={styles.sectionRow}>
+                <Text style={styles.sectionLabel}>{group.section}</Text>
+                <TouchableOpacity>
+                  <Text style={styles.viewAll}>View all</Text>
+                </TouchableOpacity>
+              </View>
+
+              {/* Activity cards */}
+              {group.items.map((item) => (
+                <View key={item.id} style={styles.activityCard}>
+                  <View style={styles.activityInfo}>
+                    <Text style={styles.activityTitle}>{item.title}</Text>
+                    <Text style={styles.activityCount}>{item.count}</Text>
+                  </View>
+                  {item.hasIcon && (
+                    <View style={styles.activityIconCircle}>
+                      <MaterialCommunityIcons name="wrench" size={18} color="#fff" />
+                    </View>
+                  )}
+                  {!item.hasIcon && (
+                    <TouchableOpacity style={styles.activityDots}>
+                      <MaterialCommunityIcons name="dots-vertical" size={18} color="#94a3b8" />
+                    </TouchableOpacity>
+                  )}
+                </View>
+              ))}
+            </View>
+          ))}
+        </View>
+
+        {/* Spacer for bottom nav */}
+        <View style={{ height: 90 }} />
+      </ScrollView>
+
+      {/* ── Bottom Navigation (same as Home.js) ── */}
+      <View style={styles.bottomNav}>
+        <NavIcon
+          icon={<Ionicons name="home-outline" size={26} color="#64748b" />}
+          onPress={() => navigation.navigate('Home')}
+        />
+        <NavIcon
+          icon={<Ionicons name="document-text-outline" size={26} color="#64748b" />}
+          onPress={() => navigation.navigate('Library')}
+        />
+        <NavIcon
+          active
+          icon={<Feather name="clipboard" size={24} color={NAVY} />}
+          onPress={() => navigation.navigate('PracticeLibrary')}
+        />
+        <NavIcon
+          icon={<Feather name="bar-chart-2" size={24} color="#64748b" />}
+          onPress={() => navigation.navigate('Performance')}
+        />
+        <NavIcon
+          icon={<Feather name="user" size={24} color="#64748b" />}
+          onPress={() => navigation.navigate('PersonalInfo')}
+        />
+      </View>
+    </SafeAreaView>
+  )
+}
+
 const styles = StyleSheet.create({
-  container: {
+  safeArea: {
     flex: 1,
-    backgroundColor: '#ffffff',
+    backgroundColor: '#fff',
+    paddingTop: Platform.OS === 'android' ? 30 : 0,
   },
+
+  // ── Header ──
   header: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
+    justifyContent: 'space-between',
     paddingHorizontal: 16,
-    paddingVertical: 16,
-    backgroundColor: '#fff',
+    paddingVertical: 14,
     borderBottomWidth: 1,
-    borderBottomColor: '#d8e0f0',
+    borderBottomColor: '#e8edf5',
+    backgroundColor: '#fff',
   },
   headerTitle: {
-    fontSize: 20,
-    fontWeight: '800',
-    color: '#0f2747',
-    letterSpacing: 1,
+    fontSize: 18,
+    fontWeight: '900',
+    color: NAVY,
+    letterSpacing: 1.5,
   },
-  shareBtn: {
-    padding: 8,
-  },
-  scrollView: {
-    flex: 1,
-    paddingBottom: 124,
-  },
-  practiceSection: {
-    paddingHorizontal: 16,
-    paddingVertical: 20,
-    backgroundColor: '#fff',
-  },
-  practiceButton: {
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-    borderRadius: 12,
+  headerIcon: {
+    width: 36,
+    height: 36,
     alignItems: 'center',
     justifyContent: 'center',
-    marginVertical: 8,
-    elevation: 2,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
   },
-  practiceButtonText: {
-    fontSize: 13,
-    fontWeight: '800',
-    textAlign: 'center',
-    letterSpacing: 0.5,
+
+  // ── Scroll ──
+  scroll: { flex: 1 },
+  scrollContent: { paddingBottom: 16 },
+
+  // ── Practice Buttons ──
+  practiceSection: {
+    paddingHorizontal: 20,
+    paddingTop: 22,
+    gap: 10,
   },
-  activitySection: {
-    paddingHorizontal: 16,
-    paddingVertical: 16,
-    backgroundColor: '#fff',
-    marginTop: 8,
-  },
-  sectionHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+  practiceBtn: {
+    borderRadius: 30,
+    paddingVertical: 15,
     alignItems: 'center',
-    marginBottom: 12,
-  },
-  sectionTitle: {
-    fontSize: 14,
-    fontWeight: '800',
-    color: '#0f2747',
-  },
-  viewAllText: {
-    fontSize: 11,
-    color: '#94a3b8',
-    fontWeight: '600',
-  },
-  activityCard: {
-    backgroundColor: '#3d5a80',
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 12,
+    justifyContent: 'center',
     elevation: 1,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.08,
-    shadowRadius: 2,
+    shadowRadius: 3,
   },
-  activityContent: {
+  practiceBtnOutlined: {
+    borderWidth: 1.5,
+    borderColor: '#c8d4e0',
+  },
+  practiceBtnText: {
+    fontSize: 13,
+    fontWeight: '800',
+    letterSpacing: 0.8,
+  },
+
+  // ── Recent Activity ──
+  recentSection: {
+    marginTop: 28,
+    paddingHorizontal: 20,
+  },
+  recentTitle: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: NAVY,
+    marginBottom: 16,
+  },
+  activityGroup: {
+    marginBottom: 20,
+  },
+  sectionRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'flex-start',
+    alignItems: 'center',
+    marginBottom: 10,
   },
-  activityMain: {
-    flex: 1,
+  sectionLabel: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: NAVY,
   },
+  viewAll: {
+    fontSize: 12,
+    color: '#64748b',
+    fontWeight: '600',
+  },
+  activityCard: {
+    backgroundColor: '#3d5a80',
+    borderRadius: 14,
+    paddingVertical: 16,
+    paddingHorizontal: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 10,
+    elevation: 1,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.08,
+    shadowRadius: 3,
+  },
+  activityInfo: { flex: 1 },
   activityTitle: {
-    fontSize: 14,
+    fontSize: 15,
     fontWeight: '800',
     color: '#fff',
-    marginBottom: 6,
-  },
-  activityCategory: {
-    fontSize: 11,
-    color: '#cbd5e1',
     marginBottom: 4,
   },
-  activityTime: {
-    fontSize: 10,
-    color: '#94a3b8',
+  activityCount: {
+    fontSize: 12,
+    color: '#b0c4d8',
   },
-  closeBtn: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+  activityIconCircle: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     backgroundColor: '#2c4563',
     alignItems: 'center',
     justifyContent: 'center',
     marginLeft: 12,
   },
-  librarySection: {
-    paddingHorizontal: 16,
-    paddingVertical: 16,
-    backgroundColor: '#fff',
-    marginTop: 8,
+  activityDots: {
+    padding: 4,
+    marginLeft: 8,
   },
-  libraryCard: {
-    backgroundColor: '#3d5a80',
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 12,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    elevation: 1,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.08,
-    shadowRadius: 2,
-  },
-  libraryContent: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 14,
-  },
-  libraryIcon: {
-    width: 48,
-    height: 48,
-    borderRadius: 10,
-    backgroundColor: '#2c4563',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  libraryInfo: {
-    flex: 1,
-  },
-  libraryTitle: {
-    fontSize: 14,
-    fontWeight: '800',
-    color: '#fff',
-    marginBottom: 3,
-  },
-  libraryCategory: {
-    fontSize: 11,
-    color: '#cbd5e1',
-  },
-  libraryTime: {
-    fontSize: 10,
-    color: '#94a3b8',
-    marginLeft: 10,
-  },
-  // Bottom Navigation - From Home.js
+
+  // ── Bottom Nav ──
   bottomNav: {
     position: 'absolute',
     left: 0,

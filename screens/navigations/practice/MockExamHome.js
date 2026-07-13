@@ -74,7 +74,7 @@ export default function MockExamHome({ navigation }) {
 
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity style={styles.iconButton}>
+        <TouchableOpacity style={styles.iconButton} onPress={() => navigation.navigate('PracticeLibrary')}>
           <Ionicons name="chevron-back" size={26} color="#0B2540" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>{SCREEN_TITLE}</Text>

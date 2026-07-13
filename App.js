@@ -8,8 +8,8 @@ import PersonalInfo from './screens/onboarding/PersonalInfo'
 import DiagnosticAssessment from './screens/onboarding/DiagnosticAssessment'
 import Home from './screens/navigations/home/Home'
 import StudyPlan from './screens/navigations/study/StudyPlan'
-import Library from './screens/Library'
-import ReadingMaterial from './screens/ReadingMaterial'
+import Library from './screens/navigations/study/Library'
+import ReadingMaterial from './screens/navigations/study/ReadingMaterial'
 import Register from './screens/authentication/Register'
 import PracticeLibraryScreen from './screens/navigations/practice/PracticeLibraryScreen.js'
 import PracticeScreen from './screens/navigations/practice/PracticeScreen.js'
@@ -19,6 +19,7 @@ import TrueFalse from './screens/navigations/practice/TrueFalse'
 import MultipleChoice from './screens/navigations/practice/MultipleChoice'
 import MockExamHome from './screens/navigations/practice/MockExamHome'
 import MockExamTake from './screens/navigations/practice/MockExamTake'
+import Performance from './screens/navigations/performance/Performance'
 
 const Stack = createNativeStackNavigator()
 
@@ -46,7 +47,7 @@ export default function App() {
 					headerShown: false,
 					animationEnabled: true,
 				}}
-				initialRouteName="MockExamHome"
+				initialRouteName="PracticeLibrary"
 			>
 				<Stack.Screen name="Onboarding" component={Onboarding} />
 				<Stack.Screen name="Login" component={Login} />
@@ -65,6 +66,7 @@ export default function App() {
 				<Stack.Screen name="MultipleChoice" component={MultipleChoice} />
 				<Stack.Screen name="MockExamHome" component={MockExamHome} />
 				<Stack.Screen name="MockExamTake" component={MockExamTake} />
+				<Stack.Screen name="Performance" component={Performance} />
 			</Stack.Navigator>
 		</NavigationContainer>
 	)

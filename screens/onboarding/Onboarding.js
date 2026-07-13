@@ -7,8 +7,8 @@ import {
   View,
   FlatList,
   Dimensions,
-  AsyncStorage,
 } from 'react-native'
+import AsyncStorage from '@react-native-async-storage/async-storage'
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons'
 
 const { width, height } = Dimensions.get('window')

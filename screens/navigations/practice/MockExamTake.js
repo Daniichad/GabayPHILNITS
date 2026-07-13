@@ -1,202 +1,220 @@
-import React, { useState, useEffect, useRef } from 'react';
+﻿import React, { useState, useEffect, useRef } from 'react';
 import {
-  SafeAreaView,
-  View,
-  Text,
-  StyleSheet,
-  TouchableOpacity,
-  StatusBar,
-  Platform,
+  SafeAreaView, ScrollView, View, Text, StyleSheet,
+  TouchableOpacity, StatusBar, Platform, ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-
-// ---------------------------------------------------------------------------
-// STATIC DATA
-// Two exam levels — same screen, just a different question count and time
-// limit for each. Swap LEVEL_CONFIGS / QUESTION_POOL for real content later.
-// ---------------------------------------------------------------------------
-const LEVEL_CONFIGS = {
-  professional: {
-    key: 'professional',
-    tag: '1 DA',
-    title: 'Professional Level',
-    totalQuestions: 180,
-    hours: 3,
-  },
-  subProfessional: {
-    key: 'subProfessional',
-    tag: '1 DA',
-    title: 'Sub-Professional Level',
-    totalQuestions: 120,
-    hours: 2,
-  },
-};
-
-// A small pool of sample questions — cycled to fill however many questions
-// the chosen level needs (180 or 120), so both levels reuse the same static
-// content but end up with a different total.
-const QUESTION_POOL = [
-  {
-    prompt: 'Choose the correct sentence.',
-    options: [
-      "She don't like studying.",
-      "She doesn't likes studying.",
-      "She doesn't like studying.",
-      "She don't likes studying.",
-    ],
-    correctIndex: 2,
-  },
-  {
-    prompt: 'Which word is a synonym for "happy"?',
-    options: ['Glad', 'Sad', 'Angry', 'Tired'],
-    correctIndex: 0,
-  },
-  {
-    prompt: 'Which sentence uses the correct verb tense?',
-    options: [
-      'Yesterday, I go to the store.',
-      'Yesterday, I went to the store.',
-      'Yesterday, I goes to the store.',
-      'Yesterday, I going to the store.',
-    ],
-    correctIndex: 1,
-  },
-  {
-    prompt: 'Which of these is an idiom?',
-    options: [
-      'It is raining outside.',
-      'Break a leg!',
-      'The sky is blue.',
-      'She walked to school.',
-    ],
-    correctIndex: 1,
-  },
-  {
-    prompt: 'Choose the correctly punctuated sentence.',
-    options: [
-      "Its a beautiful day.",
-      "It's a beautiful day.",
-      "Its' a beautiful day.",
-      "Its a, beautiful day.",
-    ],
-    correctIndex: 1,
-  },
-];
-
-function buildExamQuestions(totalQuestions) {
-  const questions = [];
-  for (let i = 0; i < totalQuestions; i += 1) {
-    questions.push(QUESTION_POOL[i % QUESTION_POOL.length]);
-  }
-  return questions;
-}
-
-function formatTime(totalSeconds) {
-  const hrs = Math.floor(totalSeconds / 3600);
-  const mins = Math.floor((totalSeconds % 3600) / 60);
-  const secs = totalSeconds % 60;
-  const pad = (n) => String(n).padStart(2, '0');
-  return `${hrs}:${pad(mins)}:${pad(secs)}`;
-}
+import { supabase } from '../../../supabase';
 
 const NAVY = '#0B2540';
 
-export default function MockExamTake({ navigation, route }) {
-  const incomingLevelId = route?.params?.level; // 'professional' | 'sub-professional'
-  const initialLevelKey =
-    incomingLevelId === 'professional'
-      ? 'professional'
-      : incomingLevelId === 'sub-professional'
-      ? 'subProfessional'
-      : 'subProfessional';
+function formatTime(totalSeconds) {
+  const hrs  = Math.floor(totalSeconds / 3600);
+  const mins = Math.floor((totalSeconds % 3600) / 60);
+  const secs = totalSeconds % 60;
+  const pad  = (n) => String(n).padStart(2, '0');
+  return `${hrs}:${pad(mins)}:${pad(secs)}`;
+}
 
-  const [levelKey, setLevelKey] = useState(initialLevelKey);
-  const [stage, setStage] = useState('intro'); // 'intro' | 'quiz' | 'results'
-  const [questions, setQuestions] = useState([]);
-  const [questionIndex, setQuestionIndex] = useState(0);
+export default function MockExamTake({ navigation, route }) {
+  const incomingLevel = route?.params?.level ?? 'sub-professional';
+  const initialKey    = incomingLevel === 'professional' ? 'professional' : 'sub_professional';
+
+  // ── UI state ──────────────────────────────────────────────────
+  const [levelKey,       setLevelKey]       = useState(initialKey);
+  const [stage,          setStage]          = useState('intro');  // 'intro'|'quiz'|'results'
+  const [questions,      setQuestions]      = useState([]);
+  const [questionIndex,  setQuestionIndex]  = useState(0);
   const [selectedOption, setSelectedOption] = useState(null);
-  const [answers, setAnswers] = useState([]); // selected option index per question
-  const [secondsLeft, setSecondsLeft] = useState(0);
+  const [answers,        setAnswers]        = useState([]);
+  const [secondsLeft,    setSecondsLeft]    = useState(0);
+
+  // ── Supabase data ─────────────────────────────────────────────
+  const [config,         setConfig]         = useState(null);
+  const [loadingConfig,  setLoadingConfig]  = useState(true);
+  const [loadingQuestions, setLoadingQuestions] = useState(false);
+  const [configError,    setConfigError]    = useState(null);
+  const [userId,         setUserId]         = useState(null);
+  const [attemptId,      setAttemptId]      = useState(null);
 
   const timerRef = useRef(null);
-  const level = LEVEL_CONFIGS[levelKey];
 
-  useEffect(() => {
-    if (incomingLevelId) {
-      startExam();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  // ── Load config whenever levelKey changes ─────────────────────
+  useEffect(() => { loadConfig(); }, [levelKey]);
 
-  useEffect(() => {
-    if (stage !== 'quiz') {
-      if (timerRef.current) clearInterval(timerRef.current);
-      return;
+  const loadConfig = async () => {
+    try {
+      setLoadingConfig(true); setConfigError(null);
+      const { data: { session } } = await supabase.auth.getSession();
+      setUserId(session?.user?.id ?? null);
+
+      const { data, error } = await supabase
+        .from('mock_exam_configs')
+        .select('*')
+        .eq('level_key', levelKey)
+        .eq('is_published', true)
+        .maybeSingle();
+      if (error) throw error;
+      setConfig(data ?? null);
+    } catch (err) {
+      console.error('Config load error:', err);
+      setConfigError('Failed to load exam configuration.');
+    } finally {
+      setLoadingConfig(false);
     }
+  };
+
+  // ── Timer ─────────────────────────────────────────────────────
+  useEffect(() => {
+    if (stage !== 'quiz') { if (timerRef.current) clearInterval(timerRef.current); return; }
     timerRef.current = setInterval(() => {
       setSecondsLeft((prev) => {
-        if (prev <= 1) {
-          clearInterval(timerRef.current);
-          finishExam(answers);
-          return 0;
-        }
+        if (prev <= 1) { clearInterval(timerRef.current); handleFinish(answers); return 0; }
         return prev - 1;
       });
     }, 1000);
     return () => clearInterval(timerRef.current);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stage]);
 
-  const startExam = () => {
-    const examQuestions = buildExamQuestions(level.totalQuestions);
-    setQuestions(examQuestions);
-    setQuestionIndex(0);
-    setSelectedOption(null);
-    setAnswers([]);
-    setSecondsLeft(level.hours * 3600);
-    setStage('quiz');
+  // ── Start exam ────────────────────────────────────────────────
+  const startExam = async () => {
+    if (!config) return;
+    try {
+      setLoadingQuestions(true);
+      const { data: qs, error } = await supabase
+        .from('mock_exam_questions')
+        .select('*')
+        .eq('config_id', config.id)
+        .eq('is_published', true)
+        .order('sort_order');
+      if (error) throw error;
+
+      const examQuestions = qs ?? [];
+      setQuestions(examQuestions);
+      setQuestionIndex(0);
+      setSelectedOption(null);
+      setAnswers([]);
+      setSecondsLeft(config.time_limit_seconds);
+
+      // Create attempt record
+      if (userId) {
+        const { data: attempt } = await supabase
+          .from('mock_exam_attempts')
+          .insert({
+            user_id:            userId,
+            config_id:          config.id,
+            total_questions:    examQuestions.length,
+            time_limit_seconds: config.time_limit_seconds,
+            status:             'in_progress',
+          })
+          .select().single();
+        if (attempt) setAttemptId(attempt.id);
+      }
+
+      setStage('quiz');
+    } catch (err) {
+      console.error('Start exam error:', err);
+    } finally {
+      setLoadingQuestions(false);
+    }
   };
 
-  const selectOption = (optionIndex) => {
-    setSelectedOption(optionIndex);
-  };
-
-  const goToNext = () => {
+  // ── Next question ─────────────────────────────────────────────
+  const goToNext = async () => {
+    const question = questions[questionIndex];
     const updatedAnswers = [...answers, selectedOption];
     setAnswers(updatedAnswers);
 
-    const isLastQuestion = questionIndex === questions.length - 1;
-    if (isLastQuestion) {
-      finishExam(updatedAnswers);
+    // Log individual answer
+    if (userId && attemptId && question) {
+      await supabase.from('mock_exam_answer_logs').insert({
+        attempt_id:     attemptId,
+        user_id:        userId,
+        question_id:    question.id,
+        selected_index: selectedOption,
+        correct_index:  question.correct_index,
+        is_correct:     selectedOption === question.correct_index,
+      });
+    }
+
+    if (questionIndex === questions.length - 1) {
+      handleFinish(updatedAnswers);
     } else {
-      setQuestionIndex((prev) => prev + 1);
+      setQuestionIndex((p) => p + 1);
       setSelectedOption(null);
     }
   };
 
-  const finishExam = (finalAnswers) => {
+  // ── Finish exam ───────────────────────────────────────────────
+  const handleFinish = async (finalAnswers) => {
     if (timerRef.current) clearInterval(timerRef.current);
-    setStage('results');
+
+    const correct   = finalAnswers.reduce((c, ans, i) => (questions[i] && ans === questions[i].correct_index ? c + 1 : c), 0);
+    const incorrect = finalAnswers.filter((a) => a !== null).length - correct;
+    const skipped   = finalAnswers.filter((a) => a === null).length;
+
+    if (attemptId && userId) {
+      await supabase.from('mock_exam_attempts').update({
+        score:           correct,
+        correct_count:   correct,
+        incorrect_count: incorrect,
+        skipped_count:   skipped,
+        status:          'completed',
+        completed_at:    new Date().toISOString(),
+        duration_seconds: config ? config.time_limit_seconds - secondsLeft : null,
+      }).eq('id', attemptId);
+    }
+
     setAnswers(finalAnswers);
+    setStage('results');
   };
 
   const backToHome = () => {
-    if (navigation?.navigate) {
-      navigation.navigate('MockExamHome');
-    } else {
-      setStage('intro');
-    }
+    navigation?.navigate ? navigation.navigate('MockExamHome') : setStage('intro');
   };
 
-  const score = answers.reduce((count, answer, i) => {
-    const q = questions[i];
-    return q && answer === q.correctIndex ? count + 1 : count;
-  }, 0);
+  const score = answers.reduce((c, ans, i) => (questions[i] && ans === questions[i].correct_index ? c + 1 : c), 0);
 
-  // ---------------------------------------------------------------------
-  // INTRO STAGE
-  // ---------------------------------------------------------------------
+  // ── INTRO STAGE ───────────────────────────────────────────────
   if (stage === 'intro') {
+    if (loadingConfig) {
+      return (
+        <SafeAreaView style={styles.safeArea}>
+          <StatusBar barStyle="dark-content" />
+          <View style={styles.centered}>
+            <ActivityIndicator size="large" color={NAVY} />
+            <Text style={styles.loadingText}>Loading exam…</Text>
+          </View>
+        </SafeAreaView>
+      );
+    }
+
+    if (configError || !config) {
+      return (
+        <SafeAreaView style={styles.safeArea}>
+          <StatusBar barStyle="dark-content" />
+          <View style={styles.header}>
+            <TouchableOpacity style={styles.iconButton} onPress={() => navigation?.goBack?.()}>
+              <Ionicons name="chevron-back" size={26} color={NAVY} />
+            </TouchableOpacity>
+            <Text style={styles.headerTitle}>Mock Exam</Text>
+            <View style={styles.iconButton} />
+          </View>
+          <View style={styles.centered}>
+            <Ionicons name="alert-circle-outline" size={52} color="#9AA5B1" />
+            <Text style={styles.emptyText}>{configError ?? 'Exam configuration not found.'}</Text>
+            <TouchableOpacity style={styles.retryBtn} onPress={loadConfig}>
+              <Text style={styles.retryText}>Retry</Text>
+            </TouchableOpacity>
+          </View>
+        </SafeAreaView>
+      );
+    }
+
+    const sections = config.sections ?? [];
+    const hours    = Math.floor(config.time_limit_seconds / 3600);
+    const mins     = Math.floor((config.time_limit_seconds % 3600) / 60);
+
     return (
       <SafeAreaView style={styles.safeArea}>
         <StatusBar barStyle="dark-content" />
@@ -211,22 +229,14 @@ export default function MockExamTake({ navigation, route }) {
         </View>
 
         <View style={styles.levelToggleRow}>
-          {Object.values(LEVEL_CONFIGS).map((cfg) => (
+          {['professional', 'sub_professional'].map((key) => (
             <TouchableOpacity
-              key={cfg.key}
-              style={[
-                styles.levelToggleButton,
-                levelKey === cfg.key && styles.levelToggleButtonActive,
-              ]}
-              onPress={() => setLevelKey(cfg.key)}
+              key={key}
+              style={[styles.levelToggleButton, levelKey === key && styles.levelToggleButtonActive]}
+              onPress={() => { setLevelKey(key); setStage('intro'); }}
             >
-              <Text
-                style={[
-                  styles.levelToggleText,
-                  levelKey === cfg.key && styles.levelToggleTextActive,
-                ]}
-              >
-                {cfg.title}
+              <Text style={[styles.levelToggleText, levelKey === key && styles.levelToggleTextActive]}>
+                {key === 'professional' ? 'Professional' : 'Sub-Professional'}
               </Text>
             </TouchableOpacity>
           ))}
@@ -236,41 +246,53 @@ export default function MockExamTake({ navigation, route }) {
           <Ionicons name="laptop-outline" size={56} color="#8CA0BF" />
         </View>
 
-        <View style={styles.introBody}>
-          <Text style={styles.introTitle}>{level.title}</Text>
-          <View style={styles.introMetaRow}>
-            <View style={styles.introMetaItem}>
-              <Ionicons name="document-text-outline" size={14} color="#6B7684" />
-              <Text style={styles.introMetaText}>{level.totalQuestions} Questions</Text>
+        <ScrollView style={styles.introScroll} contentContainerStyle={styles.introScrollContent} showsVerticalScrollIndicator={false}>
+          <View style={styles.introBody}>
+            <Text style={styles.introTitle}>{config.title}</Text>
+            <Text style={styles.introSubtitle}>{config.subtitle}</Text>
+            <View style={styles.introMetaRow}>
+              <View style={styles.introMetaItem}>
+                <Ionicons name="document-text-outline" size={14} color="#6B7684" />
+                <Text style={styles.introMetaText}>{config.total_questions} Items</Text>
+              </View>
+              <View style={styles.introMetaItem}>
+                <Ionicons name="time-outline" size={14} color="#6B7684" />
+                <Text style={styles.introMetaText}>{hours}h {mins}m</Text>
+              </View>
             </View>
-            <View style={styles.introMetaItem}>
-              <Ionicons name="time-outline" size={14} color="#6B7684" />
-              <Text style={styles.introMetaText}>{level.hours} Hours</Text>
-            </View>
+            <Text style={styles.coverageTitle}>{"What's covered"}</Text>
+            {sections.map((sec) => (
+              <View key={sec.name} style={styles.coverageRow}>
+                <View style={styles.coverageBullet} />
+                <View style={styles.coverageTextWrap}>
+                  <Text style={styles.coverageName}>{sec.name}</Text>
+                  <Text style={styles.coverageDescription}>{sec.description}</Text>
+                </View>
+              </View>
+            ))}
           </View>
-        </View>
+        </ScrollView>
 
         <View style={styles.introFooter}>
-          <TouchableOpacity style={styles.primaryButton} onPress={startExam}>
-            <Text style={styles.primaryButtonText}>Start Mock Exam</Text>
+          <TouchableOpacity
+            style={[styles.primaryButton, loadingQuestions && { opacity: 0.6 }]}
+            onPress={startExam}
+            disabled={loadingQuestions}
+          >
+            {loadingQuestions
+              ? <ActivityIndicator color="#fff" />
+              : <Text style={styles.primaryButtonText}>Start Mock Exam</Text>}
           </TouchableOpacity>
         </View>
       </SafeAreaView>
     );
   }
 
-  // ---------------------------------------------------------------------
-  // QUIZ STAGE
-  // ---------------------------------------------------------------------
+  // ── QUIZ STAGE ────────────────────────────────────────────────
   if (stage === 'quiz') {
     const question = questions[questionIndex];
-    if (!question) {
-      return (
-        <SafeAreaView style={styles.safeArea}>
-          <StatusBar barStyle="dark-content" />
-        </SafeAreaView>
-      );
-    }
+    if (!question) return <SafeAreaView style={styles.safeArea}><StatusBar barStyle="dark-content" /></SafeAreaView>;
+
     return (
       <SafeAreaView style={styles.safeArea}>
         <StatusBar barStyle="dark-content" />
@@ -278,9 +300,7 @@ export default function MockExamTake({ navigation, route }) {
           <TouchableOpacity style={styles.iconButton} onPress={() => navigation?.goBack?.()}>
             <Ionicons name="chevron-back" size={26} color={NAVY} />
           </TouchableOpacity>
-          <Text style={styles.quizHeaderTitle}>
-            {level.tag} - Question {questionIndex + 1}
-          </Text>
+          <Text style={styles.quizHeaderTitle}>{config?.tag} - Question {questionIndex + 1}</Text>
           <View style={styles.timerPill}>
             <Ionicons name="time-outline" size={14} color={NAVY} />
             <Text style={styles.timerText}>{formatTime(secondsLeft)}</Text>
@@ -288,20 +308,14 @@ export default function MockExamTake({ navigation, route }) {
         </View>
 
         <View style={styles.quizBody}>
-          <Text style={styles.questionCounter}>
-            Question {questionIndex + 1} of {questions.length}
-          </Text>
+          <Text style={styles.questionCounter}>Question {questionIndex + 1} of {questions.length}</Text>
           <Text style={styles.questionPrompt}>{question.prompt}</Text>
-
           <View style={styles.optionsList}>
-            {question.options.map((option, optionIndex) => {
-              const isSelected = selectedOption === optionIndex;
+            {(question.options ?? []).map((option, optIdx) => {
+              const isSelected = selectedOption === optIdx;
               return (
                 <TouchableOpacity
-                  key={optionIndex}
-                  style={styles.optionRow}
-                  onPress={() => selectOption(optionIndex)}
-                >
+                  key={optIdx} style={styles.optionRow} onPress={() => setSelectedOption(optIdx)}>
                   <Text style={styles.optionText}>{option}</Text>
                   <View style={[styles.radioOuter, isSelected && styles.radioOuterActive]}>
                     {isSelected && <View style={styles.radioInner} />}
@@ -325,9 +339,7 @@ export default function MockExamTake({ navigation, route }) {
     );
   }
 
-  // ---------------------------------------------------------------------
-  // RESULTS STAGE
-  // ---------------------------------------------------------------------
+  // ── RESULTS STAGE ─────────────────────────────────────────────
   return (
     <SafeAreaView style={styles.safeArea}>
       <StatusBar barStyle="dark-content" />
@@ -335,27 +347,26 @@ export default function MockExamTake({ navigation, route }) {
         <TouchableOpacity style={styles.iconButton} onPress={backToHome}>
           <Ionicons name="chevron-back" size={26} color={NAVY} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>
-          {level.tag} - Question {questions.length}
-        </Text>
+        <Text style={styles.headerTitle}>{config?.tag} - Results</Text>
         <View style={{ width: 40 }} />
       </View>
 
       <View style={styles.resultsBody}>
         <View style={styles.scoreCircle}>
           <Text style={styles.scoreCircleLabel}>Your Score</Text>
-          <Text style={styles.scoreCircleValue}>
-            {score}/{questions.length}
-          </Text>
+          <Text style={styles.scoreCircleValue}>{score}/{questions.length}</Text>
         </View>
-
-        <Text style={styles.congratsTitle}>Congratulations!</Text>
-        <Text style={styles.congratsSubtitle}>Great job, You Did It</Text>
+        <Text style={styles.congratsTitle}>
+          {score / questions.length >= 0.8 ? 'Excellent!' : score / questions.length >= 0.5 ? 'Good Job!' : 'Keep Practicing!'}
+        </Text>
+        <Text style={styles.congratsSubtitle}>
+          {score} correct · {answers.length - score} incorrect
+        </Text>
       </View>
 
       <View style={styles.resultsFooter}>
-        <TouchableOpacity style={styles.primaryButton}>
-          <Text style={styles.primaryButtonText}>View Full Results</Text>
+        <TouchableOpacity style={styles.primaryButton} onPress={() => setStage('intro')}>
+          <Text style={styles.primaryButtonText}>Take Again</Text>
         </TouchableOpacity>
         <TouchableOpacity style={styles.secondaryButton} onPress={backToHome}>
           <Text style={styles.secondaryButtonText}>Back to Home</Text>
@@ -366,263 +377,62 @@ export default function MockExamTake({ navigation, route }) {
 }
 
 const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: '#FFFFFF',
-    paddingTop: Platform.OS === 'android' ? 30 : 0,
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 8,
-    paddingTop: 8,
-    paddingBottom: 4,
-  },
-  iconButton: {
-    width: 40,
-    height: 40,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  headerTitle: {
-    fontSize: 17,
-    fontWeight: '700',
-    color: NAVY,
-  },
-
-  // intro
-  levelToggleRow: {
-    flexDirection: 'row',
-    gap: 10,
-    paddingHorizontal: 20,
-    marginTop: 8,
-  },
-  levelToggleButton: {
-    flex: 1,
-    paddingVertical: 10,
-    borderRadius: 18,
-    borderWidth: 1.5,
-    borderColor: '#D7DEE8',
-    alignItems: 'center',
-  },
-  levelToggleButtonActive: {
-    backgroundColor: NAVY,
-    borderColor: NAVY,
-  },
-  levelToggleText: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: NAVY,
-  },
-  levelToggleTextActive: {
-    color: '#FFFFFF',
-  },
-  heroImage: {
-    marginTop: 20,
-    marginHorizontal: 20,
-    height: 170,
-    borderRadius: 20,
-    backgroundColor: '#EDF1F7',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  introBody: {
-    paddingHorizontal: 20,
-    marginTop: 20,
-  },
-  introTitle: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: NAVY,
-    marginBottom: 10,
-  },
-  introMetaRow: {
-    flexDirection: 'row',
-    gap: 18,
-  },
-  introMetaItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  introMetaText: {
-    fontSize: 13,
-    color: '#6B7684',
-    fontWeight: '600',
-  },
-  introFooter: {
-    marginTop: 'auto',
-    paddingHorizontal: 20,
-    paddingBottom: 30,
-  },
-  primaryButton: {
-    backgroundColor: NAVY,
-    borderRadius: 24,
-    paddingVertical: 15,
-    alignItems: 'center',
-  },
-  primaryButtonText: {
-    color: '#FFFFFF',
-    fontWeight: '700',
-    fontSize: 14,
-  },
-
-  // quiz
-  quizHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 8,
-    paddingTop: 8,
-    paddingBottom: 4,
-  },
-  quizHeaderTitle: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: NAVY,
-  },
-  timerPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    marginRight: 8,
-  },
-  timerText: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: NAVY,
-  },
-  quizBody: {
-    flex: 1,
-    paddingHorizontal: 20,
-    paddingTop: 16,
-  },
-  questionCounter: {
-    fontSize: 12,
-    color: '#9AA5B1',
-    fontWeight: '600',
-    marginBottom: 10,
-  },
-  questionPrompt: {
-    fontSize: 17,
-    fontWeight: '700',
-    color: NAVY,
-    marginBottom: 20,
-  },
-  optionsList: {
-    gap: 12,
-  },
-  optionRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    borderWidth: 1.5,
-    borderColor: '#D7DEE8',
-    borderRadius: 14,
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-  },
-  optionText: {
-    fontSize: 13,
-    color: NAVY,
-    fontWeight: '600',
-    flex: 1,
-    marginRight: 12,
-  },
-  radioOuter: {
-    width: 18,
-    height: 18,
-    borderRadius: 9,
-    borderWidth: 1.5,
-    borderColor: '#D7DEE8',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  radioOuterActive: {
-    borderColor: NAVY,
-  },
-  radioInner: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    backgroundColor: NAVY,
-  },
-  quizFooter: {
-    paddingHorizontal: 20,
-    paddingBottom: 30,
-    paddingTop: 8,
-  },
-  nextButton: {
-    backgroundColor: NAVY,
-    borderRadius: 24,
-    paddingVertical: 15,
-    alignItems: 'center',
-  },
-  nextButtonDisabled: {
-    opacity: 0.4,
-  },
-  nextButtonText: {
-    color: '#FFFFFF',
-    fontWeight: '700',
-    fontSize: 13,
-    letterSpacing: 0.5,
-  },
-
-  // results
-  resultsBody: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 30,
-  },
-  scoreCircle: {
-    width: 170,
-    height: 170,
-    borderRadius: 85,
-    backgroundColor: NAVY,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 24,
-  },
-  scoreCircleLabel: {
-    color: '#B9C3D1',
-    fontSize: 13,
-    fontWeight: '600',
-    marginBottom: 6,
-  },
-  scoreCircleValue: {
-    color: '#FFFFFF',
-    fontSize: 26,
-    fontWeight: '700',
-  },
-  congratsTitle: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: NAVY,
-    marginBottom: 6,
-  },
-  congratsSubtitle: {
-    fontSize: 14,
-    color: '#6B7684',
-  },
-  resultsFooter: {
-    paddingHorizontal: 20,
-    paddingBottom: 30,
-    gap: 12,
-  },
-  secondaryButton: {
-    borderRadius: 24,
-    borderWidth: 1.5,
-    borderColor: '#D7DEE8',
-    paddingVertical: 15,
-    alignItems: 'center',
-  },
-  secondaryButtonText: {
-    color: NAVY,
-    fontWeight: '700',
-    fontSize: 14,
-  },
+  safeArea:              { flex: 1, backgroundColor: '#FFFFFF', paddingTop: Platform.OS === 'android' ? 30 : 0 },
+  header:                { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 8, paddingTop: 8, paddingBottom: 4 },
+  iconButton:            { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
+  headerTitle:           { fontSize: 17, fontWeight: '700', color: NAVY },
+  centered:              { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 28 },
+  loadingText:           { marginTop: 12, fontSize: 14, color: '#9AA5B1', fontWeight: '600' },
+  emptyText:             { marginTop: 12, fontSize: 14, color: '#9AA5B1', fontWeight: '600', textAlign: 'center' },
+  retryBtn:              { marginTop: 16, paddingHorizontal: 24, paddingVertical: 10, backgroundColor: NAVY, borderRadius: 20 },
+  retryText:             { color: '#fff', fontWeight: '700', fontSize: 14 },
+  levelToggleRow:        { flexDirection: 'row', gap: 10, paddingHorizontal: 20, marginTop: 8 },
+  levelToggleButton:     { flex: 1, paddingVertical: 10, borderRadius: 18, borderWidth: 1.5, borderColor: '#D7DEE8', alignItems: 'center' },
+  levelToggleButtonActive:{ backgroundColor: NAVY, borderColor: NAVY },
+  levelToggleText:       { fontSize: 12, fontWeight: '700', color: NAVY },
+  levelToggleTextActive: { color: '#FFFFFF' },
+  heroImage:             { marginTop: 20, marginHorizontal: 20, height: 130, borderRadius: 20, backgroundColor: '#EDF1F7', alignItems: 'center', justifyContent: 'center' },
+  introScroll:           { flex: 1 },
+  introScrollContent:    { paddingBottom: 12 },
+  introBody:             { paddingHorizontal: 20, marginTop: 16 },
+  introTitle:            { fontSize: 20, fontWeight: '700', color: NAVY, marginBottom: 2 },
+  introSubtitle:         { fontSize: 12, color: '#9AA5B1', fontWeight: '600', marginBottom: 14 },
+  introMetaRow:          { flexDirection: 'row', gap: 18, marginBottom: 22 },
+  introMetaItem:         { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  introMetaText:         { fontSize: 13, color: '#6B7684', fontWeight: '600' },
+  coverageTitle:         { fontSize: 14, fontWeight: '700', color: NAVY, marginBottom: 12 },
+  coverageRow:           { flexDirection: 'row', marginBottom: 14 },
+  coverageBullet:        { width: 8, height: 8, borderRadius: 4, backgroundColor: NAVY, marginTop: 6, marginRight: 12 },
+  coverageTextWrap:      { flex: 1 },
+  coverageName:          { fontSize: 13, fontWeight: '700', color: NAVY, marginBottom: 2 },
+  coverageDescription:   { fontSize: 12, lineHeight: 17, color: '#6B7684' },
+  introFooter:           { paddingHorizontal: 20, paddingTop: 12, paddingBottom: 30 },
+  primaryButton:         { backgroundColor: NAVY, borderRadius: 24, paddingVertical: 15, alignItems: 'center' },
+  primaryButtonText:     { color: '#FFFFFF', fontWeight: '700', fontSize: 14 },
+  quizHeader:            { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 8, paddingTop: 8, paddingBottom: 4 },
+  quizHeaderTitle:       { fontSize: 14, fontWeight: '700', color: NAVY },
+  timerPill:             { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 6, marginRight: 8 },
+  timerText:             { fontSize: 12, fontWeight: '700', color: NAVY },
+  quizBody:              { flex: 1, paddingHorizontal: 20, paddingTop: 16 },
+  questionCounter:       { fontSize: 12, color: '#9AA5B1', fontWeight: '600', marginBottom: 10 },
+  questionPrompt:        { fontSize: 17, fontWeight: '700', color: NAVY, marginBottom: 20 },
+  optionsList:           { gap: 12 },
+  optionRow:             { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderWidth: 1.5, borderColor: '#D7DEE8', borderRadius: 14, paddingVertical: 14, paddingHorizontal: 16 },
+  optionText:            { fontSize: 13, color: NAVY, fontWeight: '600', flex: 1, marginRight: 12 },
+  radioOuter:            { width: 18, height: 18, borderRadius: 9, borderWidth: 1.5, borderColor: '#D7DEE8', alignItems: 'center', justifyContent: 'center' },
+  radioOuterActive:      { borderColor: NAVY },
+  radioInner:            { width: 10, height: 10, borderRadius: 5, backgroundColor: NAVY },
+  quizFooter:            { paddingHorizontal: 20, paddingBottom: 30, paddingTop: 8 },
+  nextButton:            { backgroundColor: NAVY, borderRadius: 24, paddingVertical: 15, alignItems: 'center' },
+  nextButtonDisabled:    { opacity: 0.4 },
+  nextButtonText:        { color: '#FFFFFF', fontWeight: '700', fontSize: 13, letterSpacing: 0.5 },
+  resultsBody:           { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 30 },
+  scoreCircle:           { width: 170, height: 170, borderRadius: 85, backgroundColor: NAVY, alignItems: 'center', justifyContent: 'center', marginBottom: 24 },
+  scoreCircleLabel:      { color: '#B9C3D1', fontSize: 13, fontWeight: '600', marginBottom: 6 },
+  scoreCircleValue:      { color: '#FFFFFF', fontSize: 26, fontWeight: '700' },
+  congratsTitle:         { fontSize: 20, fontWeight: '700', color: NAVY, marginBottom: 6 },
+  congratsSubtitle:      { fontSize: 14, color: '#6B7684' },
+  resultsFooter:         { paddingHorizontal: 20, paddingBottom: 30, gap: 12 },
+  secondaryButton:       { borderRadius: 24, borderWidth: 1.5, borderColor: '#D7DEE8', paddingVertical: 15, alignItems: 'center' },
+  secondaryButtonText:   { color: NAVY, fontWeight: '700', fontSize: 14 },
 });
