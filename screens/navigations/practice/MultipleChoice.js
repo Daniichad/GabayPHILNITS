@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   SafeAreaView, View, Text, StyleSheet, TouchableOpacity,
   StatusBar, Platform, ActivityIndicator,
@@ -9,7 +9,8 @@ import { supabase } from '../../../supabase';
 const NAVY = '#0B2540';
 
 export default function MultipleChoice({ navigation, route }) {
-  const categoryId = route?.params?.categoryId ?? null;
+  const subject = route?.params?.subject;
+  const limit   = route?.params?.limit ?? 10;
 
   const [questions, setQuestions] = useState([]);
   const [index,     setIndex]     = useState(0);
@@ -28,12 +29,17 @@ export default function MultipleChoice({ navigation, route }) {
       setUserId(session?.user?.id ?? null);
 
       let q = supabase.from('multiple_choice_questions')
-        .select('*').eq('is_published', true).order('sort_order');
-      if (categoryId) q = q.eq('category_id', categoryId);
+        .select('*, practice_categories!inner(name)')
+        .eq('is_published', true);
+      if (subject) {
+        q = q.eq('practice_categories.name', subject);
+      }
 
-      const { data, error: qErr } = await q;
+      const { data, error: qErr } = await q.limit(limit);
       if (qErr) throw qErr;
-      setQuestions(data ?? []);
+
+      const shuffled = (data ?? []).sort(() => 0.5 - Math.random());
+      setQuestions(shuffled);
     } catch (err) {
       console.error('MCQ load error:', err);
       setError('Failed to load questions.');
@@ -121,6 +127,12 @@ export default function MultipleChoice({ navigation, route }) {
       </View>
 
       <View style={styles.body}>
+        {/* Top Meta info row */}
+        <View style={styles.topMetaRow}>
+          <Text style={styles.metaSubjectText}>{subject || 'All Subjects'}</Text>
+          <Text style={styles.metaProgressText}>{index + 1} / {questions.length}</Text>
+        </View>
+
         <View style={styles.card}>
           <Text style={styles.promptText}>{question.prompt}</Text>
         </View>
@@ -161,8 +173,6 @@ export default function MultipleChoice({ navigation, route }) {
             <Text style={styles.explanationText}>{question.explanation}</Text>
           </View>
         )}
-
-        <Text style={styles.progressText}>{index + 1} / {questions.length}</Text>
       </View>
 
       {hasAnswered && (
@@ -187,10 +197,10 @@ const styles = StyleSheet.create({
   emptyText:      { marginTop: 12, fontSize: 14, color: '#9AA5B1', fontWeight: '600', textAlign: 'center' },
   retryBtn:       { marginTop: 16, paddingHorizontal: 24, paddingVertical: 10, backgroundColor: NAVY, borderRadius: 20 },
   retryText:      { color: '#fff', fontWeight: '700', fontSize: 14 },
-  body:           { flex: 1, justifyContent: 'center', paddingHorizontal: 28 },
-  card:           { width: '100%', minHeight: 110, borderRadius: 20, borderWidth: 1, borderColor: '#D7DEE8', backgroundColor: '#FFFFFF', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 24, paddingVertical: 22, shadowColor: '#000', shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.08, shadowRadius: 12, elevation: 3 },
+  body:           { flex: 1, justifyContent: 'flex-start', paddingHorizontal: 28, paddingTop: 16 },
+  card:           { width: '100%', minHeight: 90, borderRadius: 20, borderWidth: 1, borderColor: '#D7DEE8', backgroundColor: '#FFFFFF', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 24, paddingVertical: 18, shadowColor: '#000', shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.08, shadowRadius: 12, elevation: 3 },
   promptText:     { fontSize: 16, lineHeight: 22, fontWeight: '600', color: NAVY, textAlign: 'center' },
-  optionsList:    { marginTop: 20 },
+  optionsList:    { marginTop: 16 },
   optionButton:   { borderWidth: 1.5, borderColor: '#D7DEE8', backgroundColor: '#FFFFFF', borderRadius: 16, paddingVertical: 14, paddingHorizontal: 18, marginBottom: 12 },
   optionSelected: { backgroundColor: NAVY, borderColor: NAVY },
   optionCorrect:  { backgroundColor: '#3CB878', borderColor: '#3CB878' },
@@ -203,8 +213,10 @@ const styles = StyleSheet.create({
   resultRow:      { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 },
   resultText:     { fontSize: 14, fontWeight: '700' },
   explanationText:{ fontSize: 13, lineHeight: 19, color: '#4A5563' },
-  progressText:   { marginTop: 16, fontSize: 13, color: '#9AA5B1', textAlign: 'center' },
   footer:         { alignItems: 'center', paddingBottom: 30, paddingTop: 4 },
   nextButton:     { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 22, paddingVertical: 12, borderRadius: 24, backgroundColor: NAVY },
   nextButtonText: { color: '#FFFFFF', fontWeight: '700', fontSize: 14 },
+  topMetaRow:    { width: '100%', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, paddingHorizontal: 4 },
+  metaSubjectText: { fontSize: 13, fontWeight: '700', color: NAVY, textTransform: 'uppercase', letterSpacing: 0.5 },
+  metaProgressText: { fontSize: 13, fontWeight: '600', color: '#9AA5B1' },
 });

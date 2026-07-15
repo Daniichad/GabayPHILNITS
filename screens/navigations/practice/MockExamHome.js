@@ -67,8 +67,85 @@ function ScoreGauge({ correct, incorrect, score, width = 120 }) {
   );
 }
 
+// ─── Known official 2026 CSE dates (verified from csc.gov.ph) ──
+const KNOWN_CSE_DATES_2026 = [
+  { date: new Date('2026-03-08'), label: 'March 8, 2026', appPeriod: 'Nov 3 – Dec 28, 2025', cycle: '1st Cycle' },
+  { date: new Date('2026-08-09'), label: 'August 9, 2026', appPeriod: 'May 14 – Jun 10, 2026', cycle: '2nd Cycle' },
+]
+
+// Returns the nearest upcoming date from a list
+const getNextDate = (dates) => {
+  const now = new Date()
+  const future = dates.filter((d) => d.date > now).sort((a, b) => a.date - b.date)
+  return future[0] || dates[dates.length - 1]
+}
+
+// Tries to parse CSE exam dates from the CSC RSS feed XML text
+const parseCseDatesFromRSS = (xml) => {
+  const datePattern = /(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{1,2}),?\s+(2026|2027)/gi
+  const cseKeywords = /career service exam|cse-ppt|cse ppt|civil service exam/i
+  const items = xml.split(/<item>|<\/item>/i)
+  const found = []
+
+  for (const item of items) {
+    if (!cseKeywords.test(item)) continue
+    let m
+    while ((m = datePattern.exec(item)) !== null) {
+      const parsed = new Date(`${m[1]} ${m[2]}, ${m[3]}`)
+      if (!isNaN(parsed.getTime())) found.push(parsed)
+    }
+    datePattern.lastIndex = 0
+  }
+
+  const now = new Date()
+  const unique = [...new Set(found.map((d) => d.toDateString()))]
+    .map((s) => new Date(s))
+    .filter((d) => d > now)
+    .sort((a, b) => a - b)
+
+  return unique
+}
+
 export default function MockExamHome({ navigation, route }) {
   const from = route?.params?.from
+  const [daysLeft, setDaysLeft] = React.useState(45)
+
+  React.useEffect(() => {
+    let active = true
+
+    const fetchCSESchedule = async () => {
+      try {
+        const res = await fetch('https://www.csc.gov.ph/?format=feed&type=rss', {
+          headers: { 'User-Agent': 'GabayPHILCSE/1.0' },
+        })
+        if (res.ok && active) {
+          const xml = await res.text()
+          const parsedDates = parseCseDatesFromRSS(xml)
+          if (parsedDates.length > 0) {
+            const next = parsedDates[0]
+            const now = new Date()
+            const diffDays = Math.ceil((next - now) / (1000 * 60 * 60 * 24))
+            setDaysLeft(diffDays > 0 ? diffDays : 0)
+            return
+          }
+        }
+      } catch { /* silently fall through */ }
+
+      // Fallback
+      if (active) {
+        const next = getNextDate(KNOWN_CSE_DATES_2026)
+        const now = new Date()
+        const diffDays = Math.ceil((next.date - now) / (1000 * 60 * 60 * 24))
+        setDaysLeft(diffDays > 0 ? diffDays : 0)
+      }
+    }
+
+    fetchCSESchedule()
+    return () => {
+      active = false
+    }
+  }, [])
+
   const handleBack = () => {
     if (from === 'Home') navigation.navigate('Home')
     else navigation.navigate('PracticeLibrary')
@@ -96,7 +173,7 @@ export default function MockExamHome({ navigation, route }) {
         {/* Upcoming exam banner */}
         <View style={styles.banner}>
           <Text style={styles.bannerLabel}>{UPCOMING_EXAM.label}</Text>
-          <Text style={styles.bannerDays}>{UPCOMING_EXAM.daysLeft} days left</Text>
+          <Text style={styles.bannerDays}>{daysLeft} days left</Text>
         </View>
 
         {/* Latest exam result */}

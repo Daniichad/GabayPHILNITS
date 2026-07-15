@@ -28,6 +28,9 @@ export default function Flashcards({ navigation, route }) {
   const [userId,    setUserId]    = useState(null);
   const [startTime, setStartTime] = useState(null);
 
+  const subject    = route?.params?.subject;
+  const limit      = route?.params?.limit ?? 10;
+
   const flipAnim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => { loadData(); }, []);
@@ -42,27 +45,26 @@ export default function Flashcards({ navigation, route }) {
       const uid = session?.user?.id ?? null;
       setUserId(uid);
 
-      // Resolve deck
-      let q = supabase.from('flashcard_decks').select('*').eq('is_published', true);
-      if (deckId)    q = q.eq('id', deckId);
-      else if (categoryId) q = q.eq('category_id', categoryId);
-      const { data: deck } = await q.limit(1).maybeSingle();
-
-      const resolvedDeckId = deck?.id ?? null;
-      if (deck?.title) setDeckTitle(deck.title);
-
       // Fetch cards
-      let cq = supabase.from('flashcards').select('*');
-      if (resolvedDeckId) cq = cq.eq('deck_id', resolvedDeckId);
-      const { data: flashcards, error: cErr } = await cq.order('sort_order');
+      let cq = supabase.from('flashcards')
+        .select('*, flashcard_decks!inner(category_id, practice_categories!inner(name))');
+      if (subject) {
+        cq = cq.eq('flashcard_decks.practice_categories.name', subject);
+      }
+      
+      // Fetch dynamic limit of items
+      const { data: flashcards, error: cErr } = await cq.limit(limit);
       if (cErr) throw cErr;
-      setCards(flashcards ?? []);
+      
+      // Shuffle flashcards for random order
+      const shuffled = (flashcards ?? []).sort(() => 0.5 - Math.random());
+      setCards(shuffled);
 
       // Create session log
-      if (uid && resolvedDeckId && (flashcards ?? []).length > 0) {
+      if (uid && shuffled.length > 0) {
         const { data: sess } = await supabase
           .from('flashcard_sessions')
-          .insert({ user_id: uid, deck_id: resolvedDeckId, cards_total: flashcards.length, cards_seen: 0, completed: false })
+          .insert({ user_id: uid, cards_total: shuffled.length, cards_seen: 0, completed: false })
           .select().single();
         if (sess) setSessionId(sess.id);
       }
@@ -89,7 +91,12 @@ export default function Flashcards({ navigation, route }) {
   const card = cards[index];
 
   const flipCard = () => {
-    Animated.timing(flipAnim, { toValue: flipped ? 0 : 180, duration: 350, useNativeDriver: true }).start();
+    Animated.spring(flipAnim, {
+      toValue: flipped ? 0 : 180,
+      friction: 8,
+      tension: 40,
+      useNativeDriver: true,
+    }).start();
     setFlipped(!flipped);
   };
 
@@ -161,6 +168,12 @@ export default function Flashcards({ navigation, route }) {
       </View>
 
       <View style={styles.cardArea}>
+        {/* Top Meta info row */}
+        <View style={styles.topMetaRow}>
+          <Text style={styles.metaSubjectText}>{subject || 'All Subjects'}</Text>
+          <Text style={styles.metaProgressText}>{index + 1} / {cards.length}</Text>
+        </View>
+
         <TouchableOpacity activeOpacity={0.9} onPress={flipCard}>
           <View style={styles.cardWrapper}>
             <Animated.View style={[styles.card, styles.cardFront, { transform: [{ rotateY: frontAnim }] }]}>
@@ -172,7 +185,6 @@ export default function Flashcards({ navigation, route }) {
           </View>
         </TouchableOpacity>
         <Text style={styles.hintText}>Tap card to flip</Text>
-        <Text style={styles.progressText}>{index + 1} / {cards.length}</Text>
       </View>
 
       <View style={styles.actionsRow}>
@@ -198,15 +210,17 @@ const styles = StyleSheet.create({
   retryBtn:      { marginTop: 16, paddingHorizontal: 24, paddingVertical: 10, backgroundColor: NAVY, borderRadius: 20 },
   retryText:     { color: '#fff', fontWeight: '700', fontSize: 14 },
   cardArea:      { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 28 },
-  cardWrapper:   { width: '100%', height: 340 },
-  card:          { width: '100%', height: '100%', borderRadius: 20, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 26, backfaceVisibility: 'hidden' },
+  cardWrapper:   { width: '100%', height: 340, shadowColor: '#000', shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.08, shadowRadius: 12, elevation: 3 },
+  card:          { width: '100%', height: '100%', borderRadius: 20, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 26, backfaceVisibility: 'hidden', overflow: 'hidden' },
   cardAbsolute:  { position: 'absolute', top: 0, left: 0 },
-  cardFront:     { backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#D7DEE8', shadowColor: '#000', shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.08, shadowRadius: 12, elevation: 3 },
-  cardBack:      { backgroundColor: NAVY },
+  cardFront:     { backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#D7DEE8' },
+  cardBack:      { backgroundColor: NAVY, borderWidth: 1, borderColor: NAVY },
   definitionText:{ fontSize: 19, lineHeight: 27, fontWeight: '600', color: NAVY, textAlign: 'center' },
   termText:      { fontSize: 24, fontWeight: '700', color: '#FFFFFF', textAlign: 'center' },
   hintText:      { marginTop: 18, fontSize: 13, color: '#9AA5B1' },
-  progressText:  { marginTop: 6, fontSize: 13, color: '#9AA5B1' },
   actionsRow:    { flexDirection: 'row', justifyContent: 'center', gap: 24, paddingBottom: 30, paddingTop: 8 },
   actionButton:  { width: 56, height: 56, borderRadius: 28, alignItems: 'center', justifyContent: 'center', borderWidth: 1.5, borderColor: '#D7DEE8', backgroundColor: '#F5F7FA' },
+  topMetaRow:    { width: '100%', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, paddingHorizontal: 4 },
+  metaSubjectText: { fontSize: 13, fontWeight: '700', color: NAVY, textTransform: 'uppercase', letterSpacing: 0.5 },
+  metaProgressText: { fontSize: 13, fontWeight: '600', color: '#9AA5B1' },
 });

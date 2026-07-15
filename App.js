@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import { ActivityIndicator, StyleSheet, View } from 'react-native'
-import { NavigationContainer, useNavigationContainerRef } from '@react-navigation/native'
+import { NavigationContainer, useNavigationContainerRef, DefaultTheme } from '@react-navigation/native'
 import { createNativeStackNavigator } from '@react-navigation/native-stack'
 import Onboarding from './screens/onboarding/Onboarding'
 import Login from './screens/authentication/Login'
@@ -19,6 +19,7 @@ import TrueFalse from './screens/navigations/practice/TrueFalse'
 import MultipleChoice from './screens/navigations/practice/MultipleChoice'
 import MockExamHome from './screens/navigations/practice/MockExamHome'
 import MockExamTake from './screens/navigations/practice/MockExamTake'
+import PracticeOverview from './screens/navigations/practice/PracticeOverview'
 import Performance from './screens/navigations/performance/Performance'
 import Profile from './screens/navigations/profile/Profile'
 import AccountInformation from './screens/navigations/profile/AccountInformation'
@@ -32,15 +33,23 @@ import BottomNav from './components/BottomNav'
 
 const Stack = createNativeStackNavigator()
 
+const navTheme = {
+	...DefaultTheme,
+	colors: {
+		...DefaultTheme.colors,
+		background: '#0f1e35',
+	},
+}
+
 // Screens that should show the persistent bottom navbar
 const NAV_SCREENS = new Set([
 	'Home', 'Library', 'StudyPlan', 'ReadingMaterial',
-	'PracticeLibrary', 'PracticeScreen', 'Performance', 'PersonalInfo', 'Profile', 'AccountInformation', 'Settings', 'HelpCenter', 'Report', 'TermsConditions', 'RateApp', 'AboutApp',
+	'PracticeLibrary', 'PracticeScreen', 'Performance', 'Profile', 'AccountInformation', 'Settings', 'HelpCenter', 'Report', 'TermsConditions', 'RateApp', 'AboutApp', 'PracticeOverview',
 ])
 
 export default function App() {
 	const [loading, setLoading] = useState(true)
-	const [currentRoute, setCurrentRoute] = useState('Home')
+	const [currentRoute, setCurrentRoute] = useState('Login')
 	const navigationRef = useNavigationContainerRef()
 
 	useEffect(() => {
@@ -62,6 +71,7 @@ export default function App() {
 		<View style={styles.root}>
 			<NavigationContainer
 				ref={navigationRef}
+				theme={navTheme}
 				onStateChange={() => {
 					const name = navigationRef.getCurrentRoute()?.name
 					if (name) setCurrentRoute(name)
@@ -72,11 +82,11 @@ export default function App() {
 						headerShown: false,
 						animation: 'fade_from_bottom',
 					}}
-					initialRouteName="Home"
+					initialRouteName="Login"
 				>
 					<Stack.Screen name="Onboarding" component={Onboarding} />
-					<Stack.Screen name="Login" component={Login} />
-					<Stack.Screen name="Register" component={Register} />
+					<Stack.Screen name="Login" component={Login} options={{ animation: 'fade_from_bottom' }} />
+					<Stack.Screen name="Register" component={Register} options={{ animation: 'fade_from_bottom' }} />
 					<Stack.Screen name="PersonalInfo" component={PersonalInfo} />
 					<Stack.Screen name="DiagnosticAssessment" component={DiagnosticAssessment} />
 					<Stack.Screen name="StudyPlan" component={StudyPlan} />
@@ -91,6 +101,7 @@ export default function App() {
 					<Stack.Screen name="MultipleChoice" component={MultipleChoice} />
 					<Stack.Screen name="MockExamHome" component={MockExamHome} />
 					<Stack.Screen name="MockExamTake" component={MockExamTake} />
+					<Stack.Screen name="PracticeOverview" component={PracticeOverview} />
 					<Stack.Screen name="Performance" component={Performance} />
 					<Stack.Screen name="Profile" component={Profile} />
 					<Stack.Screen name="AccountInformation" component={AccountInformation} />
@@ -114,6 +125,7 @@ export default function App() {
 const styles = StyleSheet.create({
 	root: {
 		flex: 1,
+		backgroundColor: '#0f1e35',
 	},
 	loadingContainer: {
 		flex: 1,

@@ -11,10 +11,24 @@ import {
   ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
+  Animated,
+  Image,
 } from 'react-native'
+import { Feather, Ionicons } from '@expo/vector-icons'
 import { supabase } from '../../utils/supabase'
 
 export default function Register({ navigation }) {
+  // Custom warning popup alert states
+  const [alertVisible, setAlertVisible] = useState(false)
+  const [alertTitle, setAlertTitle] = useState('')
+  const [alertMessage, setAlertMessage] = useState('')
+
+  const showCustomAlert = (title, message) => {
+    setAlertTitle(title)
+    setAlertMessage(message)
+    setAlertVisible(true)
+  }
+
   const [fullName, setFullName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -27,6 +41,35 @@ export default function Register({ navigation }) {
   const [verifying, setVerifying] = useState(false)
   const [resending, setResending] = useState(false)
   const [resendCooldown, setResendCooldown] = useState(0)
+
+  // Floating placeholder animations
+  const nameAnim = useState(new Animated.Value(fullName ? 1 : 0))[0]
+  const emailAnim = useState(new Animated.Value(email ? 1 : 0))[0]
+  const passAnim = useState(new Animated.Value(password ? 1 : 0))[0]
+  const confirmAnim = useState(new Animated.Value(confirmPassword ? 1 : 0))[0]
+
+  const [nameFocused, setNameFocused] = useState(false)
+  const [emailFocused, setEmailFocused] = useState(false)
+  const [passFocused, setPassFocused] = useState(false)
+  const [confirmFocused, setConfirmFocused] = useState(false)
+
+  const handleFocus = (anim) => {
+    Animated.timing(anim, {
+      toValue: 1,
+      duration: 180,
+      useNativeDriver: false,
+    }).start()
+  }
+
+  const handleBlur = (anim, text) => {
+    if (!text) {
+      Animated.timing(anim, {
+        toValue: 0,
+        duration: 180,
+        useNativeDriver: false,
+      }).start()
+    }
+  }
 
   // 6-digit OTP state
   const [otp, setOtp] = useState(['', '', '', '', '', ''])
@@ -90,29 +133,45 @@ export default function Register({ navigation }) {
 
   // ─── Register ─────────────────────────────────────────────────
   const handleRegister = async () => {
-    if (!fullName.trim() || !email.trim() || !password || !confirmPassword) {
-      Alert.alert('Error', 'Please fill in all fields')
+    const trimmedName = fullName.trim()
+    const trimmedEmail = email.trim()
+
+    if (!trimmedName || !trimmedEmail || !password || !confirmPassword) {
+      showCustomAlert('Validation Error', 'Please fill in all fields.')
       return
     }
 
+    // Name length check
+    if (trimmedName.length < 2) {
+      showCustomAlert('Validation Error', 'Full Name must be at least 2 characters.')
+      return
+    }
+
+    // Email format check
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
-    if (!emailRegex.test(email.trim())) {
-      Alert.alert('Error', 'Please enter a valid email address')
+    if (!emailRegex.test(trimmedEmail)) {
+      showCustomAlert('Validation Error', 'Please enter a valid email address.')
       return
     }
 
-    if (password.length < 6) {
-      Alert.alert('Error', 'Password must be at least 6 characters')
+    // Password strength check
+    // 8+ characters, 1 uppercase, 1 lowercase, 1 number, 1 special char
+    const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&#])[A-Za-z\d@$!%*?&#]{8,}$/
+    if (!passwordRegex.test(password)) {
+      showCustomAlert(
+        'Weak Password',
+        'Password must be at least 8 characters long and include at least one uppercase letter, one lowercase letter, one number, and one special character (e.g., @$!%*?&#).'
+      )
       return
     }
 
     if (password !== confirmPassword) {
-      Alert.alert('Error', 'Passwords do not match')
+      showCustomAlert('Validation Error', 'Passwords do not match.')
       return
     }
 
     if (!agreeTerms) {
-      Alert.alert('Error', 'Please agree to the terms and conditions')
+      showCustomAlert('Validation Error', 'Please agree to the terms and conditions.')
       return
     }
 
@@ -131,7 +190,7 @@ export default function Register({ navigation }) {
       })
 
       if (error) {
-        Alert.alert('Registration Error', error.message || 'Could not create account')
+        showCustomAlert('Registration Error', error.message || 'Could not create account')
         return
       }
 
@@ -157,7 +216,7 @@ export default function Register({ navigation }) {
       setVerifyVisible(true)
       startResendCooldown()
     } catch (err) {
-      Alert.alert('Registration Error', err.message || String(err))
+      showCustomAlert('Registration Error', err.message || String(err))
     } finally {
       setLoading(false)
     }
@@ -167,7 +226,7 @@ export default function Register({ navigation }) {
   const handleVerifyEmail = async () => {
     const code = getOtpString()
     if (code.length < 6) {
-      Alert.alert('Error', 'Please enter the complete 6-digit code')
+      showCustomAlert('Error', 'Please enter the complete 6-digit code')
       return
     }
 
@@ -180,7 +239,7 @@ export default function Register({ navigation }) {
       })
 
       if (error) {
-        Alert.alert('Verification Failed', error.message || 'Invalid or expired code. Please try again.')
+        showCustomAlert('Verification Failed', error.message || 'Invalid or expired code. Please try again.')
         return
       }
 
@@ -193,7 +252,7 @@ export default function Register({ navigation }) {
         },
       ])
     } catch (err) {
-      Alert.alert('Verification Error', err.message || String(err))
+      showCustomAlert('Verification Error', err.message || String(err))
     } finally {
       setVerifying(false)
     }
@@ -211,15 +270,15 @@ export default function Register({ navigation }) {
       })
 
       if (error) {
-        Alert.alert('Error', error.message || 'Could not resend code')
+        showCustomAlert('Error', error.message || 'Could not resend code')
         return
       }
 
       setOtp(['', '', '', '', '', ''])
       startResendCooldown()
-      Alert.alert('Code Sent', `A new verification code has been sent to ${email}`)
+      showCustomAlert('Code Sent', `A new verification code has been sent to ${email}`)
     } catch (err) {
-      Alert.alert('Error', err.message || String(err))
+      showCustomAlert('Error', err.message || String(err))
     } finally {
       setResending(false)
     }
@@ -237,7 +296,11 @@ export default function Register({ navigation }) {
       >
         {/* Logo */}
         <View style={styles.logoContainer}>
-          <Text style={styles.logo}>G</Text>
+          <Image 
+            source={require('../../assets/loading.png')} 
+            style={styles.logoImage} 
+            resizeMode="contain"
+          />
         </View>
 
         {/* Form */}
@@ -245,63 +308,211 @@ export default function Register({ navigation }) {
           <Text style={styles.heading}>Create your account</Text>
 
           {/* Full Name */}
-          <Text style={styles.label}>Full Name</Text>
-          <TextInput
-            placeholder="Full Name"
-            value={fullName}
-            onChangeText={setFullName}
-            style={styles.input}
-            placeholderTextColor="#999"
-          />
+          <View style={[styles.inputContainer, nameFocused && styles.inputContainerFocused]}>
+            <Animated.Text
+              style={[
+                styles.floatingLabel,
+                {
+                  transform: [
+                    {
+                      translateY: nameAnim.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [0, -26],
+                      }),
+                    },
+                  ],
+                  fontSize: nameAnim.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [16, 12],
+                  }),
+                  color: nameAnim.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: ['#9CA3AF', '#3B82B8'],
+                  }),
+                  zIndex: 10,
+                },
+              ]}
+              pointerEvents="none"
+            >
+              Full Name
+            </Animated.Text>
+            <TextInput
+              value={fullName}
+              onChangeText={(text) => {
+                setFullName(text)
+                if (text) handleFocus(nameAnim)
+              }}
+              onFocus={() => {
+                setNameFocused(true)
+                handleFocus(nameAnim)
+              }}
+              onBlur={() => {
+                setNameFocused(false)
+                handleBlur(nameAnim, fullName)
+              }}
+              style={styles.floatingInput}
+            />
+          </View>
 
           {/* Email */}
-          <Text style={styles.label}>Email</Text>
-          <TextInput
-            placeholder="Email"
-            value={email}
-            onChangeText={setEmail}
-            autoCapitalize="none"
-            keyboardType="email-address"
-            style={styles.input}
-            placeholderTextColor="#999"
-          />
+          <View style={[styles.inputContainer, emailFocused && styles.inputContainerFocused, { marginTop: 14 }]}>
+            <Animated.Text
+              style={[
+                styles.floatingLabel,
+                {
+                  transform: [
+                    {
+                      translateY: emailAnim.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [0, -26],
+                      }),
+                    },
+                  ],
+                  fontSize: emailAnim.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [16, 12],
+                  }),
+                  color: emailAnim.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: ['#9CA3AF', '#3B82B8'],
+                  }),
+                  zIndex: 10,
+                },
+              ]}
+              pointerEvents="none"
+            >
+              Email
+            </Animated.Text>
+            <TextInput
+              value={email}
+              onChangeText={(text) => {
+                setEmail(text)
+                if (text) handleFocus(emailAnim)
+              }}
+              onFocus={() => {
+                setEmailFocused(true)
+                handleFocus(emailAnim)
+              }}
+              onBlur={() => {
+                setEmailFocused(false)
+                handleBlur(emailAnim, email)
+              }}
+              autoCapitalize="none"
+              keyboardType="email-address"
+              style={styles.floatingInput}
+            />
+          </View>
 
           {/* Password */}
-          <Text style={styles.label}>Password</Text>
-          <View style={styles.passwordRow}>
-            <TextInput
-              placeholder="Password"
-              value={password}
-              onChangeText={setPassword}
-              secureTextEntry={!showPassword}
-              style={[styles.input, styles.passwordInput]}
-              placeholderTextColor="#999"
-            />
-            <TouchableOpacity
-              style={styles.eyeButton}
-              onPress={() => setShowPassword((v) => !v)}
+          <View style={[styles.inputContainer, passFocused && styles.inputContainerFocused, { marginTop: 14 }]}>
+            <Animated.Text
+              style={[
+                styles.floatingLabel,
+                {
+                  transform: [
+                    {
+                      translateY: passAnim.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [0, -26],
+                      }),
+                    },
+                  ],
+                  fontSize: passAnim.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [16, 12],
+                  }),
+                  color: passAnim.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: ['#9CA3AF', '#3B82B8'],
+                  }),
+                  zIndex: 10,
+                },
+              ]}
+              pointerEvents="none"
             >
-              <Text style={styles.eyeButtonText}>{showPassword ? '👁' : '👁‍🗨'}</Text>
-            </TouchableOpacity>
+              Password
+            </Animated.Text>
+            <View style={styles.passwordRow}>
+              <TextInput
+                value={password}
+                onChangeText={(text) => {
+                  setPassword(text)
+                  if (text) handleFocus(passAnim)
+                }}
+                onFocus={() => {
+                  setPassFocused(true)
+                  handleFocus(passAnim)
+                }}
+                onBlur={() => {
+                  setPassFocused(false)
+                  handleBlur(passAnim, password)
+                }}
+                secureTextEntry={!showPassword}
+                style={styles.passwordInput}
+              />
+              <TouchableOpacity
+                style={styles.eyeButton}
+                onPress={() => setShowPassword((v) => !v)}
+              >
+                <Feather name={showPassword ? 'eye' : 'eye-off'} size={18} color="#9CA3AF" />
+              </TouchableOpacity>
+            </View>
           </View>
 
           {/* Confirm Password */}
-          <Text style={styles.label}>Confirm Password</Text>
-          <View style={styles.passwordRow}>
-            <TextInput
-              placeholder="Confirm Password"
-              value={confirmPassword}
-              onChangeText={setConfirmPassword}
-              secureTextEntry={!showPassword}
-              style={[styles.input, styles.passwordInput]}
-              placeholderTextColor="#999"
-            />
-            <TouchableOpacity
-              style={styles.eyeButton}
-              onPress={() => setShowPassword((v) => !v)}
+          <View style={[styles.inputContainer, confirmFocused && styles.inputContainerFocused, { marginTop: 14 }]}>
+            <Animated.Text
+              style={[
+                styles.floatingLabel,
+                {
+                  transform: [
+                    {
+                      translateY: confirmAnim.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [0, -26],
+                      }),
+                    },
+                  ],
+                  fontSize: confirmAnim.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [16, 12],
+                  }),
+                  color: confirmAnim.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: ['#9CA3AF', '#3B82B8'],
+                  }),
+                  zIndex: 10,
+                },
+              ]}
+              pointerEvents="none"
             >
-              <Text style={styles.eyeButtonText}>{showPassword ? '👁' : '👁‍🗨'}</Text>
-            </TouchableOpacity>
+              Confirm Password
+            </Animated.Text>
+            <View style={styles.passwordRow}>
+              <TextInput
+                value={confirmPassword}
+                onChangeText={(text) => {
+                  setConfirmPassword(text)
+                  if (text) handleFocus(confirmAnim)
+                }}
+                onFocus={() => {
+                  setConfirmFocused(true)
+                  handleFocus(confirmAnim)
+                }}
+                onBlur={() => {
+                  setConfirmFocused(false)
+                  handleBlur(confirmAnim, confirmPassword)
+                }}
+                secureTextEntry={!showPassword}
+                style={styles.passwordInput}
+              />
+              <TouchableOpacity
+                style={styles.eyeButton}
+                onPress={() => setShowPassword((v) => !v)}
+              >
+                <Feather name={showPassword ? 'eye' : 'eye-off'} size={18} color="#9CA3AF" />
+              </TouchableOpacity>
+            </View>
           </View>
 
           {/* Terms Checkbox */}
@@ -362,10 +573,18 @@ export default function Register({ navigation }) {
               contentContainerStyle={{ paddingBottom: 12 }}
             >
               <Text style={styles.modalText}>
-                By creating an account, you agree to provide accurate information, keep your login
-                details secure, and use the app responsibly. Your email may be used for account
-                verification, password recovery, and important service updates. Continued use of
-                the app means you accept any future updates to these terms.
+                {"1. Acceptance of Terms\nBy accessing and using GABAY CSE, you agree to comply with and be bound by these Terms and Conditions. If you do not agree, you must not use the application.\n\n" +
+                 "2. Purpose of the Application\nGABAY PhilCSE is a mobile-based reviewer designed to assist users in preparing for the Civil Service Examination. The application provides learning materials, quizzes, analytics, and study recommendations for educational purposes only.\n\n" +
+                 "3. User Responsibilities\nUsers agree to:\n• Provide accurate and complete information upon registration\n• Maintain the confidentiality of their account credentials\n• Use the application for lawful and educational purposes only\n• Avoid sharing, copying, or distributing content without permission\n\n" +
+                 "4. Account Management\nThe system allows users to create and manage accounts. The developers reserve the right to suspend or terminate accounts that violate these terms or engage in unauthorized activities.\n\n" +
+                 "5. Content and Intellectual Property\nAll content within the application, including questions, materials, and features, is the intellectual property of the developers unless otherwise stated. Unauthorized reproduction or distribution is strictly prohibited.\n\n" +
+                 "6. Data Privacy\nUser data such as personal information and performance data will be collected and used solely for system functionality, analytics, and improving user experience. The system ensures reasonable protection of user data but does not guarantee absolute security.\n\n" +
+                 "7. System Limitations\n• The application does not guarantee passing the Civil Service Examination.\n• Results from analytics and predictions are estimates based on user performance.\n• The system is not affiliated with or officially connected to the Civil Service Commission (CSC).\n\n" +
+                 "8. Availability of Service\nThe developers aim to provide continuous access to the application; however, interruptions may occur due to maintenance, updates, or technical issues.\n\n" +
+                 "9. Updates and Modifications\nThe developers reserve the right to modify, update, or discontinue features of the application at any time without prior notice.\n\n" +
+                 "10. Limitation of Liability\nThe developers shall not be held liable for any damages, losses, or consequences resulting from the use or inability to use the application.\n\n" +
+                 "11. Termination of Use\nUsers may stop using the application at any time. The developers may terminate access if the user violates any terms stated above.\n\n" +
+                 "12. Governing Law\nThese Terms and Conditions shall be governed by the laws of the Republic of the Philippines."}
               </Text>
             </ScrollView>
             <TouchableOpacity
@@ -480,6 +699,32 @@ export default function Register({ navigation }) {
           </View>
         </KeyboardAvoidingView>
       </Modal>
+
+      {/* Custom Warning Alert Modal */}
+      <Modal
+        transparent
+        visible={alertVisible}
+        animationType="fade"
+        onRequestClose={() => setAlertVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalCard, { alignItems: 'center', padding: 24 }]}>
+            <View style={{ backgroundColor: '#FEE2E2', padding: 12, borderRadius: 32, marginBottom: 16 }}>
+              <Ionicons name="warning" size={32} color="#EF4444" />
+            </View>
+            <Text style={[styles.modalTitle, { fontSize: 18, marginBottom: 8 }]}>{alertTitle}</Text>
+            <Text style={{ color: '#4B5563', fontSize: 14, textAlign: 'center', lineHeight: 20, marginBottom: 20 }}>
+              {alertMessage}
+            </Text>
+            <TouchableOpacity
+              style={[styles.modalButton, { width: '100%', backgroundColor: '#EF4444' }]}
+              onPress={() => setAlertVisible(false)}
+            >
+              <Text style={styles.modalButtonText}>Okay</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </KeyboardAvoidingView>
   )
 }
@@ -497,12 +742,15 @@ const styles = StyleSheet.create({
     paddingVertical: 40,
   },
   logoContainer: {
-    marginBottom: 32,
+    width: 90,
+    height: 90,
+    marginBottom: 24,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
-  logo: {
-    fontSize: 48,
-    fontWeight: 'bold',
-    color: '#D9989E',
+  logoImage: {
+    width: '100%',
+    height: '100%',
   },
   formContainer: {
     width: '100%',
@@ -518,41 +766,52 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginBottom: 20,
   },
-  label: {
-    color: '#3B82B8',
-    fontSize: 14,
-    fontWeight: '500',
-    marginBottom: 6,
-    marginTop: 8,
-  },
-  input: {
-    borderWidth: 1,
+  inputContainer: {
+    borderWidth: 1.5,
     borderColor: '#D1D5DB',
-    borderRadius: 12,
-    paddingVertical: 12,
+    borderRadius: 14,
+    height: 52,
+    position: 'relative',
+    justifyContent: 'center',
     paddingHorizontal: 16,
-    marginBottom: 4,
-    fontSize: 16,
+    backgroundColor: '#FFFFFF',
+  },
+  inputContainerFocused: {
+    borderColor: '#3B82B8',
+  },
+  floatingLabel: {
+    position: 'absolute',
+    left: 12,
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 4,
+    fontWeight: '500',
+  },
+  floatingInput: {
+    width: '100%',
+    fontSize: 15,
     color: '#1a1a1a',
+    height: '100%',
   },
   passwordRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    height: '100%',
+    width: '100%',
   },
   passwordInput: {
     flex: 1,
-    marginBottom: 4,
+    height: '100%',
+    fontSize: 15,
+    color: '#1a1a1a',
   },
   eyeButton: {
-    marginLeft: -48,
-    marginBottom: 4,
-    width: 44,
-    height: 44,
+    width: 32,
+    height: 32,
     justifyContent: 'center',
     alignItems: 'center',
   },
   eyeButtonText: {
-    fontSize: 18,
+    fontSize: 16,
     color: '#3B82B8',
   },
   checkboxContainer: {
@@ -638,13 +897,14 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(15, 30, 53, 0.82)',
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 20,
+    paddingHorizontal: 20,
+    paddingVertical: 40,
   },
   modalCard: {
     width: '100%',
     backgroundColor: '#fff',
     borderRadius: 24,
-    padding: 20,
+    padding: 22,
     maxWidth: 420,
   },
   modalTitle: {
@@ -652,15 +912,15 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#111827',
     textAlign: 'center',
-    marginBottom: 10,
+    marginBottom: 14,
   },
   modalBody: {
-    maxHeight: 220,
-    marginBottom: 16,
+    maxHeight: 420,
+    marginBottom: 18,
   },
   modalText: {
-    fontSize: 14,
-    lineHeight: 22,
+    fontSize: 13,
+    lineHeight: 20,
     color: '#374151',
   },
   modalButton: {

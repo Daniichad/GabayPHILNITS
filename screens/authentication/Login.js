@@ -1,8 +1,52 @@
 import React, { useEffect, useState } from 'react'
-import { Modal, View, Text, TextInput, TouchableOpacity, Alert, StyleSheet } from 'react-native'
-import { supabase } from '../../utils/supabase'
+import { Modal, View, Text, TextInput, TouchableOpacity, Alert, StyleSheet, Animated, Image } from 'react-native'
+import { Feather, Ionicons } from '@expo/vector-icons'
+import * as WebBrowser from 'expo-web-browser'
+import * as QueryParams from 'expo-auth-session'
+import { supabase } from '../../supabase'
+
+WebBrowser.maybeCompleteAuthSession()
 
 export default function Login({ navigation }) {
+  // Custom warning popup alert states
+  const [alertVisible, setAlertVisible] = useState(false)
+  const [alertTitle, setAlertTitle] = useState('')
+  const [alertMessage, setAlertMessage] = useState('')
+
+  const showCustomAlert = (title, message) => {
+    setAlertTitle(title)
+    setAlertMessage(message)
+    setAlertVisible(true)
+  }
+  const checkUserRedirects = async (userId) => {
+    // Check if personal info has been completed
+    const { data: personalInfoData, error: personalInfoError } = await supabase
+      .from('personal_info')
+      .select('user_id')
+      .eq('user_id', userId)
+      .maybeSingle()
+
+    if (personalInfoError || !personalInfoData) {
+      navigation?.replace('PersonalInfo')
+      return
+    }
+
+    // Check if diagnostic assessment has been completed
+    const { data: diagnosticData, error: diagnosticError } = await supabase
+      .from('diagnostic_assessment_attempts')
+      .select('id')
+      .eq('user_id', userId)
+      .limit(1)
+      .maybeSingle()
+
+    if (diagnosticError || !diagnosticData) {
+      navigation?.replace('DiagnosticAssessment')
+      return
+    }
+
+    // Both done — go straight to Home
+    navigation?.replace('Home')
+  }
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
@@ -14,6 +58,31 @@ export default function Login({ navigation }) {
   const [forgotNewPassword, setForgotNewPassword] = useState('')
   const [forgotLoading, setForgotLoading] = useState(false)
   const [resetCooldown, setResetCooldown] = useState(0)
+
+  // Floating placeholder animations
+  const emailAnim = useState(new Animated.Value(email ? 1 : 0))[0]
+  const passAnim = useState(new Animated.Value(password ? 1 : 0))[0]
+
+  const [emailFocused, setEmailFocused] = useState(false)
+  const [passFocused, setPassFocused] = useState(false)
+
+  const handleFocus = (anim) => {
+    Animated.timing(anim, {
+      toValue: 1,
+      duration: 180,
+      useNativeDriver: false,
+    }).start()
+  }
+
+  const handleBlur = (anim, text) => {
+    if (!text) {
+      Animated.timing(anim, {
+        toValue: 0,
+        duration: 180,
+        useNativeDriver: false,
+      }).start()
+    }
+  }
 
   useEffect(() => {
     if (resetCooldown <= 0) {
@@ -27,69 +96,92 @@ export default function Login({ navigation }) {
     return () => clearTimeout(timer)
   }, [resetCooldown])
 
+  const handleGoogleSignIn = async () => {
+    setLoading(true)
+    try {
+      const redirectUrl = QueryParams.makeRedirectUri({
+        scheme: 'gabay_philcse',
+      })
+      
+      const { data, error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo: redirectUrl,
+          skipBrowserRedirect: true,
+        },
+      })
+
+      if (error) {
+        showCustomAlert('Google Sign-in Error', error.message)
+        return
+      }
+
+      if (data?.url) {
+        const result = await WebBrowser.openAuthSessionAsync(data.url, redirectUrl)
+        
+        if (result.type === 'success' && result.url) {
+          // Parse dynamic hash parameters from return URI
+          const parsed = QueryParams.parseQueryParams(result.url)
+          const accessToken = parsed.access_token || result.url.match(/access_token=([^&]+)/)?.[1]
+          const refreshToken = parsed.refresh_token || result.url.match(/refresh_token=([^&]+)/)?.[1]
+
+          if (accessToken) {
+            const { data: sessionData, error: sessionError } = await supabase.auth.setSession({
+              access_token: accessToken,
+              refresh_token: refreshToken || '',
+            })
+
+            if (sessionError) {
+              showCustomAlert('Session Error', sessionError.message)
+              return
+            }
+
+            if (sessionData?.user) {
+              await checkUserRedirects(sessionData.user.id)
+            }
+          }
+        }
+      }
+    } catch (err) {
+      showCustomAlert('Google Sign-in Error', err.message || String(err))
+    } finally {
+      setLoading(false)
+    }
+  }
+
   const handleLogin = async () => {
+    const trimmedEmail = email.trim()
+    if (!trimmedEmail || !password) {
+      showCustomAlert('Validation Error', 'Please fill in both email and password.')
+      return
+    }
+
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+    if (!emailRegex.test(trimmedEmail)) {
+      showCustomAlert('Validation Error', 'Please enter a valid email address.')
+      return
+    }
+
     setLoading(true)
     try {
       const { data, error } = await supabase.auth.signInWithPassword({
-        email,
+        email: trimmedEmail,
         password,
       })
 
       if (error) {
-        Alert.alert('Login error', error.message || 'Invalid credentials')
+        showCustomAlert('Login Error', error.message || 'Invalid credentials')
         return
       }
 
       if (!data.session) {
-        Alert.alert('Login error', 'Invalid credentials')
+        showCustomAlert('Login Error', 'Invalid credentials')
         return
       }
 
-      const userId = data.session.user.id
-
-      // Check if personal info has been completed
-      const { data: personalInfoData, error: personalInfoError } = await supabase
-        .from('personal_info')
-        .select('user_id')
-        .eq('user_id', userId)
-        .maybeSingle()
-
-      if (personalInfoError) {
-        // If we can't check, send them to PersonalInfo to be safe
-        navigation?.replace('PersonalInfo')
-        return
-      }
-
-      if (!personalInfoData) {
-        // No personal info yet — go fill it in first
-        navigation?.replace('PersonalInfo')
-        return
-      }
-
-      // Check if diagnostic assessment has been completed
-      const { data: diagnosticData, error: diagnosticError } = await supabase
-        .from('diagnostic_assessment_attempts')
-        .select('id')
-        .eq('user_id', userId)
-        .limit(1)
-        .maybeSingle()
-
-      if (diagnosticError) {
-        // If we can't check, send them to DiagnosticAssessment to be safe
-        navigation?.replace('DiagnosticAssessment')
-        return
-      }
-
-      if (!diagnosticData) {
-        // Personal info done but no diagnostic yet
-        navigation?.replace('DiagnosticAssessment')
-        return
-      }
-
-      // Both done — go straight to Home
-      navigation?.replace('Home')
+      await checkUserRedirects(data.session.user.id)
     } catch (err) {
-      Alert.alert('Login error', err.message || String(err))
+      showCustomAlert('Login Error', err.message || String(err))
     } finally {
       setLoading(false)
     }
@@ -97,12 +189,12 @@ export default function Login({ navigation }) {
 
   const handleSendResetCode = async () => {
     if (!forgotEmail.trim()) {
-      Alert.alert('Error', 'Please enter your email address')
+      showCustomAlert('Error', 'Please enter your email address')
       return
     }
 
     if (resetCooldown > 0) {
-      Alert.alert('Please wait', `You can request another code in ${resetCooldown} seconds.`)
+      showCustomAlert('Please wait', `You can request another code in ${resetCooldown} seconds.`)
       return
     }
 
@@ -116,15 +208,15 @@ export default function Login({ navigation }) {
       })
 
       if (error) {
-        Alert.alert('Reset error', error.message || 'Could not send the code')
+        showCustomAlert('Reset Error', error.message || 'Could not send the code')
         return
       }
 
       setForgotStep('verify')
       setResetCooldown(60)
-      Alert.alert('Code sent', 'Check your email for the one-time code.')
+      showCustomAlert('Code Sent', 'Check your email for the one-time code.')
     } catch (err) {
-      Alert.alert('Reset error', err.message || String(err))
+      showCustomAlert('Reset Error', err.message || String(err))
     } finally {
       setForgotLoading(false)
     }
@@ -132,7 +224,7 @@ export default function Login({ navigation }) {
 
   const handleVerifyResetCode = async () => {
     if (!forgotOtp.trim()) {
-      Alert.alert('Error', 'Please enter the code from your email')
+      showCustomAlert('Error', 'Please enter the code from your email')
       return
     }
 
@@ -145,7 +237,7 @@ export default function Login({ navigation }) {
       })
 
       if (error) {
-        Alert.alert('Verification error', error.message || 'Invalid code')
+        showCustomAlert('Verification Error', error.message || 'Invalid code')
         return
       }
 
@@ -153,7 +245,7 @@ export default function Login({ navigation }) {
         setForgotStep('reset')
       }
     } catch (err) {
-      Alert.alert('Verification error', err.message || String(err))
+      showCustomAlert('Verification Error', err.message || String(err))
     } finally {
       setForgotLoading(false)
     }
@@ -161,7 +253,7 @@ export default function Login({ navigation }) {
 
   const handleResetPassword = async () => {
     if (!forgotNewPassword.trim()) {
-      Alert.alert('Error', 'Please enter a new password')
+      showCustomAlert('Error', 'Please enter a new password')
       return
     }
 
@@ -172,18 +264,18 @@ export default function Login({ navigation }) {
       })
 
       if (error) {
-        Alert.alert('Reset error', error.message || 'Could not update password')
+        showCustomAlert('Reset Error', error.message || 'Could not update password')
         return
       }
 
-      Alert.alert('Success', 'Your password has been updated')
+      showCustomAlert('Success', 'Your password has been updated')
       setForgotVisible(false)
       setForgotStep('request')
       setForgotEmail('')
       setForgotOtp('')
       setForgotNewPassword('')
     } catch (err) {
-      Alert.alert('Reset error', err.message || String(err))
+      showCustomAlert('Reset Error', err.message || String(err))
     } finally {
       setForgotLoading(false)
     }
@@ -194,7 +286,11 @@ export default function Login({ navigation }) {
       <View style={styles.content}>
         {/* Logo */}
         <View style={styles.logoContainer}>
-          <Text style={styles.logo}>assets/icon.png</Text>
+          <Image 
+            source={require('../../assets/loading.png')} 
+            style={styles.logoImage} 
+            resizeMode="contain"
+          />
         </View>
 
         {/* Form */}
@@ -202,39 +298,121 @@ export default function Login({ navigation }) {
           <Text style={styles.heading}>Enter to your account</Text>
 
           {/* Google Button */}
-          <TouchableOpacity style={styles.googleButton} activeOpacity={0.85}>
-            <Text style={styles.googleButtonText}>Continue with Google </Text>
-            <Text style={styles.googleLogo}></Text>
+          <TouchableOpacity 
+            style={styles.googleButton} 
+            activeOpacity={0.85}
+            onPress={handleGoogleSignIn}
+            disabled={loading}
+          >
+            <Image 
+              source={{ uri: 'https://developers.google.com/static/identity/images/g-logo.png' }} 
+              style={{ width: 18, height: 18, marginRight: 10 }} 
+            />
+            <Text style={styles.googleButtonText}>Continue with Google</Text>
           </TouchableOpacity>
 
           <View style={styles.divider} />
 
           {/* Email Input */}
-          <Text style={styles.label}>Email</Text>
-          <TextInput
-            placeholder="Email"
-            value={email}
-            onChangeText={setEmail}
-            autoCapitalize="none"
-            keyboardType="email-address"
-            style={styles.input}
-            placeholderTextColor="#999"
-          />
+          <View style={[styles.inputContainer, emailFocused && styles.inputContainerFocused]}>
+            <Animated.Text
+              style={[
+                styles.floatingLabel,
+                {
+                  transform: [
+                    {
+                      translateY: emailAnim.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [0, -26], // Slides up along the top border line
+                      }),
+                    },
+                  ],
+                  fontSize: emailAnim.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [16, 12], // Scales down
+                  }),
+                  color: emailAnim.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: ['#9CA3AF', '#3B82B8'], // Colors match active inputs
+                  }),
+                  zIndex: 10,
+                },
+              ]}
+              pointerEvents="none"
+            >
+              Email
+            </Animated.Text>
+            <TextInput
+              value={email}
+              onChangeText={(text) => {
+                setEmail(text)
+                if (text) handleFocus(emailAnim)
+              }}
+              onFocus={() => {
+                setEmailFocused(true)
+                handleFocus(emailAnim)
+              }}
+              onBlur={() => {
+                setEmailFocused(false)
+                handleBlur(emailAnim, email)
+              }}
+              autoCapitalize="none"
+              keyboardType="email-address"
+              style={styles.floatingInput}
+            />
+          </View>
 
           {/* Password Input */}
-          <Text style={styles.label}>Password</Text>
-          <View style={styles.passwordRow}>
-            <TextInput
-              placeholder="Password"
-              value={password}
-              onChangeText={setPassword}
-              secureTextEntry={!showPassword}
-              style={[styles.input, styles.passwordInput]}
-              placeholderTextColor="#999"
-            />
-            <TouchableOpacity style={styles.eyeButton} onPress={() => setShowPassword((value) => !value)}>
-              <Text style={styles.eyeButtonText}>{showPassword ? '👁' : '👁‍🗨'}</Text>
-            </TouchableOpacity>
+          <View style={[styles.inputContainer, passFocused && styles.inputContainerFocused, { marginTop: 14 }]}>
+            <Animated.Text
+              style={[
+                styles.floatingLabel,
+                {
+                  transform: [
+                    {
+                      translateY: passAnim.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [0, -26], // Adjusted relative to inputContainer center line
+                      }),
+                    },
+                  ],
+                  fontSize: passAnim.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [16, 12],
+                  }),
+                  color: passAnim.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: ['#9CA3AF', '#3B82B8'],
+                  }),
+                  zIndex: 10,
+                },
+              ]}
+              pointerEvents="none"
+            >
+              Password
+            </Animated.Text>
+            <View style={styles.passwordRow}>
+              <TextInput
+                value={password}
+                onChangeText={(text) => {
+                  setPassword(text)
+                  if (text) handleFocus(passAnim)
+                }}
+                onFocus={() => {
+                  setPassFocused(true)
+                  handleFocus(passAnim)
+                }}
+                onBlur={() => {
+                  setPassFocused(false)
+                  handleBlur(passAnim, password)
+                }}
+                secureTextEntry={!showPassword}
+                style={styles.passwordInput}
+              />
+              <TouchableOpacity style={styles.eyeButton} onPress={() => setShowPassword((value) => !value)}>
+                <Feather name={showPassword ? 'eye' : 'eye-off'} size={18} color="#9CA3AF" />
+              </TouchableOpacity>
+            </View>
           </View>
 
           {/* Forgot Password */}
@@ -343,6 +521,32 @@ export default function Login({ navigation }) {
           </View>
         </View>
       </Modal>
+
+      {/* Custom Warning Alert Modal */}
+      <Modal
+        transparent
+        visible={alertVisible}
+        animationType="fade"
+        onRequestClose={() => setAlertVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalCard, { alignItems: 'center', padding: 24 }]}>
+            <View style={{ backgroundColor: '#FEE2E2', padding: 12, borderRadius: 32, marginBottom: 16 }}>
+              <Ionicons name="warning" size={32} color="#EF4444" />
+            </View>
+            <Text style={[styles.modalTitle, { fontSize: 18, marginBottom: 8 }]}>{alertTitle}</Text>
+            <Text style={{ color: '#4B5563', fontSize: 14, textAlign: 'center', lineHeight: 20, marginBottom: 20 }}>
+              {alertMessage}
+            </Text>
+            <TouchableOpacity
+              style={[styles.modalButton, { width: '100%', backgroundColor: '#EF4444' }]}
+              onPress={() => setAlertVisible(false)}
+            >
+              <Text style={styles.modalButtonText}>Okay</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </View>
   )
 }
@@ -360,12 +564,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   logoContainer: {
-    marginBottom: 40,
+    width: 90,
+    height: 90,
+    marginBottom: 28,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
-  logo: {
-    fontSize: 48,
-    fontWeight: 'bold',
-    color: '#D9989E',
+  logoImage: {
+    width: '100%',
+    height: '100%',
   },
   formContainer: {
     width: '100%',
@@ -385,66 +592,77 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
-    borderWidth: 1.5,
-    borderColor: '#3B82B8',
-    borderRadius: 12,
-    paddingVertical: 12,
+    borderWidth: 1,
+    borderColor: '#D1D5DB',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 14,
+    height: 50,
     marginBottom: 16,
   },
   googleButtonText: {
-    color: '#3B82B8',
-    fontSize: 16,
-    fontWeight: '500',
-  },
-  googleLogo: {
-    marginLeft: 8,
+    color: '#374151',
+    fontSize: 15,
+    fontWeight: '600',
   },
   divider: {
     height: 1,
     backgroundColor: '#E5E7EB',
-    marginVertical: 16,
-  },
-  label: {
-    color: '#3B82B8',
-    fontSize: 14,
-    fontWeight: '500',
-    marginBottom: 8,
     marginTop: 8,
+    marginBottom: 16,
   },
-  input: {
-    borderWidth: 1,
+  inputContainer: {
+    borderWidth: 1.5,
     borderColor: '#D1D5DB',
-    borderRadius: 12,
-    paddingVertical: 12,
+    borderRadius: 14,
+    height: 52,
+    position: 'relative',
+    justifyContent: 'center',
     paddingHorizontal: 16,
-    marginBottom: 12,
-    fontSize: 16,
+    backgroundColor: '#FFFFFF',
+  },
+  inputContainerFocused: {
+    borderColor: '#3B82B8',
+  },
+  floatingLabel: {
+    position: 'absolute',
+    left: 12,
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 4,
+    fontWeight: '500',
+  },
+  floatingInput: {
+    width: '100%',
+    fontSize: 15,
     color: '#1a1a1a',
+    height: '100%',
   },
   passwordRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    height: '100%',
+    width: '100%',
   },
   passwordInput: {
     flex: 1,
-    marginBottom: 12,
+    height: '100%',
+    fontSize: 15,
+    color: '#1a1a1a',
   },
   eyeButton: {
-    marginLeft: -48,
-    marginBottom: 12,
-    width: 44,
-    height: 44,
+    width: 32,
+    height: 32,
     justifyContent: 'center',
     alignItems: 'center',
   },
   eyeButtonText: {
-    fontSize: 18,
+    fontSize: 16,
     color: '#3B82B8',
   },
   forgotPassword: {
     color: '#3B82B8',
     fontSize: 14,
     textAlign: 'right',
+    marginTop: 8,
     marginBottom: 20,
     fontWeight: '500',
   },

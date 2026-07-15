@@ -17,6 +17,7 @@ const ROUTE_TAB_MAP = {
   MultipleChoice: 2,
   MockExamHome: 2,
   MockExamTake: 2,
+  PracticeOverview: 2,
   Performance: 3,
   PersonalInfo: 4,
   Profile: 4,

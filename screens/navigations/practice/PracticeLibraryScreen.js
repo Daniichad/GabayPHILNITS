@@ -67,7 +67,13 @@ export default function PracticeLibraryScreen({ navigation }) {
                 { backgroundColor: pt.bg },
                 pt.outlined && styles.practiceBtnOutlined,
               ]}
-              onPress={() => navigation.navigate(pt.id)}
+              onPress={() => {
+                if (pt.id === 'MockExamHome') {
+                  navigation.navigate('MockExamHome')
+                } else {
+                  navigation.navigate('PracticeOverview', { typeId: pt.id })
+                }
+              }}
             >
               <Text style={[styles.practiceBtnText, { color: pt.text }]}>
                 {pt.label}

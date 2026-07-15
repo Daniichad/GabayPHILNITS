@@ -1,5 +1,5 @@
 import React from 'react'
-import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
+import { Platform, ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
 import { Ionicons, Feather } from '@expo/vector-icons'
 
 
@@ -28,25 +28,100 @@ export default function ReadingMaterial({ navigation, route }) {
   const selectedTitle = route?.params?.title || 'Vocabulary'
   const content = CONTENTS[selectedTitle] || CONTENTS.Vocabulary
 
+  const [showOverview, setShowOverview] = React.useState(true)
+  const [selectedChapter, setSelectedChapter] = React.useState('Chapter 1')
+
+  // Sample chapters list matching the mockup image
+  const chaptersList = [
+    { id: 'Chapter 1', title: 'Fundamentals of Vocabulary' },
+    { id: 'Chapter 2', title: 'Introduction' },
+    { id: 'Chapter 3', title: 'Basic Vocabulary' },
+    { id: 'Chapter 4', title: 'Intermediate Vocabulary' },
+    { id: 'Chapter 5', title: 'Advanced Vocabulary' },
+    { id: 'Chapter 6', title: 'Dictionary' },
+    { id: 'Chapter 7', title: 'Related Topics' },
+  ]
+
+  if (showOverview) {
+    return (
+      <View style={styles.screen}>
+        <StatusBar barStyle="dark-content" backgroundColor="#fff" />
+        <View style={styles.topBar}>
+          <TouchableOpacity onPress={() => navigation?.goBack()}>
+            <Ionicons name="chevron-back" size={28} color="#13294b" />
+          </TouchableOpacity>
+          <Text style={styles.title}>{selectedTitle}</Text>
+          <View style={styles.rightSpacer} />
+        </View>
+
+        <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+          <Text style={styles.sectionTitle}>{selectedTitle}</Text>
+
+          {/* Timeline-style vertical list of chapters */}
+          <View style={styles.timelineContainer}>
+            {chaptersList.map((chap, index) => {
+              const isSelected = selectedChapter === chap.id
+              return (
+                <TouchableOpacity
+                  key={chap.id}
+                  style={styles.chapterItemRow}
+                  activeOpacity={0.8}
+                  onPress={() => setSelectedChapter(chap.id)}
+                >
+                  <View style={styles.timelineLeftCol}>
+                    <View style={[styles.timelineNode, isSelected && styles.timelineNodeActive]} />
+                    {index < chaptersList.length - 1 && <View style={styles.timelineLine} />}
+                  </View>
+                  <View style={styles.chapterTextCol}>
+                    <Text style={[styles.chapterLabelText, isSelected && styles.chapterLabelActive]}>
+                      {chap.id}
+                    </Text>
+                    <Text style={styles.chapterTitleText}>{chap.title}</Text>
+                  </View>
+                </TouchableOpacity>
+              )
+            })}
+          </View>
+
+          <TouchableOpacity
+            style={styles.continueButton}
+            activeOpacity={0.85}
+            onPress={() => setShowOverview(false)}
+          >
+            <Text style={styles.continueButtonText}>Continue Reading</Text>
+          </TouchableOpacity>
+        </ScrollView>
+      </View>
+    )
+  }
+
   return (
     <View style={styles.screen}>
+      <StatusBar barStyle="dark-content" backgroundColor="#fff" />
       <View style={styles.topBar}>
-        <TouchableOpacity onPress={() => navigation?.goBack()}>
+        <TouchableOpacity onPress={() => setShowOverview(true)}>
           <Ionicons name="chevron-back" size={28} color="#13294b" />
         </TouchableOpacity>
-        <Text style={styles.title}>{content.chapter}</Text>
+        <Text style={styles.title}>{selectedChapter}</Text>
         <View style={styles.rightSpacer} />
       </View>
 
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        <Text style={styles.sectionTitle}>{content.title}</Text>
+        <Text style={styles.sectionTitle}>
+          {selectedChapter === 'Chapter 1' ? content.title : `Exploring ${selectedChapter}`}
+        </Text>
 
         <View style={styles.contentCard}>
-          <Text style={styles.contentText}>{content.body}</Text>
+          <Text style={styles.contentText}>
+            {selectedChapter === 'Chapter 1' 
+              ? content.body 
+              : `This is the lesson content detail screen for ${selectedChapter}. GABAY PhilCSE provides targeted practice, flashcards, reading materials and real-time assessments to boost your mock score.`
+            }
+          </Text>
         </View>
 
         <View style={styles.bottomActions}>
-          <TouchableOpacity style={styles.secondaryButton} activeOpacity={0.85} onPress={() => navigation?.goBack()}>
+          <TouchableOpacity style={styles.secondaryButton} activeOpacity={0.85} onPress={() => setShowOverview(true)}>
             <Text style={styles.secondaryButtonText}>Back</Text>
           </TouchableOpacity>
           <TouchableOpacity style={styles.primaryButton} activeOpacity={0.85} onPress={() => navigation?.navigate('Library')}>
@@ -58,8 +133,6 @@ export default function ReadingMaterial({ navigation, route }) {
       <TouchableOpacity style={styles.fab} activeOpacity={0.85}>
         <Feather name="settings" size={24} color="#fff" />
       </TouchableOpacity>
-
-
     </View>
   )
 }
@@ -74,7 +147,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 18,
-    paddingTop: 18,
+    paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight + 10 : 54,
     marginBottom: 10,
   },
   title: {
@@ -177,5 +250,77 @@ const styles = StyleSheet.create({
   },
   navIconActive: {
     backgroundColor: 'rgba(15, 39, 71, 0.08)',
+  },
+
+  // ── Timeline & Overview ──
+  timelineContainer: {
+    marginVertical: 18,
+    paddingLeft: 4,
+  },
+  chapterItemRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginBottom: 0,
+    height: 72,
+  },
+  timelineLeftCol: {
+    width: 24,
+    alignItems: 'center',
+    height: '100%',
+  },
+  timelineNode: {
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    borderWidth: 2,
+    borderColor: '#64748b',
+    backgroundColor: '#fff',
+    zIndex: 2,
+    marginTop: 4,
+  },
+  timelineNodeActive: {
+    borderColor: '#0f2747',
+    backgroundColor: '#0f2747',
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+  },
+  timelineLine: {
+    position: 'absolute',
+    top: 14,
+    bottom: 0,
+    width: 2,
+    backgroundColor: '#cbd5e1',
+    zIndex: 1,
+  },
+  chapterTextCol: {
+    marginLeft: 14,
+    flex: 1,
+  },
+  chapterLabelText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#64748b',
+    marginBottom: 2,
+  },
+  chapterLabelActive: {
+    color: '#0f2747',
+  },
+  chapterTitleText: {
+    fontSize: 13,
+    color: '#475569',
+  },
+  continueButton: {
+    backgroundColor: '#0f2747',
+    borderRadius: 24,
+    paddingVertical: 14,
+    alignItems: 'center',
+    marginTop: 10,
+    marginBottom: 20,
+  },
+  continueButtonText: {
+    color: '#fff',
+    fontWeight: '800',
+    fontSize: 15,
   },
 })
