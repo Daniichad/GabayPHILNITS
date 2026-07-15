@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react'
 import {
-  Alert, ScrollView, StyleSheet, Text, TouchableOpacity,
+  Alert, Animated, ScrollView, StyleSheet, Text, TouchableOpacity,
   View, Image, Modal, Linking, ActivityIndicator,
   RefreshControl, Platform, StatusBar,
 } from 'react-native'
@@ -79,6 +79,7 @@ export default function Home({ session, navigation }) {
   const [cseLoading, setCseLoading] = useState(true)
 
   const quoteTimer = useRef(null)
+  const quoteOpacity = useRef(new Animated.Value(1)).current
 
   const unreadCount = notifications.filter((n) => !n.read).length
 
@@ -176,6 +177,16 @@ export default function Home({ session, navigation }) {
   // ─── Fetch quote from API ───────────────────────────────────────
   const fetchQuote = useCallback(async (silent = false) => {
     if (!silent) setQuoteLoading(true)
+
+    // Fade out current quote before swapping
+    await new Promise((resolve) =>
+      Animated.timing(quoteOpacity, {
+        toValue: 0,
+        duration: 300,
+        useNativeDriver: true,
+      }).start(resolve)
+    )
+
     try {
       const response = await fetch('https://api.quotable.io/random?tags=inspirational,motivational', {
         signal: AbortSignal.timeout?.(5000),
@@ -189,8 +200,14 @@ export default function Home({ session, navigation }) {
       setQuote(fallback)
     } finally {
       setQuoteLoading(false)
+      // Fade in new quote
+      Animated.timing(quoteOpacity, {
+        toValue: 1,
+        duration: 400,
+        useNativeDriver: true,
+      }).start()
     }
-  }, [])
+  }, [quoteOpacity])
 
   // Fetch quote on mount and every 30 seconds
   useEffect(() => {
@@ -315,14 +332,14 @@ export default function Home({ session, navigation }) {
           {quoteLoading ? (
             <ActivityIndicator size="small" color="#b45309" style={{ marginVertical: 18 }} />
           ) : (
-            <>
+            <Animated.View style={{ opacity: quoteOpacity }}>
               <Text style={styles.quoteText}>
                 "{quote?.content || '…'}"
               </Text>
               {quote?.author ? (
                 <Text style={styles.quoteAuthor}>— {quote.author}</Text>
               ) : null}
-            </>
+            </Animated.View>
           )}
         </View>
 

@@ -19,6 +19,14 @@ const ROUTE_TAB_MAP = {
   MockExamTake: 2,
   Performance: 3,
   PersonalInfo: 4,
+  Profile: 4,
+  AccountInformation: 4,
+  Settings: 4,
+  HelpCenter: 4,
+  Report: 4,
+  TermsConditions: 4,
+  RateApp: 4,
+  AboutApp: 4,
 }
 
 const NAVY = '#0f2747'
@@ -63,7 +71,7 @@ const TABS = [
   },
   {
     label: 'Profile',
-    route: 'PersonalInfo',
+    route: 'Profile',
     icon: (active) => (
       <Feather name="user" size={24} color={active ? NAVY : GRAY} />
     ),

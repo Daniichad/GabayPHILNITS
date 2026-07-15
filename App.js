@@ -20,6 +20,14 @@ import MultipleChoice from './screens/navigations/practice/MultipleChoice'
 import MockExamHome from './screens/navigations/practice/MockExamHome'
 import MockExamTake from './screens/navigations/practice/MockExamTake'
 import Performance from './screens/navigations/performance/Performance'
+import Profile from './screens/navigations/profile/Profile'
+import AccountInformation from './screens/navigations/profile/AccountInformation'
+import Settings from './screens/navigations/profile/Settings'
+import HelpCenter from './screens/navigations/profile/HelpCenter'
+import Report from './screens/navigations/profile/Report'
+import TermsConditions from './screens/navigations/profile/TermsConditions'
+import RateApp from './screens/navigations/profile/RateApp'
+import AboutApp from './screens/navigations/profile/AboutApp'
 import BottomNav from './components/BottomNav'
 
 const Stack = createNativeStackNavigator()
@@ -27,7 +35,7 @@ const Stack = createNativeStackNavigator()
 // Screens that should show the persistent bottom navbar
 const NAV_SCREENS = new Set([
 	'Home', 'Library', 'StudyPlan', 'ReadingMaterial',
-	'PracticeLibrary', 'PracticeScreen', 'Performance', 'PersonalInfo',
+	'PracticeLibrary', 'PracticeScreen', 'Performance', 'PersonalInfo', 'Profile', 'AccountInformation', 'Settings', 'HelpCenter', 'Report', 'TermsConditions', 'RateApp', 'AboutApp',
 ])
 
 export default function App() {
@@ -84,6 +92,14 @@ export default function App() {
 					<Stack.Screen name="MockExamHome" component={MockExamHome} />
 					<Stack.Screen name="MockExamTake" component={MockExamTake} />
 					<Stack.Screen name="Performance" component={Performance} />
+					<Stack.Screen name="Profile" component={Profile} />
+					<Stack.Screen name="AccountInformation" component={AccountInformation} />
+					<Stack.Screen name="Settings" component={Settings} />
+					<Stack.Screen name="HelpCenter" component={HelpCenter} />
+					<Stack.Screen name="Report" component={Report} />
+					<Stack.Screen name="TermsConditions" component={TermsConditions} />
+					<Stack.Screen name="RateApp" component={RateApp} />
+					<Stack.Screen name="AboutApp" component={AboutApp} />
 				</Stack.Navigator>
 			</NavigationContainer>
 
