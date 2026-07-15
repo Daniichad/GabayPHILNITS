@@ -67,14 +67,19 @@ function ScoreGauge({ correct, incorrect, score, width = 120 }) {
   );
 }
 
-export default function MockExamHome({ navigation }) {
+export default function MockExamHome({ navigation, route }) {
+  const from = route?.params?.from
+  const handleBack = () => {
+    if (from === 'Home') navigation.navigate('Home')
+    else navigation.navigate('PracticeLibrary')
+  }
   return (
     <SafeAreaView style={styles.safeArea}>
       <StatusBar barStyle="dark-content" />
 
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity style={styles.iconButton} onPress={() => navigation.navigate('PracticeLibrary')}>
+        <TouchableOpacity style={styles.iconButton} onPress={handleBack}>
           <Ionicons name="chevron-back" size={26} color="#0B2540" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>{SCREEN_TITLE}</Text>

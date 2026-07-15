@@ -1,4 +1,4 @@
-﻿import React from 'react'
+import React from 'react'
 import {
   Alert, ActivityIndicator, Modal, ScrollView,
   StyleSheet, Text, TouchableOpacity, View,
@@ -14,7 +14,8 @@ const CATEGORY_ORDER = [
   'Clerical Operations',
 ]
 
-export default function DiagnosticAssessment({ navigation }) {
+export default function DiagnosticAssessment({ navigation, route }) {
+  const from = route?.params?.from
   const [questions,      setQuestions]      = React.useState([])
   const [loading,        setLoading]        = React.useState(true)
   const [loadError,      setLoadError]      = React.useState(null)
@@ -134,7 +135,8 @@ export default function DiagnosticAssessment({ navigation }) {
 
   const handleExitAssessment = () => {
     setExitVisible(false)
-    navigation?.goBack()
+    if (from === 'Home') navigation?.navigate('Home')
+    else navigation?.goBack()
   }
 
   // ─────────────────────────────── LOADING STATE ────────────

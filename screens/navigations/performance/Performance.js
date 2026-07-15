@@ -1,10 +1,11 @@
-﻿import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect } from 'react'
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
   SafeAreaView, StatusBar, Platform, ActivityIndicator,
 } from 'react-native'
 import { Ionicons, Feather, MaterialCommunityIcons } from '@expo/vector-icons'
 import { supabase } from '../../../supabase'
+
 
 const NAVY  = '#0f2747'
 const TABS  = ['Overview', 'Predictive', 'Prescriptive']
@@ -27,18 +28,6 @@ function readinessColor(p) {
   if (p >= 60) return '#2563eb'
   if (p >= 40) return '#d97706'
   return '#dc2626'
-}
-
-// ── Nav icon ─────────────────────────────────────────────────────
-function NavIcon({ icon, onPress, active }) {
-  return (
-    <TouchableOpacity
-      activeOpacity={0.8} onPress={onPress}
-      style={[styles.navIconWrap, active && styles.navIconActive]}
-    >
-      {icon}
-    </TouchableOpacity>
-  )
 }
 
 // ── Bar (for progress) ────────────────────────────────────────────
@@ -422,14 +411,7 @@ export default function Performance({ navigation }) {
       {tab === 1 && <Predictive />}
       {tab === 2 && <Prescriptive />}
 
-      {/* Bottom nav */}
-      <View style={styles.bottomNav}>
-        <NavIcon icon={<Ionicons name="home-outline" size={26} color="#64748b" />} onPress={() => navigation.navigate('Home')} />
-        <NavIcon icon={<Ionicons name="document-text-outline" size={26} color="#64748b" />} onPress={() => navigation.navigate('Library')} />
-        <NavIcon icon={<Feather name="clipboard" size={24} color="#64748b" />} onPress={() => navigation.navigate('PracticeLibrary')} />
-        <NavIcon active icon={<Feather name="bar-chart-2" size={24} color={NAVY} />} onPress={() => navigation.navigate('Performance')} />
-        <NavIcon icon={<Feather name="user" size={24} color="#64748b" />} onPress={() => navigation.navigate('PersonalInfo')} />
-      </View>
+
     </SafeAreaView>
   )
 }

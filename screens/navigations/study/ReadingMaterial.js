@@ -2,6 +2,7 @@ import React from 'react'
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
 import { Ionicons, Feather } from '@expo/vector-icons'
 
+
 const CONTENTS = {
   Vocabulary: {
     chapter: 'Chapter 1',
@@ -58,22 +59,8 @@ export default function ReadingMaterial({ navigation, route }) {
         <Feather name="settings" size={24} color="#fff" />
       </TouchableOpacity>
 
-      <View style={styles.bottomNav}>
-        <NavButton icon={<Ionicons name="home" size={26} color="#64748b" />} onPress={() => navigation?.navigate('Home')} />
-        <NavButton icon={<Ionicons name="document-text" size={26} color="#64748b" />} onPress={() => navigation?.navigate('StudyPlan')} />
-        <NavButton active icon={<Feather name="clipboard" size={24} color="#13294b" />} onPress={() => navigation?.navigate('Library')} />
-        <NavButton icon={<Feather name="bar-chart-2" size={24} color="#64748b" />} onPress={() => navigation?.navigate('DiagnosticAssessment')} />
-        <NavButton icon={<Feather name="user" size={24} color="#64748b" />} onPress={() => navigation?.navigate('Home')} />
-      </View>
-    </View>
-  )
-}
 
-function NavButton({ icon, onPress, active = false }) {
-  return (
-    <TouchableOpacity activeOpacity={0.8} onPress={onPress} style={[styles.navIconWrap, active && styles.navIconActive]}>
-      {icon}
-    </TouchableOpacity>
+    </View>
   )
 }
 

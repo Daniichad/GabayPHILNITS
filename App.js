@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import { ActivityIndicator, StyleSheet, View } from 'react-native'
-import { NavigationContainer } from '@react-navigation/native'
+import { NavigationContainer, useNavigationContainerRef } from '@react-navigation/native'
 import { createNativeStackNavigator } from '@react-navigation/native-stack'
 import Onboarding from './screens/onboarding/Onboarding'
 import Login from './screens/authentication/Login'
@@ -20,17 +20,27 @@ import MultipleChoice from './screens/navigations/practice/MultipleChoice'
 import MockExamHome from './screens/navigations/practice/MockExamHome'
 import MockExamTake from './screens/navigations/practice/MockExamTake'
 import Performance from './screens/navigations/performance/Performance'
+import BottomNav from './components/BottomNav'
 
 const Stack = createNativeStackNavigator()
 
+// Screens that should show the persistent bottom navbar
+const NAV_SCREENS = new Set([
+	'Home', 'Library', 'StudyPlan', 'ReadingMaterial',
+	'PracticeLibrary', 'PracticeScreen', 'Performance', 'PersonalInfo',
+])
+
 export default function App() {
 	const [loading, setLoading] = useState(true)
+	const [currentRoute, setCurrentRoute] = useState('Home')
+	const navigationRef = useNavigationContainerRef()
 
 	useEffect(() => {
 		const timer = setTimeout(() => setLoading(false), 300)
-
 		return () => clearTimeout(timer)
 	}, [])
+
+	const showNav = NAV_SCREENS.has(currentRoute)
 
 	if (loading) {
 		return (
@@ -41,38 +51,54 @@ export default function App() {
 	}
 
 	return (
-		<NavigationContainer>
-			<Stack.Navigator
-				screenOptions={{
-					headerShown: false,
-					animationEnabled: true,
+		<View style={styles.root}>
+			<NavigationContainer
+				ref={navigationRef}
+				onStateChange={() => {
+					const name = navigationRef.getCurrentRoute()?.name
+					if (name) setCurrentRoute(name)
 				}}
-				initialRouteName="PracticeLibrary"
 			>
-				<Stack.Screen name="Onboarding" component={Onboarding} />
-				<Stack.Screen name="Login" component={Login} />
-				<Stack.Screen name="Register" component={Register} />
-				<Stack.Screen name="PersonalInfo" component={PersonalInfo} />
-				<Stack.Screen name="DiagnosticAssessment" component={DiagnosticAssessment} />
-				<Stack.Screen name="StudyPlan" component={StudyPlan} />
-				<Stack.Screen name="Library" component={Library} />
-				<Stack.Screen name="ReadingMaterial" component={ReadingMaterial} />
-				<Stack.Screen name="Home" component={Home} />
-				<Stack.Screen name="PracticeLibrary" component={PracticeLibraryScreen} />
-				<Stack.Screen name="PracticeScreen" component={PracticeScreen} />
-				<Stack.Screen name="Flashcards" component={Flashcards} />
-				<Stack.Screen name="Matching" component={Matching} />
-				<Stack.Screen name="TrueFalse" component={TrueFalse} />
-				<Stack.Screen name="MultipleChoice" component={MultipleChoice} />
-				<Stack.Screen name="MockExamHome" component={MockExamHome} />
-				<Stack.Screen name="MockExamTake" component={MockExamTake} />
-				<Stack.Screen name="Performance" component={Performance} />
-			</Stack.Navigator>
-		</NavigationContainer>
+				<Stack.Navigator
+					screenOptions={{
+						headerShown: false,
+						animation: 'fade_from_bottom',
+					}}
+					initialRouteName="Home"
+				>
+					<Stack.Screen name="Onboarding" component={Onboarding} />
+					<Stack.Screen name="Login" component={Login} />
+					<Stack.Screen name="Register" component={Register} />
+					<Stack.Screen name="PersonalInfo" component={PersonalInfo} />
+					<Stack.Screen name="DiagnosticAssessment" component={DiagnosticAssessment} />
+					<Stack.Screen name="StudyPlan" component={StudyPlan} />
+					<Stack.Screen name="Library" component={Library} />
+					<Stack.Screen name="ReadingMaterial" component={ReadingMaterial} />
+					<Stack.Screen name="Home" component={Home} />
+					<Stack.Screen name="PracticeLibrary" component={PracticeLibraryScreen} />
+					<Stack.Screen name="PracticeScreen" component={PracticeScreen} />
+					<Stack.Screen name="Flashcards" component={Flashcards} />
+					<Stack.Screen name="Matching" component={Matching} />
+					<Stack.Screen name="TrueFalse" component={TrueFalse} />
+					<Stack.Screen name="MultipleChoice" component={MultipleChoice} />
+					<Stack.Screen name="MockExamHome" component={MockExamHome} />
+					<Stack.Screen name="MockExamTake" component={MockExamTake} />
+					<Stack.Screen name="Performance" component={Performance} />
+				</Stack.Navigator>
+			</NavigationContainer>
+
+			{/* BottomNav lives OUTSIDE the navigator so it is never animated by screen transitions */}
+			{showNav && (
+				<BottomNav navigation={navigationRef} activeRoute={currentRoute} />
+			)}
+		</View>
 	)
 }
 
 const styles = StyleSheet.create({
+	root: {
+		flex: 1,
+	},
 	loadingContainer: {
 		flex: 1,
 		justifyContent: 'center',
@@ -80,4 +106,3 @@ const styles = StyleSheet.create({
 		backgroundColor: '#0f1e35',
 	},
 })
-

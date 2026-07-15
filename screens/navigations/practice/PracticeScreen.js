@@ -5,6 +5,7 @@ import {
 } from 'react-native'
 import { Ionicons, Feather, MaterialCommunityIcons } from '@expo/vector-icons'
 
+
 const NAVY = '#0f2747'
 
 // ─── Filter tabs ──────────────────────────────────────────────
@@ -66,18 +67,6 @@ const LIBRARY_GROUPS = [
   },
 ]
 
-// ─── Bottom nav helper ────────────────────────────────────────
-function NavIcon({ icon, onPress, active }) {
-  return (
-    <TouchableOpacity
-      activeOpacity={0.8}
-      onPress={onPress}
-      style={[styles.navIconWrap, active && styles.navIconActive]}
-    >
-      {icon}
-    </TouchableOpacity>
-  )
-}
 
 // ─── Main component ───────────────────────────────────────────
 export default function PracticeScreen({ navigation }) {
@@ -192,30 +181,7 @@ export default function PracticeScreen({ navigation }) {
         <View style={{ height: 90 }} />
       </ScrollView>
 
-      {/* ── Bottom Nav ── */}
-      <View style={styles.bottomNav}>
-        <NavIcon
-          icon={<Ionicons name="home-outline" size={26} color="#64748b" />}
-          onPress={() => navigation.navigate('Home')}
-        />
-        <NavIcon
-          icon={<Ionicons name="document-text-outline" size={26} color="#64748b" />}
-          onPress={() => navigation.navigate('Library')}
-        />
-        <NavIcon
-          active
-          icon={<Feather name="clipboard" size={24} color={NAVY} />}
-          onPress={() => navigation.navigate('PracticeLibrary')}
-        />
-        <NavIcon
-          icon={<Feather name="bar-chart-2" size={24} color="#64748b" />}
-          onPress={() => navigation.navigate('Performance')}
-        />
-        <NavIcon
-          icon={<Feather name="user" size={24} color="#64748b" />}
-          onPress={() => navigation.navigate('PersonalInfo')}
-        />
-      </View>
+
     </SafeAreaView>
   )
 }

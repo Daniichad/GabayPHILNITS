@@ -1,408 +1,957 @@
-import React from 'react'
-import { Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
+import React, { useState, useEffect, useCallback, useRef } from 'react'
+import {
+  Alert, ScrollView, StyleSheet, Text, TouchableOpacity,
+  View, Image, Modal, Linking, ActivityIndicator,
+  RefreshControl, Platform, StatusBar,
+} from 'react-native'
 import { supabase } from '../../../utils/supabase'
-import { Ionicons, MaterialCommunityIcons, Feather } from '@expo/vector-icons'
+import { Ionicons, Feather, MaterialCommunityIcons } from '@expo/vector-icons'
+
+// ─── Fallback motivational quotes (used if API fails) ───────────
+const FALLBACK_QUOTES = [
+  { content: 'Success is the sum of small efforts repeated day in and day out.', author: 'Robert Collier' },
+  { content: 'The secret of getting ahead is getting started.', author: 'Mark Twain' },
+  { content: 'Believe you can and you\'re halfway there.', author: 'Theodore Roosevelt' },
+  { content: 'It does not matter how slowly you go as long as you do not stop.', author: 'Confucius' },
+  { content: 'The expert in anything was once a beginner.', author: 'Helen Hayes' },
+  { content: 'Push yourself, because no one else is going to do it for you.', author: 'Unknown' },
+  { content: 'Great things never come from comfort zones.', author: 'Unknown' },
+  { content: 'Dream big and dare to fail.', author: 'Norman Vaughan' },
+  { content: 'Hard work beats talent when talent doesn\'t work hard.', author: 'Tim Notke' },
+  { content: 'You don\'t have to be great to start, but you have to start to be great.', author: 'Zig Ziglar' },
+]
+
+// ─── Sample notifications ────────────────────────────────────────
+const INITIAL_NOTIFICATIONS = [
+  {
+    id: 1,
+    icon: 'clipboard-text',
+    title: 'New Mock Exam Available',
+    body: 'A new Civil Service mock exam has been added. Test yourself now!',
+    time: '2h ago',
+    read: false,
+  },
+  {
+    id: 2,
+    icon: 'fire',
+    title: 'Study Streak! 🔥',
+    body: "You're on a 3-day study streak. Keep it up — consistency is key!",
+    time: '1d ago',
+    read: false,
+  },
+  {
+    id: 3,
+    icon: 'calendar-clock',
+    title: 'CSE Exam Reminder',
+    body: 'The next CSE exam is in 45 days. Stay on track with your study plan.',
+    time: '2d ago',
+    read: true,
+  },
+  {
+    id: 4,
+    icon: 'book-open-variant',
+    title: 'New Reading Material',
+    body: 'Vocabulary Chapter 3 has been added to the Library.',
+    time: '3d ago',
+    read: true,
+  },
+]
+
+const NAVY = '#0f2747'
+const ACCENT = '#d85e67'
 
 export default function Home({ session, navigation }) {
-	const user = session?.user
-	const displayName = user?.user_metadata?.full_name || user?.user_metadata?.fullName || user?.email || 'User'
-	const firstName = displayName.split(' ')[0] || 'Name'
+  const user = session?.user
+  const displayName =
+    user?.user_metadata?.full_name ||
+    user?.user_metadata?.fullName ||
+    user?.email ||
+    'User'
+  const firstName = displayName.split(' ')[0] || 'Learner'
 
-	const handleLogout = async () => {
-		const { error } = await supabase.auth.signOut()
+  // ─── State ─────────────────────────────────────────────────────
+  const [notifications, setNotifications] = useState(INITIAL_NOTIFICATIONS)
+  const [notifVisible, setNotifVisible] = useState(false)
+  const [quote, setQuote] = useState(null)
+  const [quoteLoading, setQuoteLoading] = useState(false)
+  const [refreshing, setRefreshing] = useState(false)
+  const [cseSchedule, setCseSchedule] = useState(null)
+  const [cseLoading, setCseLoading] = useState(true)
 
-		if (error) {
-			Alert.alert('Logout error', error.message || 'Could not sign out')
-		}
-	}
+  const quoteTimer = useRef(null)
 
-	const subjects = [
-		{ label: 'Verbal Ability', progress: 0.08 },
-		{ label: 'Numerical Ability', progress: 0.0 },
-		{ label: 'Analytical Ability', progress: 0.15 },
-		{ label: 'Logical Reasoning', progress: 0.1 },
-		{ label: 'General Information', progress: 0.0 },
-		{ label: 'Clerical Operations', progress: 0.0 },
-	]
+  const unreadCount = notifications.filter((n) => !n.read).length
 
-	return (
-		<View style={styles.screen}>
-			<ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-				<View style={styles.topRow}>
-					<View style={styles.brandMark}>
-						<Text style={styles.brandText}>G</Text>
-					</View>
+  // ─── Known official 2026 CSE dates (verified from csc.gov.ph) ──
+  const KNOWN_CSE_DATES_2026 = [
+    { date: new Date('2026-03-08'), label: 'March 8, 2026', appPeriod: 'Nov 3 – Dec 28, 2025', cycle: '1st Cycle' },
+    { date: new Date('2026-08-09'), label: 'August 9, 2026', appPeriod: 'May 14 – Jun 10, 2026', cycle: '2nd Cycle' },
+  ]
 
-					<View style={styles.topIcons}>
-						<View style={styles.topBadge}>
-							<Feather name="zap" size={18} color="#0f2747" />
-							<Text style={styles.topBadgeText}>1</Text>
-						</View>
-						<TouchableOpacity onPress={handleLogout} style={styles.notificationButton} activeOpacity={0.8}>
-							<Ionicons name="notifications-outline" size={24} color="#0f2747" />
-						</TouchableOpacity>
-					</View>
-				</View>
+  // Returns the nearest upcoming date from a list
+  const getNextDate = (dates) => {
+    const now = new Date()
+    const future = dates.filter((d) => d.date > now).sort((a, b) => a.date - b.date)
+    return future[0] || dates[dates.length - 1]
+  }
 
-				<View style={styles.heroCard}>
-					<Text style={styles.greeting}>Hello, {firstName}!</Text>
-					<Text style={styles.greetingSub}>Your CSE journey continues today.</Text>
-					<TouchableOpacity style={styles.studyPlanButton} activeOpacity={0.85} onPress={() => navigation?.navigate('StudyPlan')}>
-						<Text style={styles.studyPlanText}>Today’s Study Plan</Text>
-					</TouchableOpacity>
-				</View>
+  // Tries to parse CSE exam dates from the CSC RSS feed XML text
+  const parseCseDatesFromRSS = (xml) => {
+    const monthNames = ['January','February','March','April','May','June',
+                        'July','August','September','October','November','December']
+    // Match pattern: Month D(D), YYYY — only near CSE-related keywords
+    const cseKeywords = /career service exam|cse-ppt|cse ppt|civil service exam/i
+    const datePattern = /(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{1,2}),?\s+(2026|2027)/gi
 
-				<View style={styles.quoteCard}>
-					<Text style={styles.quoteText}>
-						"Success is the sum of small efforts repeated day in and day out."
-					</Text>
-				</View>
+    const items = xml.split(/<item>|<\/item>/i)
+    const found = []
 
-				<View style={styles.metricsRow}>
-					<View style={styles.metricCard}>
-						<Text style={styles.metricValue}>33.3%</Text>
-						<Text style={styles.metricLabel}>Exam Readiness</Text>
-					</View>
-					<View style={styles.metricCard}>
-						<Text style={styles.metricValue}>45 <Text style={styles.metricUnit}>days</Text></Text>
-						<Text style={styles.metricLabel}>until next CSE exam</Text>
-					</View>
-				</View>
+    for (const item of items) {
+      if (!cseKeywords.test(item)) continue
+      let m
+      while ((m = datePattern.exec(item)) !== null) {
+        const parsed = new Date(`${m[1]} ${m[2]}, ${m[3]}`)
+        if (!isNaN(parsed.getTime())) found.push(parsed)
+      }
+      datePattern.lastIndex = 0
+    }
 
-				<View style={styles.updatesCard}>
-					<Text style={styles.updatesTitle}>CSE UPDATES</Text>
-					<View style={styles.updateRow}>
-						<Text style={styles.updateLabel}>Next CSE Schedule:</Text>
-						<Text style={styles.updateValue}>March 2026</Text>
-					</View>
-					<View style={styles.updateRow}>
-						<Text style={styles.updateLabel}>Application Period:</Text>
-						<Text style={styles.updateValue}>January 2026</Text>
-					</View>
-					<TouchableOpacity style={styles.visitButton} activeOpacity={0.85}>
-						<Text style={styles.visitButtonText}>Visit CSC Page</Text>
-					</TouchableOpacity>
-				</View>
+    // Return unique future dates
+    const now = new Date()
+    const unique = [...new Set(found.map((d) => d.toDateString()))]
+      .map((s) => new Date(s))
+      .filter((d) => d > now)
+      .sort((a, b) => a - b)
 
-				<View style={styles.actionRow}>
-					<TouchableOpacity style={[styles.actionCard, styles.actionCardBlue]} activeOpacity={0.85}>
-						<Text style={styles.actionText}>Take{"\n"}Mock Exam</Text>
-					</TouchableOpacity>
-					<TouchableOpacity style={[styles.actionCard, styles.actionCardCream]} activeOpacity={0.85}>
-						<Text style={styles.actionText}>Review{"\n"}Flashcards</Text>
-					</TouchableOpacity>
-				</View>
+    return unique
+  }
 
-				<View style={styles.subjectCard}>
-					<Text style={styles.subjectTitle}>Your Subject Areas</Text>
+  // ─── Fetch CSE Schedule ────────────────────────────────────────
+  const fetchCSESchedule = useCallback(async () => {
+    setCseLoading(true)
+    try {
+      // Try RSS feed first — it's publicly accessible
+      const res = await fetch('https://www.csc.gov.ph/?format=feed&type=rss', {
+        headers: { 'User-Agent': 'GabayPHILCSE/1.0' },
+      })
+      if (res.ok) {
+        const xml = await res.text()
+        const parsedDates = parseCseDatesFromRSS(xml)
+        if (parsedDates.length > 0) {
+          const next = parsedDates[0]
+          const now = new Date()
+          const diffDays = Math.ceil((next - now) / (1000 * 60 * 60 * 24))
+          const label = next.toLocaleDateString('en-PH', { month: 'long', day: 'numeric', year: 'numeric' })
+          setCseSchedule({ date: next, label, daysLeft: diffDays, appPeriod: null, source: 'live' })
+          setCseLoading(false)
+          return
+        }
+      }
+    } catch { /* silently fall through */ }
 
-					{subjects.map((subject) => (
-						<View key={subject.label} style={styles.subjectItem}>
-							<Text style={styles.subjectLabel}>{subject.label}</Text>
-							<View style={styles.progressTrack}>
-								<View style={[styles.progressFill, { width: `${Math.max(subject.progress * 100, 8)}%` }]} />
-							</View>
-						</View>
-					))}
+    // Fallback: use known official 2026 dates
+    const next = getNextDate(KNOWN_CSE_DATES_2026)
+    const now = new Date()
+    const diffDays = Math.ceil((next.date - now) / (1000 * 60 * 60 * 24))
+    setCseSchedule({
+      date: next.date,
+      label: next.label,
+      daysLeft: diffDays > 0 ? diffDays : 0,
+      appPeriod: next.appPeriod,
+      cycle: next.cycle,
+      source: 'official',
+    })
+    setCseLoading(false)
+  }, [])
 
-					<TouchableOpacity style={styles.diagnosticButton} activeOpacity={0.85} onPress={() => navigation?.navigate('DiagnosticAssessment')}>
-						<Text style={styles.diagnosticText}>Take Diagnostic</Text>
-					</TouchableOpacity>
-				</View>
-			</ScrollView>
+  const subjects = [
+    { label: 'Verbal Ability', progress: 0.08 },
+    { label: 'Numerical Ability', progress: 0.0 },
+    { label: 'Analytical Ability', progress: 0.15 },
+    { label: 'Logical Reasoning', progress: 0.1 },
+    { label: 'General Information', progress: 0.0 },
+    { label: 'Clerical Operations', progress: 0.0 },
+  ]
 
-			<TouchableOpacity style={styles.fab} activeOpacity={0.85}>
-				<MaterialCommunityIcons name="tools" size={26} color="#fff" />
-			</TouchableOpacity>
+  // ─── Fetch quote from API ───────────────────────────────────────
+  const fetchQuote = useCallback(async (silent = false) => {
+    if (!silent) setQuoteLoading(true)
+    try {
+      const response = await fetch('https://api.quotable.io/random?tags=inspirational,motivational', {
+        signal: AbortSignal.timeout?.(5000),
+      })
+      if (!response.ok) throw new Error('API error')
+      const data = await response.json()
+      setQuote({ content: data.content, author: data.author })
+    } catch {
+      // Use a random fallback quote
+      const fallback = FALLBACK_QUOTES[Math.floor(Math.random() * FALLBACK_QUOTES.length)]
+      setQuote(fallback)
+    } finally {
+      setQuoteLoading(false)
+    }
+  }, [])
 
-				<View style={styles.bottomNav}>
-					<NavIcon active icon={<Ionicons name="home" size={26} color="#0f2747" />} onPress={() => navigation?.navigate('Home')} />
-					<NavIcon icon={<Ionicons name="document-text-outline" size={26} color="#64748b" />} onPress={() => navigation?.navigate('Library')} />
-					<NavIcon icon={<Feather name="clipboard" size={24} color="#64748b" />} onPress={() => navigation?.navigate('PracticeLibrary')} />
-					<NavIcon icon={<Feather name="bar-chart-2" size={24} color="#64748b" />} onPress={() => navigation?.navigate('Performance')} />
-					<NavIcon icon={<Feather name="user" size={24} color="#64748b" />} onPress={() => navigation?.navigate('PersonalInfo')} />
-			</View>
-		</View>
-	)
-}
+  // Fetch quote on mount and every 30 seconds
+  useEffect(() => {
+    fetchQuote()
+    quoteTimer.current = setInterval(() => fetchQuote(true), 30000)
+    return () => clearInterval(quoteTimer.current)
+  }, [fetchQuote])
 
-function NavIcon({ icon, onPress, active = false }) {
-	return (
-		<TouchableOpacity activeOpacity={0.8} onPress={onPress} style={[styles.navIconWrap, active && styles.navIconActive]}>
-			{icon}
-		</TouchableOpacity>
-	)
+  // Fetch CSE schedule on mount
+  useEffect(() => {
+    fetchCSESchedule()
+  }, [fetchCSESchedule])
+
+  // ─── Pull-to-refresh ───────────────────────────────────────────
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true)
+    await Promise.all([fetchQuote(), fetchCSESchedule()])
+    setRefreshing(false)
+  }, [fetchQuote, fetchCSESchedule])
+
+  // ─── Notification helpers ──────────────────────────────────────
+  const openNotifications = () => {
+    setNotifVisible(true)
+    // Mark all as read when opened
+    setNotifications((prev) => prev.map((n) => ({ ...n, read: true })))
+  }
+
+  const handleLogout = async () => {
+    Alert.alert('Sign Out', 'Are you sure you want to sign out?', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Sign Out',
+        style: 'destructive',
+        onPress: async () => {
+          const { error } = await supabase.auth.signOut()
+          if (error) Alert.alert('Error', error.message)
+        },
+      },
+    ])
+  }
+
+  // ─── Render ────────────────────────────────────────────────────
+  return (
+    <View style={styles.screen}>
+      <StatusBar barStyle="dark-content" backgroundColor="#fff" />
+
+      <ScrollView
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={ACCENT}
+            colors={[ACCENT]}
+          />
+        }
+      >
+        {/* ── Top Bar ── */}
+        <View style={styles.topBar}>
+          {/* Logo */}
+          <View style={styles.logoWrap}>
+            <Image
+              source={require('../../../assets/loading.png')}
+              style={styles.logoImage}
+              resizeMode="contain"
+            />
+          </View>
+
+          <View style={styles.topRight}>
+            {/* Streak badge */}
+            <View style={styles.streakBadge}>
+              <Feather name="zap" size={15} color={NAVY} />
+              <Text style={styles.streakText}>3</Text>
+            </View>
+
+            {/* Notification bell */}
+            <TouchableOpacity
+              style={styles.bellWrap}
+              onPress={openNotifications}
+              activeOpacity={0.75}
+            >
+              <Ionicons name="notifications-outline" size={26} color={NAVY} />
+              {unreadCount > 0 && (
+                <View style={styles.notifDot}>
+                  <Text style={styles.notifDotText}>
+                    {unreadCount > 9 ? '9+' : unreadCount}
+                  </Text>
+                </View>
+              )}
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        {/* ── Hero Card ── */}
+        <View style={styles.heroCard}>
+          <Text style={styles.greeting}>Hello, {firstName}! 👋</Text>
+          <Text style={styles.greetingSub}>Your CSE journey continues today.</Text>
+          <TouchableOpacity
+            style={styles.studyPlanBtn}
+            activeOpacity={0.85}
+            onPress={() => navigation?.navigate('StudyPlan')}
+          >
+            <Feather name="book-open" size={16} color={NAVY} style={{ marginRight: 6 }} />
+            <Text style={styles.studyPlanText}>Today's Study Plan</Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* ── Motivational Quote ── */}
+        <View style={styles.quoteCard}>
+          <View style={styles.quoteHeader}>
+            <Feather name="message-circle" size={16} color="#b45309" />
+            <Text style={styles.quoteLabel}>  Daily Motivation</Text>
+            <TouchableOpacity
+              style={styles.refreshQuoteBtn}
+              onPress={() => fetchQuote()}
+              activeOpacity={0.7}
+            >
+              <Feather name="refresh-cw" size={14} color="#b45309" />
+            </TouchableOpacity>
+          </View>
+          {quoteLoading ? (
+            <ActivityIndicator size="small" color="#b45309" style={{ marginVertical: 18 }} />
+          ) : (
+            <>
+              <Text style={styles.quoteText}>
+                "{quote?.content || '…'}"
+              </Text>
+              {quote?.author ? (
+                <Text style={styles.quoteAuthor}>— {quote.author}</Text>
+              ) : null}
+            </>
+          )}
+        </View>
+
+        {/* ── Metrics ── */}
+        <View style={styles.metricsRow}>
+          <View style={styles.metricCard}>
+            <Text style={styles.metricValue}>33.3%</Text>
+            <Text style={styles.metricLabel}>Exam Readiness</Text>
+          </View>
+          <View style={styles.metricCard}>
+            {cseLoading ? (
+              <ActivityIndicator size="small" color={NAVY} />
+            ) : (
+              <Text style={styles.metricValue}>
+                {cseSchedule?.daysLeft ?? '—'}{' '}
+                <Text style={styles.metricUnit}>days</Text>
+              </Text>
+            )}
+            <Text style={styles.metricLabel}>until next CSE exam</Text>
+          </View>
+        </View>
+
+        {/* ── CSE Updates ── */}
+        <View style={styles.updatesCard}>
+          <Text style={styles.updatesTitle}>📢  CSE UPDATES</Text>
+
+          {cseLoading ? (
+            <ActivityIndicator size="small" color="rgba(255,255,255,0.8)" style={{ marginVertical: 8 }} />
+          ) : (
+            <>
+              <View style={styles.updateRow}>
+                <Text style={styles.updateLabel}>Next CSE Exam:</Text>
+                <Text style={styles.updateValue}>
+                  {cseSchedule?.label ?? 'TBA'}
+                  {cseSchedule?.cycle ? `  (${cseSchedule.cycle})` : ''}
+                </Text>
+              </View>
+              {cseSchedule?.appPeriod && (
+                <View style={styles.updateRow}>
+                  <Text style={styles.updateLabel}>Application Period:</Text>
+                  <Text style={styles.updateValue}>{cseSchedule.appPeriod}</Text>
+                </View>
+              )}
+              <View style={styles.updateRow}>
+                <Text style={styles.updateLabel}>Days Remaining:</Text>
+                <Text style={[styles.updateValue, { color: (cseSchedule?.daysLeft ?? 99) <= 30 ? '#fde68a' : '#fff' }]}>
+                  {cseSchedule?.daysLeft ?? '—'} days
+                </Text>
+              </View>
+              {cseSchedule?.source === 'official' && (
+                <Text style={styles.updateSourceNote}>📌 Official dates from csc.gov.ph</Text>
+              )}
+            </>
+          )}
+
+          <TouchableOpacity
+            style={styles.visitBtn}
+            activeOpacity={0.85}
+            onPress={() => Linking.openURL('https://www.csc.gov.ph/')}
+          >
+            <Feather name="external-link" size={14} color={NAVY} style={{ marginRight: 6 }} />
+            <Text style={styles.visitBtnText}>Visit CSC Page</Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* ── Quick Actions ── */}
+        <Text style={styles.sectionLabel}>Quick Actions</Text>
+        <View style={styles.actionRow}>
+          <TouchableOpacity
+            style={[styles.actionCard, styles.actionBlue]}
+            activeOpacity={0.85}
+            onPress={() => navigation?.navigate('MockExamHome', { from: 'Home' })}
+          >
+            <MaterialCommunityIcons name="file-document-edit-outline" size={32} color={NAVY} />
+            <Text style={styles.actionText}>Take{'\n'}Mock Exam</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.actionCard, styles.actionCream]}
+            activeOpacity={0.85}
+            onPress={() => navigation?.navigate('Flashcards', { from: 'Home' })}
+          >
+            <MaterialCommunityIcons name="cards-outline" size={32} color={NAVY} />
+            <Text style={styles.actionText}>Review{'\n'}Flashcards</Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* ── Subject Areas ── */}
+        <View style={styles.subjectCard}>
+          <Text style={styles.subjectTitle}>Your Subject Areas</Text>
+          {subjects.map((s) => (
+            <View key={s.label} style={styles.subjectItem}>
+              <View style={styles.subjectRow}>
+                <Text style={styles.subjectLabel}>{s.label}</Text>
+                <Text style={styles.subjectPct}>{Math.round(s.progress * 100)}%</Text>
+              </View>
+              <View style={styles.progressTrack}>
+                <View
+                  style={[
+                    styles.progressFill,
+                    { width: `${Math.max(s.progress * 100, 4)}%` },
+                  ]}
+                />
+              </View>
+            </View>
+          ))}
+
+          <TouchableOpacity
+            style={styles.diagnosticBtn}
+            activeOpacity={0.85}
+            onPress={() => navigation?.navigate('DiagnosticAssessment', { from: 'Home' })}
+          >
+            <Feather name="activity" size={16} color="#fff" style={{ marginRight: 6 }} />
+            <Text style={styles.diagnosticText}>Take Diagnostic</Text>
+          </TouchableOpacity>
+        </View>
+      </ScrollView>
+
+      {/* ── Notification Modal ── */}
+      <Modal
+        visible={notifVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setNotifVisible(false)}
+      >
+        <TouchableOpacity
+          style={styles.modalBackdrop}
+          activeOpacity={1}
+          onPress={() => setNotifVisible(false)}
+        />
+        <View style={styles.notifSheet}>
+          {/* Handle */}
+          <View style={styles.sheetHandle} />
+
+          {/* Header */}
+          <View style={styles.notifSheetHeader}>
+            <Text style={styles.notifSheetTitle}>Notifications</Text>
+            <TouchableOpacity onPress={() => setNotifVisible(false)}>
+              <Ionicons name="close" size={24} color={NAVY} />
+            </TouchableOpacity>
+          </View>
+
+          <ScrollView showsVerticalScrollIndicator={false}>
+            {notifications.length === 0 ? (
+              <View style={styles.notifEmpty}>
+                <Ionicons name="notifications-off-outline" size={48} color="#cbd5e1" />
+                <Text style={styles.notifEmptyText}>No notifications yet</Text>
+              </View>
+            ) : (
+              notifications.map((notif) => (
+                <View
+                  key={notif.id}
+                  style={[styles.notifItem, !notif.read && styles.notifItemUnread]}
+                >
+                  <View style={styles.notifIconWrap}>
+                    <MaterialCommunityIcons
+                      name={notif.icon || 'bell'}
+                      size={22}
+                      color={notif.read ? '#94a3b8' : ACCENT}
+                    />
+                  </View>
+                  <View style={styles.notifBody}>
+                    <Text style={[styles.notifTitle, !notif.read && styles.notifTitleUnread]}>
+                      {notif.title}
+                    </Text>
+                    <Text style={styles.notifText}>{notif.body}</Text>
+                    <Text style={styles.notifTime}>{notif.time}</Text>
+                  </View>
+                  {!notif.read && <View style={styles.unreadDot} />}
+                </View>
+              ))
+            )}
+          </ScrollView>
+        </View>
+      </Modal>
+    </View>
+  )
 }
 
 const styles = StyleSheet.create({
-	screen: {
-		flex: 1,
-		backgroundColor: '#ffffff',
-	},
-	scrollContent: {
-		paddingTop: 16,
-		paddingHorizontal: 12,
-		paddingBottom: 124,
-	},
-	topRow: {
-		flexDirection: 'row',
-		justifyContent: 'space-between',
-		alignItems: 'center',
-		paddingHorizontal: 8,
-		marginBottom: 18,
-	},
-	brandMark: {
-		width: 38,
-		height: 38,
-		justifyContent: 'center',
-		alignItems: 'center',
-	},
-	brandText: {
-		fontSize: 26,
-		fontWeight: '900',
-		color: '#d85e67',
-	},
-	topIcons: {
-		flexDirection: 'row',
-		alignItems: 'center',
-		gap: 14,
-	},
-	topBadge: {
-		flexDirection: 'row',
-		alignItems: 'center',
-		gap: 4,
-	},
-	topBadgeText: {
-		fontSize: 13,
-		color: '#0f2747',
-		fontWeight: '700',
-	},
-	notificationButton: {
-		padding: 2,
-	},
-	heroCard: {
-		backgroundColor: '#dbe8fb',
-		borderRadius: 22,
-		padding: 18,
-		marginBottom: 12,
-	},
-	greeting: {
-		fontSize: 28,
-		fontWeight: '800',
-		color: '#13294b',
-		marginBottom: 4,
-	},
-	greetingSub: {
-		fontSize: 14,
-		color: '#1f3b63',
-		marginBottom: 12,
-	},
-	studyPlanButton: {
-		backgroundColor: '#ffffff',
-		borderRadius: 14,
-		paddingVertical: 11,
-		alignItems: 'center',
-	},
-	studyPlanText: {
-		fontSize: 18,
-		color: '#13294b',
-		fontWeight: '600',
-	},
-	quoteCard: {
-		backgroundColor: '#f8eee8',
-		borderRadius: 18,
-		paddingVertical: 26,
-		paddingHorizontal: 24,
-		marginBottom: 12,
-	},
-	quoteText: {
-		fontSize: 17,
-		lineHeight: 24,
-		textAlign: 'center',
-		color: '#13294b',
-	},
-	metricsRow: {
-		flexDirection: 'row',
-		gap: 8,
-		marginBottom: 12,
-	},
-	metricCard: {
-		flex: 1,
-		borderWidth: 1.5,
-		borderColor: '#13294b',
-		borderRadius: 18,
-		paddingVertical: 14,
-		paddingHorizontal: 10,
-		alignItems: 'center',
-		justifyContent: 'center',
-	},
-	metricValue: {
-		fontSize: 30,
-		fontWeight: '800',
-		color: '#13294b',
-		textAlign: 'center',
-	},
-	metricUnit: {
-		fontSize: 12,
-		fontWeight: '600',
-	},
-	metricLabel: {
-		fontSize: 12,
-		color: '#64748b',
-		textAlign: 'center',
-		marginTop: 4,
-	},
-	updatesCard: {
-		backgroundColor: '#d99aa4',
-		borderRadius: 22,
-		padding: 18,
-		marginBottom: 12,
-	},
-	updatesTitle: {
-		fontSize: 18,
-		fontWeight: '800',
-		color: '#fff',
-		marginBottom: 12,
-	},
-	updateRow: {
-		flexDirection: 'row',
-		justifyContent: 'space-between',
-		alignItems: 'flex-start',
-		marginBottom: 4,
-	},
-	updateLabel: {
-		fontSize: 15,
-		color: '#fff',
-		flex: 1,
-		paddingRight: 12,
-	},
-	updateValue: {
-		fontSize: 15,
-		fontWeight: '800',
-		color: '#fff',
-	},
-	visitButton: {
-		marginTop: 12,
-		alignSelf: 'center',
-		backgroundColor: '#fff',
-		borderRadius: 14,
-		paddingVertical: 10,
-		paddingHorizontal: 18,
-	},
-	visitButtonText: {
-		fontSize: 16,
-		color: '#13294b',
-		fontWeight: '700',
-	},
-	actionRow: {
-		flexDirection: 'row',
-		gap: 12,
-		marginBottom: 12,
-	},
-	actionCard: {
-		flex: 1,
-		borderRadius: 18,
-		paddingVertical: 28,
-		paddingHorizontal: 12,
-		alignItems: 'center',
-		justifyContent: 'center',
-	},
-	actionCardBlue: {
-		backgroundColor: '#dbe8fb',
-	},
-	actionCardCream: {
-		backgroundColor: '#f8eee8',
-	},
-	actionText: {
-		fontSize: 24,
-		lineHeight: 28,
-		textAlign: 'center',
-		color: '#13294b',
-		fontWeight: '600',
-	},
-	subjectCard: {
-		backgroundColor: '#ffffff',
-		borderRadius: 22,
-		padding: 18,
-		borderWidth: 1.5,
-		borderColor: '#13294b',
-	},
-	subjectTitle: {
-		fontSize: 20,
-		fontWeight: '700',
-		color: '#13294b',
-		marginBottom: 14,
-	},
-	subjectItem: {
-		marginBottom: 14,
-	},
-	subjectLabel: {
-		fontSize: 16,
-		color: '#13294b',
-		marginBottom: 8,
-	},
-	progressTrack: {
-		height: 8,
-		borderRadius: 999,
-		backgroundColor: '#dbe8fb',
-		overflow: 'hidden',
-	},
-	progressFill: {
-		height: '100%',
-		borderRadius: 999,
-		backgroundColor: '#1f1f4f',
-	},
-	diagnosticButton: {
-		marginTop: 6,
-		alignSelf: 'center',
-		backgroundColor: '#dbe8fb',
-		borderRadius: 14,
-		paddingVertical: 11,
-		paddingHorizontal: 22,
-	},
-	diagnosticText: {
-		fontSize: 16,
-		color: '#13294b',
-		fontWeight: '700',
-	},
-	fab: {
-		position: 'absolute',
-		right: 18,
-		bottom: 82,
-		width: 60,
-		height: 60,
-		borderRadius: 30,
-		backgroundColor: '#0f2747',
-		alignItems: 'center',
-		justifyContent: 'center',
-		shadowColor: '#000',
-		shadowOpacity: 0.22,
-		shadowRadius: 8,
-		shadowOffset: { width: 0, height: 4 },
-		elevation: 6,
-	},
-	bottomNav: {
-		position: 'absolute',
-		left: 0,
-		right: 0,
-		bottom: 0,
-		height: 74,
-		backgroundColor: '#fff',
-		borderTopWidth: 1,
-		borderTopColor: '#d8e0f0',
-		flexDirection: 'row',
-		alignItems: 'center',
-		justifyContent: 'space-around',
-		paddingBottom: 8,
-	},
-	navIconWrap: {
-		width: 42,
-		height: 42,
-		alignItems: 'center',
-		justifyContent: 'center',
-		borderRadius: 21,
-	},
-	navIconActive: {
-		backgroundColor: 'rgba(15, 39, 71, 0.08)',
-	},
+  screen: {
+    flex: 1,
+    backgroundColor: '#f5f7fb',
+  },
+  scrollContent: {
+    paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight + 8 : 54,
+    paddingHorizontal: 16,
+    paddingBottom: 110,
+  },
+
+  // ── Top Bar ──
+  topBar: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  logoWrap: {
+    width: 46,
+    height: 46,
+    borderRadius: 14,
+    backgroundColor: '#fff',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOpacity: 0.08,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 3,
+  },
+  logoImage: {
+    width: 36,
+    height: 36,
+  },
+  topRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  streakBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#fff',
+    borderRadius: 20,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    shadowColor: '#000',
+    shadowOpacity: 0.07,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 1 },
+    elevation: 2,
+  },
+  streakText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: NAVY,
+  },
+  bellWrap: {
+    width: 44,
+    height: 44,
+    borderRadius: 14,
+    backgroundColor: '#fff',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOpacity: 0.08,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 3,
+  },
+  notifDot: {
+    position: 'absolute',
+    top: 6,
+    right: 6,
+    minWidth: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: ACCENT,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 3,
+    borderWidth: 1.5,
+    borderColor: '#fff',
+  },
+  notifDotText: {
+    fontSize: 9,
+    fontWeight: '800',
+    color: '#fff',
+  },
+
+  // ── Hero Card ──
+  heroCard: {
+    backgroundColor: '#dbe8fb',
+    borderRadius: 24,
+    padding: 20,
+    marginBottom: 14,
+  },
+  greeting: {
+    fontSize: 26,
+    fontWeight: '800',
+    color: NAVY,
+    marginBottom: 4,
+  },
+  greetingSub: {
+    fontSize: 14,
+    color: '#1f3b63',
+    marginBottom: 16,
+  },
+  studyPlanBtn: {
+    backgroundColor: '#fff',
+    borderRadius: 14,
+    paddingVertical: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  studyPlanText: {
+    fontSize: 16,
+    color: NAVY,
+    fontWeight: '700',
+  },
+
+  // ── Quote Card ──
+  quoteCard: {
+    backgroundColor: '#fff8f0',
+    borderRadius: 20,
+    paddingVertical: 20,
+    paddingHorizontal: 20,
+    marginBottom: 14,
+    borderLeftWidth: 4,
+    borderLeftColor: '#f59e0b',
+  },
+  quoteHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  quoteLabel: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#b45309',
+    flex: 1,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  refreshQuoteBtn: {
+    padding: 4,
+  },
+  quoteText: {
+    fontSize: 16,
+    lineHeight: 24,
+    color: '#78350f',
+    fontStyle: 'italic',
+    marginBottom: 10,
+  },
+  quoteAuthor: {
+    fontSize: 13,
+    color: '#92400e',
+    fontWeight: '600',
+    textAlign: 'right',
+  },
+
+  // ── Metrics ──
+  metricsRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginBottom: 14,
+  },
+  metricCard: {
+    flex: 1,
+    backgroundColor: '#fff',
+    borderRadius: 20,
+    paddingVertical: 18,
+    paddingHorizontal: 12,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOpacity: 0.05,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
+  },
+  metricValue: {
+    fontSize: 28,
+    fontWeight: '800',
+    color: NAVY,
+  },
+  metricUnit: {
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  metricLabel: {
+    fontSize: 12,
+    color: '#64748b',
+    textAlign: 'center',
+    marginTop: 4,
+  },
+
+  // ── CSE Updates ──
+  updatesCard: {
+    backgroundColor: ACCENT,
+    borderRadius: 22,
+    padding: 18,
+    marginBottom: 14,
+  },
+  updatesTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#fff',
+    marginBottom: 12,
+    letterSpacing: 0.5,
+  },
+  updateRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 6,
+  },
+  updateLabel: {
+    fontSize: 14,
+    color: 'rgba(255,255,255,0.85)',
+    flex: 1,
+  },
+  updateValue: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#fff',
+  },
+  visitBtn: {
+    marginTop: 14,
+    alignSelf: 'center',
+    backgroundColor: '#fff',
+    borderRadius: 14,
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  visitBtnText: {
+    fontSize: 15,
+    color: NAVY,
+    fontWeight: '700',
+  },
+  updateSourceNote: {
+    fontSize: 11,
+    color: 'rgba(255,255,255,0.65)',
+    marginTop: 8,
+    fontStyle: 'italic',
+  },
+
+  // ── Quick Actions ──
+  sectionLabel: {
+    fontSize: 17,
+    fontWeight: '700',
+    color: NAVY,
+    marginBottom: 10,
+  },
+  actionRow: {
+    flexDirection: 'row',
+    gap: 12,
+    marginBottom: 14,
+  },
+  actionCard: {
+    flex: 1,
+    borderRadius: 20,
+    paddingVertical: 24,
+    paddingHorizontal: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+    shadowColor: '#000',
+    shadowOpacity: 0.05,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
+  },
+  actionBlue: {
+    backgroundColor: '#dbe8fb',
+  },
+  actionCream: {
+    backgroundColor: '#fff8f0',
+  },
+  actionText: {
+    fontSize: 15,
+    lineHeight: 20,
+    textAlign: 'center',
+    color: NAVY,
+    fontWeight: '700',
+  },
+
+  // ── Subject Areas ──
+  subjectCard: {
+    backgroundColor: '#fff',
+    borderRadius: 22,
+    padding: 18,
+    shadowColor: '#000',
+    shadowOpacity: 0.05,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
+  },
+  subjectTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: NAVY,
+    marginBottom: 16,
+  },
+  subjectItem: {
+    marginBottom: 14,
+  },
+  subjectRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 6,
+  },
+  subjectLabel: {
+    fontSize: 14,
+    color: NAVY,
+    fontWeight: '500',
+  },
+  subjectPct: {
+    fontSize: 13,
+    color: '#64748b',
+    fontWeight: '600',
+  },
+  progressTrack: {
+    height: 8,
+    borderRadius: 99,
+    backgroundColor: '#e8edf5',
+    overflow: 'hidden',
+  },
+  progressFill: {
+    height: '100%',
+    borderRadius: 99,
+    backgroundColor: NAVY,
+  },
+  diagnosticBtn: {
+    marginTop: 10,
+    alignSelf: 'center',
+    backgroundColor: NAVY,
+    borderRadius: 14,
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  diagnosticText: {
+    fontSize: 15,
+    color: '#fff',
+    fontWeight: '700',
+  },
+
+  // ── Notification Modal ──
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.35)',
+  },
+  notifSheet: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    maxHeight: '75%',
+    paddingBottom: Platform.OS === 'ios' ? 34 : 20,
+    paddingHorizontal: 20,
+  },
+  sheetHandle: {
+    width: 40,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: '#e2e8f0',
+    alignSelf: 'center',
+    marginTop: 12,
+    marginBottom: 6,
+  },
+  notifSheetHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f1f5f9',
+    marginBottom: 8,
+  },
+  notifSheetTitle: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: NAVY,
+  },
+  notifEmpty: {
+    alignItems: 'center',
+    paddingVertical: 40,
+  },
+  notifEmptyText: {
+    marginTop: 12,
+    fontSize: 15,
+    color: '#94a3b8',
+  },
+  notifItem: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f1f5f9',
+    gap: 12,
+  },
+  notifItemUnread: {
+    backgroundColor: '#fef9ff',
+  },
+  notifIconWrap: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: '#f1f5f9',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+  },
+  notifBody: {
+    flex: 1,
+  },
+  notifTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#475569',
+    marginBottom: 2,
+  },
+  notifTitleUnread: {
+    color: NAVY,
+    fontWeight: '700',
+  },
+  notifText: {
+    fontSize: 13,
+    color: '#64748b',
+    lineHeight: 18,
+    marginBottom: 4,
+  },
+  notifTime: {
+    fontSize: 11,
+    color: '#94a3b8',
+  },
+  unreadDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: ACCENT,
+    marginTop: 6,
+    flexShrink: 0,
+  },
 })

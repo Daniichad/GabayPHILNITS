@@ -1,4 +1,4 @@
-﻿import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   SafeAreaView, View, Text, StyleSheet, TouchableOpacity,
   Animated, StatusBar, Platform, ActivityIndicator,
@@ -11,6 +11,12 @@ const NAVY = '#0B2540';
 export default function Flashcards({ navigation, route }) {
   const deckId    = route?.params?.deckId;
   const categoryId = route?.params?.categoryId;
+  const from      = route?.params?.from;
+
+  const handleBack = () => {
+    if (from === 'Home') navigation?.navigate('Home');
+    else navigation?.goBack?.();
+  };
 
   const [cards,     setCards]     = useState([]);
   const [deckTitle, setDeckTitle] = useState('Flashcards');
@@ -123,7 +129,7 @@ export default function Flashcards({ navigation, route }) {
       <SafeAreaView style={styles.safeArea}>
         <StatusBar barStyle="dark-content" />
         <View style={styles.header}>
-          <TouchableOpacity style={styles.iconButton} onPress={() => navigation?.goBack?.()}>
+          <TouchableOpacity style={styles.iconButton} onPress={handleBack}>>
             <Ionicons name="chevron-back" size={26} color={NAVY} />
           </TouchableOpacity>
           <Text style={styles.headerTitle}>{deckTitle}</Text>
@@ -145,7 +151,7 @@ export default function Flashcards({ navigation, route }) {
     <SafeAreaView style={styles.safeArea}>
       <StatusBar barStyle="dark-content" />
       <View style={styles.header}>
-        <TouchableOpacity style={styles.iconButton} onPress={() => navigation?.goBack?.()}>
+        <TouchableOpacity style={styles.iconButton} onPress={handleBack}>
           <Ionicons name="chevron-back" size={26} color={NAVY} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>{deckTitle}</Text>

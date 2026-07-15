@@ -1,10 +1,11 @@
-﻿import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect } from 'react'
 import {
   Image, ScrollView, StyleSheet, Text, TouchableOpacity,
   View, ActivityIndicator, TextInput, SafeAreaView, Platform,
 } from 'react-native'
 import { Feather, Ionicons } from '@expo/vector-icons'
 import { supabase } from '../../../supabase'
+
 
 const NAVY = '#13294b'
 
@@ -17,17 +18,6 @@ const CSE_SUBJECTS = [
   'Clerical Operations',
 ]
 
-// ─── Bottom nav ──────────────────────────────────────────────
-function NavButton({ icon, onPress, active }) {
-  return (
-    <TouchableOpacity
-      activeOpacity={0.8} onPress={onPress}
-      style={[styles.navIconWrap, active && styles.navIconActive]}
-    >
-      {icon}
-    </TouchableOpacity>
-  )
-}
 
 // ─── Material card ───────────────────────────────────────────
 function MaterialCard({ item, onPress }) {
@@ -212,14 +202,7 @@ export default function Library({ navigation }) {
         <Feather name="settings" size={24} color="#fff" />
       </TouchableOpacity>
 
-      {/* Bottom nav */}
-      <View style={styles.bottomNav}>
-        <NavButton icon={<Ionicons name="home-outline" size={26} color="#64748b" />} onPress={() => navigation?.navigate('Home')} />
-        <NavButton active icon={<Ionicons name="document-text" size={26} color={NAVY} />} onPress={() => navigation?.navigate('Library')} />
-        <NavButton icon={<Feather name="clipboard" size={24} color="#64748b" />} onPress={() => navigation?.navigate('PracticeLibrary')} />
-        <NavButton icon={<Feather name="bar-chart-2" size={24} color="#64748b" />} onPress={() => navigation?.navigate('Performance')} />
-        <NavButton icon={<Feather name="user" size={24} color="#64748b" />} onPress={() => navigation?.navigate('PersonalInfo')} />
-      </View>
+
     </SafeAreaView>
   )
 }

@@ -44,7 +44,50 @@ export default function Login({ navigation }) {
         Alert.alert('Login error', 'Invalid credentials')
         return
       }
-    navigation?.replace('PersonalInfo')
+
+      const userId = data.session.user.id
+
+      // Check if personal info has been completed
+      const { data: personalInfoData, error: personalInfoError } = await supabase
+        .from('personal_info')
+        .select('user_id')
+        .eq('user_id', userId)
+        .maybeSingle()
+
+      if (personalInfoError) {
+        // If we can't check, send them to PersonalInfo to be safe
+        navigation?.replace('PersonalInfo')
+        return
+      }
+
+      if (!personalInfoData) {
+        // No personal info yet — go fill it in first
+        navigation?.replace('PersonalInfo')
+        return
+      }
+
+      // Check if diagnostic assessment has been completed
+      const { data: diagnosticData, error: diagnosticError } = await supabase
+        .from('diagnostic_assessment_attempts')
+        .select('id')
+        .eq('user_id', userId)
+        .limit(1)
+        .maybeSingle()
+
+      if (diagnosticError) {
+        // If we can't check, send them to DiagnosticAssessment to be safe
+        navigation?.replace('DiagnosticAssessment')
+        return
+      }
+
+      if (!diagnosticData) {
+        // Personal info done but no diagnostic yet
+        navigation?.replace('DiagnosticAssessment')
+        return
+      }
+
+      // Both done — go straight to Home
+      navigation?.replace('Home')
     } catch (err) {
       Alert.alert('Login error', err.message || String(err))
     } finally {
