@@ -77,6 +77,8 @@ export default function Home({ session, navigation }) {
   const [refreshing, setRefreshing] = useState(false)
   const [cseSchedule, setCseSchedule] = useState(null)
   const [cseLoading, setCseLoading] = useState(true)
+  const [readiness, setReadiness] = useState(0)
+  const [readinessLoading, setReadinessLoading] = useState(true)
 
   const quoteTimer = useRef(null)
   const quoteOpacity = useRef(new Animated.Value(1)).current
@@ -165,6 +167,40 @@ export default function Home({ session, navigation }) {
     setCseLoading(false)
   }, [])
 
+  const fetchReadiness = useCallback(async () => {
+    setReadinessLoading(true)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      const uid = session?.user?.id
+      if (!uid) return
+
+      const { data: attempts, error } = await supabase
+        .from('mock_exam_attempts')
+        .select('correct_count, total_questions')
+        .eq('user_id', uid)
+        .eq('status', 'completed')
+
+      if (error) throw error
+
+      if (attempts && attempts.length > 0) {
+        const totalPct = attempts.reduce((sum, attempt) => {
+          const pct = attempt.total_questions > 0 
+            ? (attempt.correct_count / attempt.total_questions) * 100 
+            : 0
+          return sum + pct
+        }, 0)
+        setReadiness(Math.round(totalPct / attempts.length))
+      } else {
+        setReadiness(0)
+      }
+    } catch (err) {
+      console.warn('Error fetching readiness:', err)
+      setReadiness(0)
+    } finally {
+      setReadinessLoading(false)
+    }
+  }, [])
+
   const subjects = [
     { label: 'Verbal Ability', progress: 0.08 },
     { label: 'Numerical Ability', progress: 0.0 },
@@ -216,17 +252,18 @@ export default function Home({ session, navigation }) {
     return () => clearInterval(quoteTimer.current)
   }, [fetchQuote])
 
-  // Fetch CSE schedule on mount
+  // Fetch CSE schedule & readiness on mount
   useEffect(() => {
     fetchCSESchedule()
-  }, [fetchCSESchedule])
+    fetchReadiness()
+  }, [fetchCSESchedule, fetchReadiness])
 
   // ─── Pull-to-refresh ───────────────────────────────────────────
   const onRefresh = useCallback(async () => {
     setRefreshing(true)
-    await Promise.all([fetchQuote(), fetchCSESchedule()])
+    await Promise.all([fetchQuote(), fetchCSESchedule(), fetchReadiness()])
     setRefreshing(false)
-  }, [fetchQuote, fetchCSESchedule])
+  }, [fetchQuote, fetchCSESchedule, fetchReadiness])
 
   // ─── Notification helpers ──────────────────────────────────────
   const openNotifications = () => {
@@ -346,7 +383,11 @@ export default function Home({ session, navigation }) {
         {/* ── Metrics ── */}
         <View style={styles.metricsRow}>
           <View style={styles.metricCard}>
-            <Text style={styles.metricValue}>33.3%</Text>
+            {readinessLoading ? (
+              <ActivityIndicator size="small" color={NAVY} />
+            ) : (
+              <Text style={styles.metricValue}>{readiness}%</Text>
+            )}
             <Text style={styles.metricLabel}>Exam Readiness</Text>
           </View>
           <View style={styles.metricCard}>

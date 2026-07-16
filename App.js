@@ -30,6 +30,7 @@ import TermsConditions from './screens/navigations/profile/TermsConditions'
 import RateApp from './screens/navigations/profile/RateApp'
 import AboutApp from './screens/navigations/profile/AboutApp'
 import BottomNav from './components/BottomNav'
+import { supabase } from './utils/supabase'
 
 const Stack = createNativeStackNavigator()
 
@@ -55,6 +56,23 @@ export default function App() {
 	useEffect(() => {
 		const timer = setTimeout(() => setLoading(false), 300)
 		return () => clearTimeout(timer)
+	}, [])
+
+	useEffect(() => {
+		const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+			if (event === 'SIGNED_OUT') {
+				if (navigationRef.isReady()) {
+					navigationRef.reset({
+						index: 0,
+						routes: [{ name: 'Login' }],
+					})
+				}
+			}
+		})
+
+		return () => {
+			subscription?.unsubscribe()
+		}
 	}, [])
 
 	const showNav = NAV_SCREENS.has(currentRoute)

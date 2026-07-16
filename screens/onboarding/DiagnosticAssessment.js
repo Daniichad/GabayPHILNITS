@@ -14,6 +14,61 @@ const CATEGORY_ORDER = [
   'Clerical Operations',
 ]
 
+const FALLBACK_QUESTIONS = [
+  {
+    id: 'f1',
+    category: 'Verbal Ability',
+    question: 'Choose the word that is most opposite in meaning to "GENEROUS".',
+    options: ['Charitable', 'Stingy', 'Kind', 'Benevolent'],
+    correct_answer: 'Stingy',
+  },
+  {
+    id: 'f2',
+    category: 'Numerical Ability',
+    question: 'Solve for x: 3x - 7 = 14.',
+    options: ['5', '6', '7', '8'],
+    correct_answer: '7',
+  },
+  {
+    id: 'f3',
+    category: 'Analytical Ability',
+    question: 'If all dogs are animals, and some animals are loyal, which of the following must be true?',
+    options: [
+      'All dogs are loyal.',
+      'Some dogs are loyal.',
+      'Dogs are animals.',
+      'None of the above.'
+    ],
+    correct_answer: 'Dogs are animals.',
+  },
+  {
+    id: 'f4',
+    category: 'Logical Reasoning',
+    question: 'Find the next number in the sequence: 2, 4, 8, 16, ?',
+    options: ['20', '24', '30', '32'],
+    correct_answer: '32',
+  },
+  {
+    id: 'f5',
+    category: 'General Information',
+    question: 'According to the Philippine Constitution, who is the commander-in-chief of all armed forces of the Philippines?',
+    options: ['President', 'Vice President', 'Chief of Staff', 'Secretary of National Defense'],
+    correct_answer: 'President',
+  },
+  {
+    id: 'f6',
+    category: 'Clerical Operations',
+    question: 'Which of the following is the correct alphabetical order of the names?',
+    options: [
+      'Santos A., Santos B., Santos C.',
+      'Santos C., Santos B., Santos A.',
+      'Santos B., Santos A., Santos C.',
+      'Santos A., Santos C., Santos B.'
+    ],
+    correct_answer: 'Santos A., Santos B., Santos C.',
+  }
+]
+
 export default function DiagnosticAssessment({ navigation, route }) {
   const from = route?.params?.from
   const [questions,      setQuestions]      = React.useState([])
@@ -40,12 +95,19 @@ export default function DiagnosticAssessment({ navigation, route }) {
         .eq('is_active', true)
         .order('category')
         .order('sort_order')
-      if (error) throw error
-      if (!data || data.length === 0) throw new Error('No diagnostic questions found. Please contact an admin.')
-      setQuestions(data)
+      
+      if (error) {
+        console.warn('Supabase fetch failed, falling back to local questions:', error)
+        setQuestions(FALLBACK_QUESTIONS)
+      } else if (!data || data.length === 0) {
+        console.warn('No questions in database, falling back to local questions')
+        setQuestions(FALLBACK_QUESTIONS)
+      } else {
+        setQuestions(data)
+      }
     } catch (e) {
-      console.error('Diagnostic load error:', e)
-      setLoadError(e.message ?? 'Failed to load questions.')
+      console.warn('Load catch error, using fallback questions:', e)
+      setQuestions(FALLBACK_QUESTIONS)
     } finally {
       setLoading(false)
     }
