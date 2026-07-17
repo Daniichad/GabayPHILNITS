@@ -141,7 +141,7 @@ export default function Flashcards({ navigation, route }) {
       <SafeAreaView style={styles.safeArea}>
         <StatusBar barStyle="dark-content" />
         <View style={styles.header}>
-          <TouchableOpacity style={styles.iconButton} onPress={handleBack}>>
+          <TouchableOpacity style={styles.iconButton} onPress={handleBack}>
             <Ionicons name="chevron-back" size={26} color={NAVY} />
           </TouchableOpacity>
           <Text style={styles.headerTitle}>{deckTitle}</Text>

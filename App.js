@@ -20,8 +20,6 @@ import TrueFalse from './screens/navigations/practice/TrueFalse'
 import MultipleChoice from './screens/navigations/practice/MultipleChoice'
 import MockExamHome from './screens/navigations/practice/MockExamHome'
 import MockExamTake from './screens/navigations/practice/MockExamTake'
-import PracticeResult from './screens/navigations/practice/PracticeResult'
-import MockExamResult from './screens/navigations/practice/MockExamResult'
 import PracticeOverview from './screens/navigations/practice/PracticeOverview'
 import Performance from './screens/navigations/performance/Performance'
 import Profile from './screens/navigations/profile/Profile'
@@ -49,7 +47,7 @@ const navTheme = {
 // Screens that should show the persistent bottom navbar
 const NAV_SCREENS = new Set([
 	'Home', 'Library', 'StudyPlan', 'ReadingMaterial',
-	'PracticeLibrary', 'PracticeScreen', 'Performance', 'Profile', 'AccountInformation', 'Settings', 'HelpCenter', 'Report', 'TermsConditions', 'RateApp', 'AboutApp', 'PracticeOverview',
+	'PracticeLibrary', 'PracticeScreen', 'Performance', 'Profile', 'AccountInformation', 'Settings', 'HelpCenter', 'Report', 'TermsConditions', 'RateApp', 'AboutApp', 'PracticeOverview', 'CseGuide',
 ])
 
 export default function App() {
@@ -92,58 +90,56 @@ export default function App() {
 	return (
 		<SafeAreaProvider>
 			<View style={styles.root}>
-			<NavigationContainer
-				ref={navigationRef}
-				theme={navTheme}
-				onStateChange={() => {
-					const name = navigationRef.getCurrentRoute()?.name
-					if (name) setCurrentRoute(name)
-				}}
-			>
-				<Stack.Navigator
-					screenOptions={{
-						headerShown: false,
-						animation: 'fade_from_bottom',
+				<NavigationContainer
+					ref={navigationRef}
+					theme={navTheme}
+					onStateChange={() => {
+						const name = navigationRef.getCurrentRoute()?.name
+						if (name) setCurrentRoute(name)
 					}}
-					initialRouteName="Login"
 				>
-					<Stack.Screen name="Onboarding" component={Onboarding} />
-					<Stack.Screen name="Login" component={Login} options={{ animation: 'fade_from_bottom' }} />
-					<Stack.Screen name="Register" component={Register} options={{ animation: 'fade_from_bottom' }} />
-					<Stack.Screen name="PersonalInfo" component={PersonalInfo} />
-					<Stack.Screen name="DiagnosticAssessment" component={DiagnosticAssessment} />
-					<Stack.Screen name="StudyPlan" component={StudyPlan} />
-					<Stack.Screen name="Library" component={Library} />
-					<Stack.Screen name="ReadingMaterial" component={ReadingMaterial} />
-					<Stack.Screen name="Home" component={Home} />
-					<Stack.Screen name="PracticeLibrary" component={PracticeLibraryScreen} />
-					<Stack.Screen name="PracticeScreen" component={PracticeScreen} />
-					<Stack.Screen name="Flashcards" component={Flashcards} />
-					<Stack.Screen name="Matching" component={Matching} />
-					<Stack.Screen name="TrueFalse" component={TrueFalse} />
-					<Stack.Screen name="MultipleChoice" component={MultipleChoice} />
-					<Stack.Screen name="MockExamHome" component={MockExamHome} />
-					<Stack.Screen name="MockExamTake" component={MockExamTake} />
-					<Stack.Screen name="PracticeOverview" component={PracticeOverview} />
-					<Stack.Screen name="Performance" component={Performance} />
-					<Stack.Screen name="Profile" component={Profile} />
-					<Stack.Screen name="AccountInformation" component={AccountInformation} />
-					<Stack.Screen name="Settings" component={Settings} />
-					<Stack.Screen name="HelpCenter" component={HelpCenter} />
-					<Stack.Screen name="Report" component={Report} />
-					<Stack.Screen name="TermsConditions" component={TermsConditions} />
-					<Stack.Screen name="RateApp" component={RateApp} />
-					<Stack.Screen name="AboutApp" component={AboutApp} />
-					<Stack.Screen name="CseGuide" component={CseGuide} />
-					<Stack.Screen name="PracticeResult" component={PracticeResult} />
-					<Stack.Screen name="MockExamResult" component={MockExamResult} />
-				</Stack.Navigator>
-			</NavigationContainer>
+					<Stack.Navigator
+						screenOptions={{
+							headerShown: false,
+							animation: 'fade_from_bottom',
+						}}
+						initialRouteName="Login"
+					>
+						<Stack.Screen name="Onboarding" component={Onboarding} />
+						<Stack.Screen name="Login" component={Login} options={{ animation: 'fade_from_bottom' }} />
+						<Stack.Screen name="Register" component={Register} options={{ animation: 'fade_from_bottom' }} />
+						<Stack.Screen name="PersonalInfo" component={PersonalInfo} />
+						<Stack.Screen name="DiagnosticAssessment" component={DiagnosticAssessment} />
+						<Stack.Screen name="StudyPlan" component={StudyPlan} />
+						<Stack.Screen name="Library" component={Library} />
+						<Stack.Screen name="ReadingMaterial" component={ReadingMaterial} />
+						<Stack.Screen name="Home" component={Home} />
+						<Stack.Screen name="PracticeLibrary" component={PracticeLibraryScreen} />
+						<Stack.Screen name="PracticeScreen" component={PracticeScreen} />
+						<Stack.Screen name="Flashcards" component={Flashcards} />
+						<Stack.Screen name="Matching" component={Matching} />
+						<Stack.Screen name="TrueFalse" component={TrueFalse} />
+						<Stack.Screen name="MultipleChoice" component={MultipleChoice} />
+						<Stack.Screen name="MockExamHome" component={MockExamHome} />
+						<Stack.Screen name="MockExamTake" component={MockExamTake} />
+						<Stack.Screen name="PracticeOverview" component={PracticeOverview} />
+						<Stack.Screen name="Performance" component={Performance} />
+						<Stack.Screen name="Profile" component={Profile} />
+						<Stack.Screen name="AccountInformation" component={AccountInformation} />
+						<Stack.Screen name="Settings" component={Settings} />
+						<Stack.Screen name="HelpCenter" component={HelpCenter} />
+						<Stack.Screen name="Report" component={Report} />
+						<Stack.Screen name="TermsConditions" component={TermsConditions} />
+						<Stack.Screen name="RateApp" component={RateApp} />
+						<Stack.Screen name="AboutApp" component={AboutApp} />
+						<Stack.Screen name="CseGuide" component={CseGuide} />
+					</Stack.Navigator>
+				</NavigationContainer>
 
-			{/* BottomNav lives OUTSIDE the navigator so it is never animated by screen transitions */}
-			{showNav && (
-				<BottomNav navigation={navigationRef} activeRoute={currentRoute} />
-			)}
+				{/* BottomNav lives OUTSIDE the navigator so it is never animated by screen transitions */}
+				{showNav && (
+					<BottomNav navigation={navigationRef} activeRoute={currentRoute} />
+				)}
 			</View>
 		</SafeAreaProvider>
 	)
