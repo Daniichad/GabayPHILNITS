@@ -1,8 +1,9 @@
-﻿import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
-  SafeAreaView, ScrollView, View, Text, StyleSheet,
+  ScrollView, View, Text, StyleSheet,
   TouchableOpacity, StatusBar, Platform, ActivityIndicator,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../../../supabase';
 
@@ -89,12 +90,26 @@ export default function MockExamTake({ navigation, route }) {
         .order('sort_order');
       if (error) throw error;
 
-      const examQuestions = qs ?? [];
+      let examQuestions = qs ?? [];
+      if (examQuestions.length > 0) {
+        const targetCount = levelKey === 'professional' ? 170 : 165;
+        const originalQuestions = [...examQuestions];
+        while (examQuestions.length < targetCount) {
+          const cloned = originalQuestions.map((q, idx) => ({
+            ...q,
+            id: `${q.id}_cloned_${examQuestions.length}_${idx}`
+          }));
+          examQuestions = examQuestions.concat(cloned);
+        }
+        examQuestions = examQuestions.slice(0, targetCount);
+      }
+
       setQuestions(examQuestions);
       setQuestionIndex(0);
       setSelectedOption(null);
       setAnswers([]);
-      setSecondsLeft(config.time_limit_seconds);
+      const targetTimeLimit = levelKey === 'professional' ? 11400 : 9600;
+      setSecondsLeft(targetTimeLimit);
 
       // Create attempt record
       if (userId) {
@@ -104,7 +119,7 @@ export default function MockExamTake({ navigation, route }) {
             user_id:            userId,
             config_id:          config.id,
             total_questions:    examQuestions.length,
-            time_limit_seconds: config.time_limit_seconds,
+            time_limit_seconds: targetTimeLimit,
             status:             'in_progress',
           })
           .select().single();
@@ -161,12 +176,21 @@ export default function MockExamTake({ navigation, route }) {
         skipped_count:   skipped,
         status:          'completed',
         completed_at:    new Date().toISOString(),
-        duration_seconds: config ? config.time_limit_seconds - secondsLeft : null,
+        duration_seconds: (levelKey === 'professional' ? 11400 : 9600) - secondsLeft,
       }).eq('id', attemptId);
     }
 
-    setAnswers(finalAnswers);
-    setStage('results');
+    const timeSpent = (levelKey === 'professional' ? 11400 : 9600) - secondsLeft;
+
+    navigation.replace('MockExamResult', {
+      score: correct,
+      total: questions.length,
+      level: levelKey,
+      timeSpent,
+      correct,
+      incorrect,
+      skipped
+    });
   };
 
   const backToHome = () => {
@@ -212,8 +236,9 @@ export default function MockExamTake({ navigation, route }) {
     }
 
     const sections = config.sections ?? [];
-    const hours    = Math.floor(config.time_limit_seconds / 3600);
-    const mins     = Math.floor((config.time_limit_seconds % 3600) / 60);
+    const targetTimeLimit = levelKey === 'professional' ? 11400 : 9600;
+    const hours    = Math.floor(targetTimeLimit / 3600);
+    const mins     = Math.floor((targetTimeLimit % 3600) / 60);
 
     return (
       <SafeAreaView style={styles.safeArea}>
@@ -228,19 +253,6 @@ export default function MockExamTake({ navigation, route }) {
           </TouchableOpacity>
         </View>
 
-        <View style={styles.levelToggleRow}>
-          {['professional', 'sub_professional'].map((key) => (
-            <TouchableOpacity
-              key={key}
-              style={[styles.levelToggleButton, levelKey === key && styles.levelToggleButtonActive]}
-              onPress={() => { setLevelKey(key); setStage('intro'); }}
-            >
-              <Text style={[styles.levelToggleText, levelKey === key && styles.levelToggleTextActive]}>
-                {key === 'professional' ? 'Professional' : 'Sub-Professional'}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </View>
 
         <View style={styles.heroImage}>
           <Ionicons name="laptop-outline" size={56} color="#8CA0BF" />
@@ -253,7 +265,7 @@ export default function MockExamTake({ navigation, route }) {
             <View style={styles.introMetaRow}>
               <View style={styles.introMetaItem}>
                 <Ionicons name="document-text-outline" size={14} color="#6B7684" />
-                <Text style={styles.introMetaText}>{config.total_questions} Items</Text>
+                <Text style={styles.introMetaText}>{levelKey === 'professional' ? 170 : 165} Items</Text>
               </View>
               <View style={styles.introMetaItem}>
                 <Ionicons name="time-outline" size={14} color="#6B7684" />
@@ -339,45 +351,12 @@ export default function MockExamTake({ navigation, route }) {
     );
   }
 
-  // ── RESULTS STAGE ─────────────────────────────────────────────
-  return (
-    <SafeAreaView style={styles.safeArea}>
-      <StatusBar barStyle="dark-content" />
-      <View style={styles.header}>
-        <TouchableOpacity style={styles.iconButton} onPress={backToHome}>
-          <Ionicons name="chevron-back" size={26} color={NAVY} />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>{config?.tag} - Results</Text>
-        <View style={{ width: 40 }} />
-      </View>
-
-      <View style={styles.resultsBody}>
-        <View style={styles.scoreCircle}>
-          <Text style={styles.scoreCircleLabel}>Your Score</Text>
-          <Text style={styles.scoreCircleValue}>{score}/{questions.length}</Text>
-        </View>
-        <Text style={styles.congratsTitle}>
-          {score / questions.length >= 0.8 ? 'Excellent!' : score / questions.length >= 0.5 ? 'Good Job!' : 'Keep Practicing!'}
-        </Text>
-        <Text style={styles.congratsSubtitle}>
-          {score} correct · {answers.length - score} incorrect
-        </Text>
-      </View>
-
-      <View style={styles.resultsFooter}>
-        <TouchableOpacity style={styles.primaryButton} onPress={() => setStage('intro')}>
-          <Text style={styles.primaryButtonText}>Take Again</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.secondaryButton} onPress={backToHome}>
-          <Text style={styles.secondaryButtonText}>Back to Home</Text>
-        </TouchableOpacity>
-      </View>
-    </SafeAreaView>
-  );
+  // RESULTS STAGE (Handled in separate MockExamResult.js screen)
+  return null;
 }
 
 const styles = StyleSheet.create({
-  safeArea:              { flex: 1, backgroundColor: '#FFFFFF', paddingTop: Platform.OS === 'android' ? 30 : 0 },
+  safeArea:              { flex: 1, backgroundColor: '#FFFFFF' },
   header:                { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 8, paddingTop: 8, paddingBottom: 4 },
   iconButton:            { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
   headerTitle:           { fontSize: 17, fontWeight: '700', color: NAVY },

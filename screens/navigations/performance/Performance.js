@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react'
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
-  SafeAreaView, StatusBar, Platform, ActivityIndicator,
-} from 'react-native'
+  StatusBar, Platform, ActivityIndicator } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons, Feather, MaterialCommunityIcons } from '@expo/vector-icons'
 import { supabase } from '../../../supabase'
 
@@ -46,7 +46,12 @@ export default function Performance({ navigation }) {
   const [error,   setError]   = useState(null)
   const [data,    setData]    = useState(null)
 
-  useEffect(() => { fetchAll() }, [])
+  useEffect(() => {
+    const unsubscribe = navigation.addListener('focus', () => {
+      fetchAll()
+    })
+    return unsubscribe
+  }, [navigation])
 
   // ── Data fetching ─────────────────────────────────────────────
   const fetchAll = async () => {
@@ -73,16 +78,16 @@ export default function Performance({ navigation }) {
         .select('is_correct, answered_at, question_id, multiple_choice_questions(category_id, practice_categories(name))')
         .eq('user_id', uid)
 
-      // 3. TF results
+      // 3. TF results with category
       const { data: tfRaw } = await supabase
         .from('true_false_results')
-        .select('is_correct, answered_at')
+        .select('is_correct, answered_at, question_id, true_false_questions(category_id, practice_categories(name))')
         .eq('user_id', uid)
 
-      // 4. Flashcard sessions (study time)
+      // 4. Flashcard sessions (study time - using created_at)
       const { data: sessions } = await supabase
         .from('flashcard_sessions')
-        .select('duration_seconds, started_at, completed_at, completed')
+        .select('duration_seconds, created_at, completed_at, completed')
         .eq('user_id', uid)
 
       // ── Compute metrics ───────────────────────────────────────
@@ -106,10 +111,16 @@ export default function Performance({ navigation }) {
       const mockCount  = att.length
       const studyMins  = Math.round(ses.reduce((s, s2) => s + (s2.duration_seconds ?? 0), 0) / 60)
 
-      // Subject performance from MCQ
+      // Subject performance from MCQ + TF combined
       const subjectMap = {}
       mcq.forEach(r => {
         const name = r.multiple_choice_questions?.practice_categories?.name ?? 'General'
+        if (!subjectMap[name]) subjectMap[name] = { correct: 0, total: 0 }
+        subjectMap[name].total++
+        if (r.is_correct) subjectMap[name].correct++
+      })
+      tf.forEach(r => {
+        const name = r.true_false_questions?.practice_categories?.name ?? 'General'
         if (!subjectMap[name]) subjectMap[name] = { correct: 0, total: 0 }
         subjectMap[name].total++
         if (r.is_correct) subjectMap[name].correct++
@@ -118,15 +129,18 @@ export default function Performance({ navigation }) {
         name, pct: pct(v.correct, v.total),
       }))
 
-      // Weekly trend (last 4 weeks mock avg)
+      // Weekly trend (last 4 weeks mock avg and quiz accuracy)
       const weeks = [4,3,2,1].map(w => {
         const from = new Date(today); from.setDate(today.getDate() - w * 7)
         const to   = new Date(today); to.setDate(today.getDate() - (w-1) * 7)
         const wAtt = att.filter(a => { const d = new Date(a.completed_at); return d >= from && d < to })
+        const wMcq = mcq.filter(m => { const d = new Date(m.answered_at); return d >= from && d < to })
+        const wTf  = tf.filter(t => { const d = new Date(t.answered_at); return d >= from && d < to })
+        const wQuizzes = [...wMcq, ...wTf]
         return {
           label: `W${5-w}`,
           mock: wAtt.length > 0 ? Math.round(wAtt.reduce((s, a) => s + pct(a.correct_count, a.total_questions), 0) / wAtt.length) : 0,
-          quiz: 0, // placeholder (would need date-range grouping)
+          quiz: wQuizzes.length > 0 ? Math.round(wQuizzes.reduce((s, q) => s + (q.is_correct ? 100 : 0), 0) / wQuizzes.length) : 0,
         }
       })
 
@@ -145,7 +159,7 @@ export default function Performance({ navigation }) {
 
       // Prescriptive: study streak
       const activityDays = new Set([
-        ...ses.map(s => s.started_at?.slice(0,10)),
+        ...ses.map(s => s.created_at?.slice(0,10)),
         ...mcq.map(r => r.answered_at?.slice(0,10)),
         ...tf.map(r => r.answered_at?.slice(0,10)),
       ].filter(Boolean))
@@ -159,9 +173,9 @@ export default function Performance({ navigation }) {
 
       // Today's study time
       const todayKey   = today.toISOString().slice(0,10)
-      const todayMins  = Math.round(ses.filter(s => s.started_at?.slice(0,10) === todayKey)
+      const todayMins  = Math.round(ses.filter(s => s.created_at?.slice(0,10) === todayKey)
                            .reduce((s, x) => s + (x.duration_seconds ?? 0), 0) / 60)
-      const weekMins   = Math.round(ses.filter(s => new Date(s.started_at) >= week0)
+      const weekMins   = Math.round(ses.filter(s => new Date(s.created_at) >= week0)
                            .reduce((s, x) => s + (x.duration_seconds ?? 0), 0) / 60)
       const dailyGoalMins = 180 // 3 hours
       const dailyAvg   = activityDays.size > 0 ? Math.round(studyMins / activityDays.size) : 0
@@ -391,9 +405,9 @@ export default function Performance({ navigation }) {
     <SafeAreaView style={styles.safeArea}>
       <StatusBar barStyle="dark-content" backgroundColor="#fff" />
 
-      {/* Header */}
-      <View style={styles.header}>
-        <Text style={styles.headerTitle}>PERFORMANCE</Text>
+      {/* Sticky header */}
+      <View style={{ paddingTop: 14, paddingBottom: 14, borderBottomWidth: 1, borderBottomColor: '#e8edf5', backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center' }}>
+        <Text style={{ fontSize: 18, fontWeight: '900', color: NAVY, letterSpacing: 2, textTransform: 'uppercase' }}>Performance</Text>
       </View>
 
       {/* Tabs */}
@@ -418,7 +432,7 @@ export default function Performance({ navigation }) {
 
 // ── Styles ────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
-  safeArea:   { flex: 1, backgroundColor: '#fff', paddingTop: Platform.OS === 'android' ? 30 : 0 },
+  safeArea:   { flex: 1, backgroundColor: '#fff' },
   centered:   { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 28 },
   loadingText:{ marginTop: 12, fontSize: 14, color: '#9AA5B1', fontWeight: '600' },
   emptyText:  { marginTop: 12, fontSize: 14, color: '#9AA5B1', fontWeight: '600', textAlign: 'center' },

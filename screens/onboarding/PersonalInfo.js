@@ -51,10 +51,48 @@ function SelectField({ label, value, placeholder, onPress }) {
   )
 }
 
+const COUNTRIES = [
+  { name: 'Philippines', code: '+63', flag: '🇵🇭' },
+  { name: 'United States', code: '+1', flag: '🇺🇸' },
+  { name: 'Saudi Arabia', code: '+966', flag: '🇸🇦' },
+  { name: 'United Arab Emirates', code: '+971', flag: '🇦🇪' },
+  { name: 'Canada', code: '+1', flag: '🇨🇦' },
+  { name: 'Japan', code: '+81', flag: '🇯🇵' },
+  { name: 'United Kingdom', code: '+44', flag: '🇬🇧' },
+  { name: 'Singapore', code: '+65', flag: '🇸🇬' },
+  { name: 'Qatar', code: '+974', flag: '🇶🇦' },
+  { name: 'Kuwait', code: '+965', flag: '🇰🇼' },
+  { name: 'Italy', code: '+39', flag: '🇮🇹' },
+  { name: 'Hong Kong', code: '+852', flag: '🇭🇰' },
+  { name: 'Taiwan', code: '+886', flag: '🇹🇼' },
+  { name: 'Malaysia', code: '+60', flag: '🇲🇾' },
+  { name: 'Australia', code: '+61', flag: '🇦🇺' },
+  { name: 'Bahrain', code: '+973', flag: '🇧🇭' },
+  { name: 'Brunei', code: '+673', flag: '🇧🇳' },
+  { name: 'New Zealand', code: '+64', flag: '🇳🇿' },
+  { name: 'South Korea', code: '+82', flag: '🇰🇷' },
+  { name: 'Spain', code: '+34', flag: '🇪🇸' },
+  { name: 'Germany', code: '+49', flag: '🇩🇪' },
+  { name: 'France', code: '+33', flag: '🇫🇷' },
+  { name: 'Oman', code: '+968', flag: '🇴🇲' },
+  { name: 'Switzerland', code: '+41', flag: '🇨🇭' },
+  { name: 'Israel', code: '+972', flag: '🇮🇱' },
+  { name: 'Lebanon', code: '+961', flag: '🇱🇧' },
+  { name: 'Macau', code: '+853', flag: '🇲🇴' },
+  { name: 'Thailand', code: '+66', flag: '🇹🇭' },
+  { name: 'Vietnam', code: '+84', flag: '🇻🇳' },
+  { name: 'Indonesia', code: '+62', flag: '🇮🇩' },
+  { name: 'China', code: '+86', flag: '🇨🇳' },
+  { name: 'India', code: '+91', flag: '🇮🇳' },
+]
+
 export default function PersonalInfo({ navigation }) {
   const [age, setAge] = React.useState('')
   const [birthdate, setBirthdate] = React.useState('')
   const [contactNumber, setContactNumber] = React.useState('')
+  const [countryCode, setCountryCode] = React.useState('+63')
+  const [isPhoneFocused, setIsPhoneFocused] = React.useState(false)
+  const [countryPickerOpen, setCountryPickerOpen] = React.useState(false)
   const [gender, setGender] = React.useState('')
   const [targetExamLevel, setTargetExamLevel] = React.useState('')
   const [education, setEducation] = React.useState('')
@@ -131,7 +169,23 @@ export default function PersonalInfo({ navigation }) {
 
         if (data) {
           setAge(data.age?.toString?.() ?? '')
-          setContactNumber(data.contact_number ?? '')
+          
+          const rawNum = data.contact_number ?? ''
+          const sortedCountries = [...COUNTRIES].sort((a, b) => b.code.length - a.code.length)
+          let matched = false
+          for (const country of sortedCountries) {
+            if (rawNum.startsWith(country.code)) {
+              setCountryCode(country.code)
+              setContactNumber(rawNum.slice(country.code.length))
+              matched = true
+              break
+            }
+          }
+          if (!matched) {
+            setCountryCode('+63')
+            setContactNumber(rawNum)
+          }
+
           setGender(data.gender ?? '')
           setTargetExamLevel(data.target_exam_level ?? '')
           setEducation(data.highest_educational_attainment ?? '')
@@ -178,10 +232,19 @@ export default function PersonalInfo({ navigation }) {
   }
 
   const handleNext = async () => {
-    if (!age || !birthdate || !contactNumber || !gender || !targetExamLevel || !education) {
+    const cleanNum = contactNumber.replace(/\D/g, '')
+
+    if (!age || !birthdate || !cleanNum || !gender || !targetExamLevel || !education) {
       showCustomAlert('Missing information', 'Please complete all personal information fields')
       return
     }
+
+    if (countryCode === '+63' && cleanNum.length !== 10) {
+      showCustomAlert('Validation Error', 'Philippine mobile numbers must be exactly 10 digits (e.g., 9123456789)')
+      return
+    }
+
+    const fullContactNumber = `${countryCode}${cleanNum}`
 
     setSaving(true)
     try {
@@ -204,7 +267,7 @@ export default function PersonalInfo({ navigation }) {
           user_id: userId,
           age: Number(age),
           birthdate,
-          contact_number: contactNumber,
+          contact_number: fullContactNumber,
           gender,
           target_exam_level: targetExamLevel,
           highest_educational_attainment: education,
@@ -267,13 +330,30 @@ export default function PersonalInfo({ navigation }) {
             placeholder="Select birthdate"
             onPress={() => setDatePickerVisible(true)}
           />
-          <Field
-            label="Contact Number"
-            placeholder="e.g. 09123456789"
-            value={contactNumber}
-            onChangeText={setContactNumber}
-            keyboardType="phone-pad"
-          />
+          <View style={styles.fieldContainer}>
+            <Text style={styles.fieldLabel}>Contact Number</Text>
+            <View style={styles.phoneInputRow}>
+              <TouchableOpacity
+                style={styles.countryCodeButton}
+                activeOpacity={0.8}
+                onPress={() => setCountryPickerOpen(true)}
+              >
+                <Text style={styles.countryCodeText}>{countryCode}</Text>
+                <Text style={styles.countryCodeChevron}> ▾</Text>
+              </TouchableOpacity>
+              <TextInput
+                placeholder="9123456789"
+                value={contactNumber}
+                onChangeText={setContactNumber}
+                keyboardType="phone-pad"
+                maxLength={countryCode === '+63' ? 10 : 15}
+                style={[styles.phoneInputText, isPhoneFocused && styles.phoneInputTextFocused]}
+                onFocus={() => setIsPhoneFocused(true)}
+                onBlur={() => setIsPhoneFocused(false)}
+                placeholderTextColor="#9CA3AF"
+              />
+            </View>
+          </View>
           <SelectField
             label="Gender"
             value={gender}
@@ -444,6 +524,37 @@ export default function PersonalInfo({ navigation }) {
         </View>
       </Modal>
 
+      {/* Country Code Picker Modal */}
+      <Modal visible={countryPickerOpen} transparent animationType="fade" onRequestClose={() => setCountryPickerOpen(false)}>
+        <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setCountryPickerOpen(false)} />
+        <View style={styles.modalCard}>
+          <Text style={styles.modalTitle}>Country Code</Text>
+          <Text style={styles.modalSubtitle}>Select your country dial code</Text>
+          <ScrollView style={styles.optionsList} contentContainerStyle={{ paddingBottom: 8 }} showsVerticalScrollIndicator={false}>
+            {COUNTRIES.map((country) => (
+              <TouchableOpacity
+                key={country.name}
+                style={[styles.optionButton, countryCode === country.code && { backgroundColor: '#F3F4F6' }]}
+                activeOpacity={0.7}
+                onPress={() => {
+                  setCountryCode(country.code)
+                  setCountryPickerOpen(false)
+                }}
+              >
+                <Text style={styles.optionButtonText}>{country.flag} {country.name} ({country.code})</Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+          <TouchableOpacity
+            style={styles.modalCancelButton}
+            activeOpacity={0.8}
+            onPress={() => setCountryPickerOpen(false)}
+          >
+            <Text style={styles.modalCancelButtonText}>Cancel</Text>
+          </TouchableOpacity>
+        </View>
+      </Modal>
+
       {/* Custom Warning Alert Modal */}
       <Modal
         transparent
@@ -545,6 +656,47 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
   },
   inputFocused: {
+    borderColor: '#3B82B8',
+  },
+  phoneInputRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    width: '100%',
+  },
+  countryCodeButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1.5,
+    borderColor: '#D1D5DB',
+    borderRadius: 14,
+    height: 52,
+    paddingHorizontal: 12,
+    backgroundColor: '#F9FAFB',
+    marginRight: 8,
+  },
+  countryCodeText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#1a1a1a',
+  },
+  countryCodeChevron: {
+    fontSize: 12,
+    color: '#9CA3AF',
+    fontWeight: '700',
+  },
+  phoneInputText: {
+    flex: 1,
+    borderWidth: 1.5,
+    borderColor: '#D1D5DB',
+    borderRadius: 14,
+    paddingHorizontal: 16,
+    height: 52,
+    fontSize: 15,
+    color: '#1a1a1a',
+    backgroundColor: '#FFFFFF',
+  },
+  phoneInputTextFocused: {
     borderColor: '#3B82B8',
   },
   selectInput: {

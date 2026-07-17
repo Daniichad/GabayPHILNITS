@@ -1,29 +1,107 @@
 import React from 'react'
 import {
   Alert, Image, Linking, Modal, Platform, ScrollView,
-  StatusBar, StyleSheet, Text, TouchableOpacity, View,
+  StatusBar, StyleSheet, Text, TouchableOpacity, View, ActivityIndicator
 } from 'react-native'
 import { Ionicons, Feather, MaterialCommunityIcons } from '@expo/vector-icons'
+import { SafeAreaView } from 'react-native-safe-area-context'
+import * as ImagePicker from 'expo-image-picker'
 import { supabase } from '../../../utils/supabase'
 
 const NAVY = '#0f2747'
 const ACCENT = '#d85e67'
 
-export default function Profile({ session, navigation }) {
-  const user = session?.user
-  const fullName =
-    user?.user_metadata?.full_name ||
-    user?.user_metadata?.fullName ||
-    'Full Name'
-  const email = user?.email || 'name@gmail.com'
-
+export default function Profile({ session: initialSession, navigation }) {
+  const [user, setUser] = React.useState(initialSession?.user || null)
+  const [profile, setProfile] = React.useState(null)
+  const [loading, setLoading] = React.useState(true)
+  const [uploading, setUploading] = React.useState(false)
   const [logoutVisible, setLogoutVisible] = React.useState(false)
+
+  const loadSessionAndProfile = async () => {
+    try {
+      let currentUser = user
+      if (!currentUser) {
+        const { data: { session: currentSession } } = await supabase.auth.getSession()
+        currentUser = currentSession?.user
+        if (currentUser) {
+          setUser(currentUser)
+        }
+      }
+
+      if (currentUser?.email) {
+        const { data, error } = await supabase
+          .from('users')
+          .select('fullname, email, avatar_url')
+          .eq('email', currentUser.email)
+          .maybeSingle()
+
+        if (error) {
+          console.warn('Profile fetch error:', error.message)
+        }
+        if (data) {
+          setProfile(data)
+        }
+      }
+    } catch (err) {
+      console.warn('Error loading profile session:', err)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  React.useEffect(() => {
+    loadSessionAndProfile()
+  }, [initialSession])
 
   const handleLogout = async () => {
     setLogoutVisible(false)
     const { error } = await supabase.auth.signOut()
     if (error) Alert.alert('Error', error.message)
   }
+
+  const pickImage = async () => {
+    // Request permission
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync()
+    if (status !== 'granted') {
+      Alert.alert('Permission Denied', 'We need access to your photo library to set a profile picture.')
+      return
+    }
+
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.3,
+        base64: true,
+      })
+
+      if (!result.canceled && result.assets?.[0]?.base64) {
+        setUploading(true)
+        const base64Image = `data:image/jpeg;base64,${result.assets[0].base64}`
+
+        // Update in users table
+        const { error } = await supabase
+          .from('users')
+          .update({ avatar_url: base64Image })
+          .eq('email', user.email)
+
+        if (error) {
+          Alert.alert('Upload Error', error.message || 'Could not save profile picture')
+        } else {
+          setProfile((prev) => prev ? { ...prev, avatar_url: base64Image } : { fullname: user?.user_metadata?.full_name || 'Student', email: user?.email, avatar_url: base64Image })
+        }
+      }
+    } catch (err) {
+      Alert.alert('Error', err.message || String(err))
+    } finally {
+      setUploading(false)
+    }
+  }
+
+  const displayName = profile?.fullname || user?.user_metadata?.full_name || user?.user_metadata?.fullName || 'Student'
+  const displayEmail = profile?.email || user?.email || 'name@gmail.com'
 
   // ── Menu row helper ──────────────────────────────────────────
   const MenuRow = ({ icon, iconFamily, label, onPress }) => {
@@ -54,24 +132,36 @@ export default function Profile({ session, navigation }) {
   )
 
   return (
-    <View style={styles.screen}>
+    <SafeAreaView style={styles.screen}>
       <StatusBar barStyle="dark-content" backgroundColor="#f5f7fb" />
 
+      {/* Sticky header */}
+      <View style={{ paddingTop: 14, paddingBottom: 14, borderBottomWidth: 1, borderBottomColor: '#e8edf5', backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center' }}>
+        <Text style={{ fontSize: 18, fontWeight: '900', color: NAVY, letterSpacing: 2, textTransform: 'uppercase' }}>Profile</Text>
+      </View>
+
       <ScrollView
-        contentContainerStyle={styles.scrollContent}
+        contentContainerStyle={[styles.scrollContent, { paddingTop: 16 }]}
         showsVerticalScrollIndicator={false}
       >
-        {/* ── Header ── */}
-        <Text style={styles.headerTitle}>PROFILE</Text>
 
         {/* ── User Card ── */}
         <View style={styles.userCard}>
-          <View style={styles.avatarWrap}>
-            <Feather name="user" size={28} color="#fff" />
-          </View>
+          <TouchableOpacity style={styles.avatarWrap} activeOpacity={0.7} onPress={pickImage} disabled={uploading}>
+            {uploading ? (
+              <ActivityIndicator color="#fff" size="small" />
+            ) : profile?.avatar_url ? (
+              <Image source={{ uri: profile.avatar_url }} style={styles.avatarImage} />
+            ) : (
+              <Feather name="user" size={28} color="#fff" />
+            )}
+            <View style={styles.cameraIconBadge}>
+              <Feather name="camera" size={10} color="#fff" />
+            </View>
+          </TouchableOpacity>
           <View style={styles.userInfo}>
-            <Text style={styles.userName}>{fullName}</Text>
-            <Text style={styles.userEmail}>{email}</Text>
+            <Text style={styles.userName}>{displayName}</Text>
+            <Text style={styles.userEmail}>{displayEmail}</Text>
           </View>
         </View>
 
@@ -90,22 +180,6 @@ export default function Profile({ session, navigation }) {
             iconFamily="Feather"
             label="Setting"
             onPress={() => navigation.navigate('Settings')}  
-          />
-        </View>
-
-        {/* ── Info Pills ── */}
-        <View style={styles.pillGroup}>
-          <PillButton
-            label="CoE Process & Coverage"
-            onPress={() => Linking.openURL('https://www.csc.gov.ph/')}
-          />
-          <PillButton
-            label="Application Requirements"
-            onPress={() => Linking.openURL('https://www.csc.gov.ph/')}
-          />
-          <PillButton
-            label="Prof vs Sub-prof explanation"
-            onPress={() => Linking.openURL('https://www.csc.gov.ph/')}
           />
         </View>
 
@@ -138,6 +212,13 @@ export default function Profile({ session, navigation }) {
             iconFamily="Feather"
             label="About Gabay CSE"
             onPress={() => navigation.navigate('AboutApp')}
+          />
+          <View style={styles.divider} />
+          <MenuRow
+            icon="book"
+            iconFamily="Feather"
+            label="CSE Guide"
+            onPress={() => navigation.navigate('CseGuide')}
           />
           <View style={styles.divider} />
           <MenuRow
@@ -205,7 +286,7 @@ export default function Profile({ session, navigation }) {
           </View>
         </View>
       </Modal>
-    </View>
+    </SafeAreaView>
   )
 }
 
@@ -215,7 +296,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#f5f7fb',
   },
   scrollContent: {
-    paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight + 12 : 56,
+    paddingTop: 12,
     paddingHorizontal: 20,
     paddingBottom: 110,
   },
@@ -253,6 +334,25 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 14,
+    position: 'relative',
+  },
+  avatarImage: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+  },
+  cameraIconBadge: {
+    position: 'absolute',
+    bottom: -2,
+    right: -2,
+    backgroundColor: ACCENT,
+    borderRadius: 8,
+    width: 16,
+    height: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#fff',
   },
   userInfo: {
     flex: 1,

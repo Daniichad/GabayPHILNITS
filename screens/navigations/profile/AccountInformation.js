@@ -68,41 +68,273 @@ function DropdownField({ label, value, options, onChange }) {
   )
 }
 
-// ── Main Screen ───────────────────────────────────────────────────
-export default function AccountInformation({ session, navigation }) {
-  const user = session?.user
-  const meta = user?.user_metadata ?? {}
+const COUNTRIES = [
+  { name: 'Philippines', code: '+63', flag: '🇵🇭' },
+  { name: 'United States', code: '+1', flag: '🇺🇸' },
+  { name: 'Saudi Arabia', code: '+966', flag: '🇸🇦' },
+  { name: 'United Arab Emirates', code: '+971', flag: '🇦🇪' },
+  { name: 'Canada', code: '+1', flag: '🇨🇦' },
+  { name: 'Japan', code: '+81', flag: '🇯🇵' },
+  { name: 'United Kingdom', code: '+44', flag: '🇬🇧' },
+  { name: 'Singapore', code: '+65', flag: '🇸🇬' },
+  { name: 'Qatar', code: '+974', flag: '🇶🇦' },
+  { name: 'Kuwait', code: '+965', flag: '🇰🇼' },
+  { name: 'Italy', code: '+39', flag: '🇮🇹' },
+  { name: 'Hong Kong', code: '+852', flag: '🇭🇰' },
+  { name: 'Taiwan', code: '+886', flag: '🇹🇼' },
+  { name: 'Malaysia', code: '+60', flag: '🇲🇾' },
+  { name: 'Australia', code: '+61', flag: '🇦🇺' },
+  { name: 'Bahrain', code: '+973', flag: '🇧🇭' },
+  { name: 'Brunei', code: '+673', flag: '🇧🇳' },
+  { name: 'New Zealand', code: '+64', flag: '🇳🇿' },
+  { name: 'South Korea', code: '+82', flag: '🇰🇷' },
+  { name: 'Spain', code: '+34', flag: '🇪🇸' },
+  { name: 'Germany', code: '+49', flag: '🇩🇪' },
+  { name: 'France', code: '+33', flag: '🇫🇷' },
+  { name: 'Oman', code: '+968', flag: '🇴🇲' },
+  { name: 'Switzerland', code: '+41', flag: '🇨🇭' },
+  { name: 'Israel', code: '+972', flag: '🇮🇱' },
+  { name: 'Lebanon', code: '+961', flag: '🇱🇧' },
+  { name: 'Macau', code: '+853', flag: '🇲🇴' },
+  { name: 'Thailand', code: '+66', flag: '🇹🇭' },
+  { name: 'Vietnam', code: '+84', flag: '🇻🇳' },
+  { name: 'Indonesia', code: '+62', flag: '🇮🇩' },
+  { name: 'China', code: '+86', flag: '🇨🇳' },
+  { name: 'India', code: '+91', flag: '🇮🇳' },
+]
 
-  const [fullName, setFullName] = useState(meta.full_name || meta.fullName || '')
-  const [email] = useState(user?.email || '')
-  const [age, setAge] = useState(meta.age ? String(meta.age) : '')
-  const [birthdate, setBirthdate] = useState(meta.birthdate || '')
-  const [gender, setGender] = useState(meta.gender || '')
-  const [examLevel, setExamLevel] = useState(meta.exam_level || '')
-  const [education, setEducation] = useState(meta.education || '')
+// ── Main Screen ───────────────────────────────────────────────────
+export default function AccountInformation({ session: initialSession, navigation }) {
+  const [user, setUser] = useState(initialSession?.user || null)
+  const [fullName, setFullName] = useState('')
+  const [email, setEmail] = useState(initialSession?.user?.email || '')
+  const [contactNumber, setContactNumber] = useState('')
+  const [countryCode, setCountryCode] = useState('+63')
+  const [isPhoneFocused, setIsPhoneFocused] = useState(false)
+  const [countryPickerOpen, setCountryPickerOpen] = useState(false)
+  const [age, setAge] = useState('')
+  const [birthdate, setBirthdate] = useState('')
+  const [gender, setGender] = useState('')
+  const [examLevel, setExamLevel] = useState('')
+  const [education, setEducation] = useState('')
+  const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [alertVisible, setAlertVisible] = useState(false)
+  const [alertTitle, setAlertTitle] = useState('')
+  const [alertMessage, setAlertMessage] = useState('')
+  const [alertType, setAlertType] = useState('error') // 'error' or 'success'
+  const [initialData, setInitialData] = useState({
+    fullName: '',
+    contactNumber: '',
+    countryCode: '+63',
+    age: '',
+    birthdate: '',
+    gender: '',
+    examLevel: '',
+    education: '',
+  })
+
+  const hasChanges = 
+    fullName.trim() !== initialData.fullName.trim() ||
+    contactNumber.trim() !== initialData.contactNumber.trim() ||
+    countryCode !== initialData.countryCode ||
+    age !== initialData.age ||
+    birthdate !== initialData.birthdate ||
+    gender !== initialData.gender ||
+    examLevel !== initialData.examLevel ||
+    education !== initialData.education;
+
+  const showCustomAlert = (title, message, type = 'error') => {
+    setAlertTitle(title)
+    setAlertMessage(message)
+    setAlertType(type)
+    setAlertVisible(true)
+  }
+
+  const loadData = async () => {
+    try {
+      let currentUser = user
+      if (!currentUser) {
+        const { data: { session: currentSession } } = await supabase.auth.getSession()
+        currentUser = currentSession?.user
+        if (currentUser) {
+          setUser(currentUser)
+          setEmail(currentUser.email || '')
+        }
+      }
+
+      if (currentUser) {
+        // 1. Fetch from public.users
+        const { data: uData } = await supabase
+          .from('users')
+          .select('fullname')
+          .eq('email', currentUser.email)
+          .maybeSingle()
+
+        let dbName = ''
+        if (uData) {
+          dbName = uData.fullname || ''
+          setFullName(dbName)
+        }
+
+        // 2. Fetch from personal_info
+        const { data: pData } = await supabase
+          .from('personal_info')
+          .select('age, birthdate, contact_number, gender, target_exam_level, highest_educational_attainment')
+          .eq('user_id', currentUser.id)
+          .maybeSingle()
+
+        let dbAge = ''
+        let dbBirthdate = ''
+        let dbGender = ''
+        let dbExamLevel = ''
+        let dbEducation = ''
+        let dbPhone = ''
+        let dbCountry = '+63'
+
+        if (pData) {
+          dbAge = pData.age ? String(pData.age) : ''
+          dbBirthdate = pData.birthdate || ''
+          dbGender = pData.gender || ''
+          dbExamLevel = pData.target_exam_level || ''
+          dbEducation = pData.highest_educational_attainment || ''
+
+          setAge(dbAge)
+          setBirthdate(dbBirthdate)
+          setGender(dbGender)
+          setExamLevel(dbExamLevel)
+          setEducation(dbEducation)
+          
+          const rawNum = pData.contact_number ?? ''
+          const sortedCountries = [...COUNTRIES].sort((a, b) => b.code.length - a.code.length)
+          let matched = false
+          for (const country of sortedCountries) {
+            if (rawNum.startsWith(country.code)) {
+              dbCountry = country.code
+              dbPhone = rawNum.slice(country.code.length)
+              setCountryCode(dbCountry)
+              setContactNumber(dbPhone)
+              matched = true
+              break
+            }
+          }
+          if (!matched) {
+            dbPhone = rawNum
+            setCountryCode(dbCountry)
+            setContactNumber(dbPhone)
+          }
+        }
+
+        // Save baseline loaded values
+        setInitialData({
+          fullName: dbName,
+          contactNumber: dbPhone,
+          countryCode: dbCountry,
+          age: dbAge,
+          birthdate: dbBirthdate,
+          gender: dbGender,
+          examLevel: dbExamLevel,
+          education: dbEducation,
+        })
+      }
+    } catch (err) {
+      console.warn('Error loading account information:', err)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  React.useEffect(() => {
+    loadData()
+  }, [initialSession])
 
   const handleUpdate = async () => {
     if (!fullName.trim()) {
-      Alert.alert('Validation', 'Full name is required.')
+      showCustomAlert('Validation', 'Full name is required.')
       return
     }
+
+    const cleanNum = contactNumber.replace(/\D/g, '')
+    if (!cleanNum) {
+      showCustomAlert('Validation', 'Contact number is required.')
+      return
+    }
+
+    if (countryCode === '+63' && cleanNum.length !== 10) {
+      showCustomAlert('Validation Error', 'Philippine mobile numbers must be exactly 10 digits (e.g., 9123456789)')
+      return
+    }
+
+    if (!user) {
+      showCustomAlert('Session Error', 'No active user session found.')
+      return
+    }
+
+    const fullContactNumber = `${countryCode}${cleanNum}`
+
     setSaving(true)
-    const { error } = await supabase.auth.updateUser({
-      data: {
-        full_name: fullName.trim(),
-        age: age.replace(/\D/g, '') || null,
+    try {
+      // 1. Update public.users
+      const { error: userError } = await supabase
+        .from('users')
+        .update({ fullname: fullName.trim() })
+        .eq('email', user.email)
+
+      if (userError) {
+        showCustomAlert('Update Error', 'Could not update your profile name. Please try again.')
+        setSaving(false)
+        return
+      }
+
+      // 2. Update personal_info
+      const { error: infoError } = await supabase
+        .from('personal_info')
+        .upsert(
+          {
+            user_id: user.id,
+            age: age ? Number(age) : null,
+            birthdate: birthdate || null,
+            contact_number: fullContactNumber,
+            gender: gender || null,
+            target_exam_level: examLevel || null,
+            highest_educational_attainment: education || null,
+            updated_at: new Date().toISOString(),
+          },
+          {
+            onConflict: 'user_id',
+          }
+        )
+
+      if (infoError) {
+        showCustomAlert('Update Error', 'Could not update your account details. Please try again.')
+        setSaving(false)
+        return
+      }
+
+      // 3. Keep Auth Metadata synced (optional helper)
+      await supabase.auth.updateUser({
+        data: {
+          full_name: fullName.trim(),
+        },
+      })
+
+      // Update baseline initial data
+      setInitialData({
+        fullName: fullName.trim(),
+        contactNumber: contactNumber.trim(),
+        countryCode,
+        age,
         birthdate,
         gender,
-        exam_level: examLevel,
+        examLevel,
         education,
-      },
-    })
-    setSaving(false)
-    if (error) {
-      Alert.alert('Error', error.message)
-    } else {
-      Alert.alert('Success', 'Profile updated successfully!')
+      })
+
+      showCustomAlert('Success', 'Profile updated successfully!', 'success')
+    } catch (err) {
+      showCustomAlert('Error', 'An unexpected error occurred. Please try again.')
+    } finally {
+      setSaving(false)
     }
   }
 
@@ -147,6 +379,118 @@ export default function AccountInformation({ session, navigation }) {
             placeholderTextColor="#94a3b8"
           />
         </View>
+
+        {/* ── Contact Number ── */}
+        <View style={styles.fieldWrap}>
+          <Text style={styles.fieldLabel}>Contact Number</Text>
+          <View style={styles.phoneInputRow}>
+            <TouchableOpacity
+              style={styles.countryCodeButton}
+              activeOpacity={0.8}
+              onPress={() => setCountryPickerOpen(true)}
+            >
+              <Text style={styles.countryCodeText}>{countryCode}</Text>
+              <Text style={styles.countryCodeChevron}> ▾</Text>
+            </TouchableOpacity>
+            <TextInput
+              placeholder="9123456789"
+              value={contactNumber}
+              onChangeText={setContactNumber}
+              keyboardType="phone-pad"
+              maxLength={countryCode === '+63' ? 10 : 15}
+              style={[styles.phoneInputText, isPhoneFocused && styles.phoneInputTextFocused]}
+              onFocus={() => setIsPhoneFocused(true)}
+              onBlur={() => setIsPhoneFocused(false)}
+              placeholderTextColor="#94a3b8"
+            />
+          </View>
+        </View>
+
+        {/* Country Code Picker Modal */}
+        <Modal visible={countryPickerOpen} transparent animationType="fade" onRequestClose={() => setCountryPickerOpen(false)}>
+          <TouchableOpacity style={styles.pickerBackdrop} activeOpacity={1} onPress={() => setCountryPickerOpen(false)} />
+          <View style={[styles.pickerSheet, { maxHeight: '60%' }]}>
+            <View style={styles.pickerHeader}>
+              <Text style={styles.pickerTitle}>Country Code</Text>
+              <TouchableOpacity onPress={() => setCountryPickerOpen(false)}>
+                <Feather name="x" size={22} color={NAVY} />
+              </TouchableOpacity>
+            </View>
+            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 16 }}>
+              {COUNTRIES.map((country) => (
+                <TouchableOpacity
+                  key={country.name}
+                  style={[styles.pickerOption, countryCode === country.code && styles.pickerOptionActive]}
+                  onPress={() => { setCountryCode(country.code); setCountryPickerOpen(false) }}
+                >
+                  <Text style={[styles.pickerOptionText, countryCode === country.code && styles.pickerOptionTextActive]}>
+                    {country.flag} {country.name} ({country.code})
+                  </Text>
+                  {countryCode === country.code && <Feather name="check" size={16} color={NAVY} />}
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </View>
+        </Modal>
+
+      {/* Custom Alert Modal */}
+      <Modal
+        transparent
+        visible={alertVisible}
+        animationType="fade"
+        onRequestClose={() => setAlertVisible(false)}
+      >
+        <View style={{
+          flex: 1,
+          backgroundColor: 'rgba(15, 30, 53, 0.65)',
+          justifyContent: 'center',
+          alignItems: 'center',
+          padding: 24,
+        }}>
+          <View style={{
+            width: '90%',
+            maxWidth: 340,
+            backgroundColor: '#fff',
+            borderRadius: 24,
+            padding: 24,
+            alignItems: 'center',
+            shadowColor: '#000',
+            shadowOpacity: 0.15,
+            shadowRadius: 10,
+            shadowOffset: { width: 0, height: 4 },
+            elevation: 5,
+          }}>
+            <View style={{ 
+              backgroundColor: alertType === 'success' ? '#ECFDF5' : '#FEE2E2', 
+              padding: 12, 
+              borderRadius: 32, 
+              marginBottom: 16 
+            }}>
+              <Feather 
+                name={alertType === 'success' ? 'check-circle' : 'alert-circle'} 
+                size={32} 
+                color={alertType === 'success' ? '#10B981' : '#EF4444'} 
+              />
+            </View>
+            <Text style={[styles.pickerTitle, { fontSize: 18, marginBottom: 8, textAlign: 'center' }]}>{alertTitle}</Text>
+            <Text style={{ color: '#4B5563', fontSize: 14, textAlign: 'center', lineHeight: 20, marginBottom: 20 }}>
+              {alertMessage}
+            </Text>
+            <TouchableOpacity
+              style={{
+                backgroundColor: alertType === 'success' ? '#10B981' : '#EF4444',
+                borderRadius: 12,
+                paddingVertical: 13,
+                alignItems: 'center',
+                width: '100%'
+              }}
+              onPress={() => setAlertVisible(false)}
+            >
+              <Text style={{ color: '#fff', fontSize: 16, fontWeight: '600' }}>Okay</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
 
         {/* ── Age ── */}
         <View style={styles.fieldWrap}>
@@ -203,10 +547,10 @@ export default function AccountInformation({ session, navigation }) {
 
         {/* ── Buttons ── */}
         <TouchableOpacity
-          style={[styles.updateBtn, saving && { opacity: 0.7 }]}
+          style={[styles.updateBtn, (!hasChanges || saving) && { opacity: 0.45 }]}
           activeOpacity={0.85}
           onPress={handleUpdate}
-          disabled={saving}
+          disabled={!hasChanges || saving}
         >
           <Text style={styles.updateBtnText}>
             {saving ? 'Saving…' : 'Update Profile'}
@@ -291,6 +635,47 @@ const styles = StyleSheet.create({
   },
   inputDisabled: {
     color: '#94a3b8',
+  },
+  phoneInputRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    width: '100%',
+  },
+  countryCodeButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1.5,
+    borderColor: '#E2E8F0',
+    borderRadius: 12,
+    height: 52,
+    paddingHorizontal: 12,
+    backgroundColor: '#F8FAFC',
+    marginRight: 8,
+  },
+  countryCodeText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: NAVY,
+  },
+  countryCodeChevron: {
+    fontSize: 12,
+    color: '#64748b',
+    fontWeight: '700',
+  },
+  phoneInputText: {
+    flex: 1,
+    backgroundColor: '#f1f5f9',
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    height: 52,
+    fontSize: 15,
+    color: NAVY,
+    fontWeight: '500',
+  },
+  phoneInputTextFocused: {
+    borderColor: '#3B82B8',
+    borderWidth: 1.5,
   },
   inputRow: {
     flexDirection: 'row',

@@ -1,8 +1,8 @@
 import React, { useState, useRef, useEffect } from 'react';
 import {
-  SafeAreaView, View, Text, StyleSheet, TouchableOpacity,
-  Animated, StatusBar, Platform, ActivityIndicator,
-} from 'react-native';
+  View, Text, StyleSheet, TouchableOpacity,
+  Animated, StatusBar, Platform, ActivityIndicator } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';;
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../../../supabase';
 
@@ -27,6 +27,7 @@ export default function Flashcards({ navigation, route }) {
   const [sessionId, setSessionId] = useState(null);
   const [userId,    setUserId]    = useState(null);
   const [startTime, setStartTime] = useState(null);
+  const [completed, setCompleted] = useState(false);
 
   const subject    = route?.params?.subject;
   const limit      = route?.params?.limit ?? 10;
@@ -101,11 +102,15 @@ export default function Flashcards({ navigation, route }) {
   };
 
   const goToNext = () => {
-    flipAnim.setValue(0); setFlipped(false);
-    const next = (index + 1) % cards.length;
     const completing = index === cards.length - 1;
-    setIndex(next);
-    updateSession(index + 1, completing);
+    if (completing) {
+      updateSession(index + 1, true);
+      setCompleted(true);
+    } else {
+      flipAnim.setValue(0); setFlipped(false);
+      setIndex((p) => p + 1);
+      updateSession(index + 1, false);
+    }
   };
 
   const goToPrev = () => {
@@ -147,6 +152,52 @@ export default function Flashcards({ navigation, route }) {
           <Text style={styles.emptyText}>{error ?? 'No flashcards available.'}</Text>
           <TouchableOpacity style={styles.retryBtn} onPress={loadData}>
             <Text style={styles.retryText}>Retry</Text>
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  // COMPLETED STATE SCREEN
+  if (completed) {
+    return (
+      <SafeAreaView style={styles.safeArea}>
+        <StatusBar barStyle="dark-content" />
+        <View style={styles.header}>
+          <TouchableOpacity style={styles.iconButton} onPress={handleBack}>
+            <Ionicons name="chevron-back" size={26} color={NAVY} />
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>{deckTitle}</Text>
+          <View style={styles.iconButton} />
+        </View>
+
+        <View style={styles.completedBody}>
+          <View style={styles.successIconBadge}>
+            <Ionicons name="checkmark-circle" size={54} color="#3CB878" />
+          </View>
+          <Text style={styles.completedTitle}>Deck Completed!</Text>
+          <Text style={styles.completedSubtitle}>
+            You have successfully reviewed all {cards.length} cards in this deck.
+          </Text>
+        </View>
+
+        <View style={styles.completedFooter}>
+          <TouchableOpacity
+            style={styles.primaryButton}
+            onPress={() => {
+              flipAnim.setValue(0);
+              setFlipped(false);
+              setIndex(0);
+              setCompleted(false);
+              setStartTime(Date.now());
+            }}
+          >
+            <Text style={styles.primaryButtonText}>Practice Again</Text>
+            <Ionicons name="refresh" size={16} color="#FFFFFF" style={{ marginLeft: 6 }} />
+          </TouchableOpacity>
+
+          <TouchableOpacity style={styles.secondaryButton} onPress={handleBack}>
+            <Text style={styles.secondaryButtonText}>Back to Library</Text>
           </TouchableOpacity>
         </View>
       </SafeAreaView>
@@ -200,7 +251,7 @@ export default function Flashcards({ navigation, route }) {
 }
 
 const styles = StyleSheet.create({
-  safeArea:      { flex: 1, backgroundColor: '#FFFFFF', paddingTop: Platform.OS === 'android' ? 30 : 0 },
+  safeArea:      { flex: 1, backgroundColor: '#FFFFFF' },
   header:        { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 8, paddingTop: 8, paddingBottom: 4 },
   iconButton:    { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
   headerTitle:   { fontSize: 17, fontWeight: '700', color: NAVY },
@@ -223,4 +274,58 @@ const styles = StyleSheet.create({
   topMetaRow:    { width: '100%', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, paddingHorizontal: 4 },
   metaSubjectText: { fontSize: 13, fontWeight: '700', color: NAVY, textTransform: 'uppercase', letterSpacing: 0.5 },
   metaProgressText: { fontSize: 13, fontWeight: '600', color: '#9AA5B1' },
+  completedBody: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 30,
+  },
+  successIconBadge: {
+    backgroundColor: '#EAFBF2',
+    padding: 12,
+    borderRadius: 40,
+    marginBottom: 20,
+  },
+  completedTitle: {
+    fontSize: 22,
+    fontWeight: '800',
+    color: NAVY,
+    marginBottom: 8,
+  },
+  completedSubtitle: {
+    fontSize: 14,
+    color: '#6B7684',
+    textAlign: 'center',
+    lineHeight: 20,
+  },
+  completedFooter: {
+    paddingHorizontal: 20,
+    paddingBottom: 30,
+    gap: 12,
+  },
+  primaryButton: {
+    backgroundColor: NAVY,
+    borderRadius: 24,
+    paddingVertical: 15,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  primaryButtonText: {
+    color: '#FFFFFF',
+    fontWeight: '700',
+    fontSize: 14,
+  },
+  secondaryButton: {
+    borderRadius: 24,
+    borderWidth: 1.5,
+    borderColor: '#D7DEE8',
+    paddingVertical: 15,
+    alignItems: 'center',
+  },
+  secondaryButtonText: {
+    color: NAVY,
+    fontWeight: '700',
+    fontSize: 14,
+  },
 });

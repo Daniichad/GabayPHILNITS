@@ -6,6 +6,7 @@ import {
 } from 'react-native'
 import { supabase } from '../../../utils/supabase'
 import { Ionicons, Feather, MaterialCommunityIcons } from '@expo/vector-icons'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
 // ─── Fallback motivational quotes (used if API fails) ───────────
 const FALLBACK_QUOTES = [
@@ -62,6 +63,7 @@ const ACCENT = '#d85e67'
 
 export default function Home({ session, navigation }) {
   const user = session?.user
+  const insets = useSafeAreaInsets()
   const displayName =
     user?.user_metadata?.full_name ||
     user?.user_metadata?.fullName ||
@@ -79,6 +81,10 @@ export default function Home({ session, navigation }) {
   const [cseLoading, setCseLoading] = useState(true)
   const [readiness, setReadiness] = useState(0)
   const [readinessLoading, setReadinessLoading] = useState(true)
+  const [rankings, setRankings] = useState([])
+  const [rankingsLoading, setRankingsLoading] = useState(true)
+  const [profileName, setProfileName] = useState('Learner')
+  const [streakDays, setStreakDays] = useState(0)
 
   const quoteTimer = useRef(null)
   const quoteOpacity = useRef(new Animated.Value(1)).current
@@ -201,6 +207,118 @@ export default function Home({ session, navigation }) {
     }
   }, [])
 
+  const fetchRankings = useCallback(async () => {
+    setRankingsLoading(true)
+    try {
+      // 1. Fetch public profile names (excluding admins)
+      const { data: publicUsers, error: uErr } = await supabase
+        .from('users')
+        .select('id, email, fullname, avatar_url, role')
+        .neq('role', 'admin')
+      if (uErr) throw uErr
+
+      // 2. Fetch mock exam attempts
+      const { data: attempts, error: aErr } = await supabase
+        .from('mock_exam_attempts')
+        .select('user_id, correct_count, total_questions')
+        .eq('status', 'completed')
+      if (aErr) throw aErr
+
+      // 3. Fetch MCQ + TF results
+      const { data: mcqRaw } = await supabase.from('multiple_choice_results').select('user_id, is_correct, answered_at')
+      const { data: tfRaw } = await supabase.from('true_false_results').select('user_id, is_correct, answered_at')
+
+      // 4. Fetch matching results
+      const { data: matchRaw } = await supabase.from('matching_results').select('user_id, completed, mistakes, created_at')
+
+      // 5. Fetch flashcard sessions
+      const { data: sessions } = await supabase.from('flashcard_sessions').select('user_id, completed, created_at')
+
+      const userScores = {}
+      
+      // Initialize map
+      publicUsers.forEach(u => {
+        userScores[u.id] = {
+          name: u.fullname || u.email || 'Learner',
+          points: 0
+        }
+      })
+
+      // Add mock exam points (150 points per completed exam + 2 pts per correct answer)
+      attempts.forEach(att => {
+        const target = userScores[att.user_id]
+        if (target) {
+          target.points += 150
+          target.points += (att.correct_count || 0) * 2
+        }
+      })
+
+      // Add MCQ points (10 pts per answer + 5 pts bonus if correct)
+      if (mcqRaw) {
+        mcqRaw.forEach(r => {
+          const target = userScores[r.user_id]
+          if (target) {
+            target.points += 10
+            if (r.is_correct) target.points += 5
+          }
+        })
+      }
+
+      // Add TF points (10 pts per answer + 5 pts bonus if correct)
+      if (tfRaw) {
+        tfRaw.forEach(r => {
+          const target = userScores[r.user_id]
+          if (target) {
+            target.points += 10
+            if (r.is_correct) target.points += 5
+          }
+        })
+      }
+
+      // Add Matching points (50 pts per completed match + mistakes bonus)
+      if (matchRaw) {
+        matchRaw.forEach(r => {
+          const target = userScores[r.user_id]
+          if (target) {
+            if (r.completed) {
+              target.points += 50
+              target.points += Math.max(10, 30 - (r.mistakes || 0) * 2)
+            }
+          }
+        })
+      }
+
+      // Add Flashcard points (30 pts per completed study session)
+      if (sessions) {
+        sessions.forEach(s => {
+          const target = userScores[s.user_id]
+          if (target) {
+            if (s.completed) target.points += 30
+            else target.points += 10
+          }
+        })
+      }
+
+      // Calculate combined scores
+      const leaderboard = Object.keys(userScores).map(uid => {
+        const u = userScores[uid]
+        return {
+          uid,
+          name: u.name,
+          score: u.points
+        }
+      })
+
+      // Sort by score descending and limit to top 5
+      leaderboard.sort((a, b) => b.score - a.score)
+      setRankings(leaderboard.slice(0, 5))
+    } catch (err) {
+      console.warn('Error fetching rankings:', err)
+    } finally {
+      setRankingsLoading(false)
+    }
+  }, [])
+
   const subjects = [
     { label: 'Verbal Ability', progress: 0.08 },
     { label: 'Numerical Ability', progress: 0.0 },
@@ -252,18 +370,83 @@ export default function Home({ session, navigation }) {
     return () => clearInterval(quoteTimer.current)
   }, [fetchQuote])
 
+  const fetchHomeData = useCallback(async () => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      const uid = session?.user?.id
+      if (!uid) return
+
+      // 1. Fetch public.users fullname
+      const { data: uData } = await supabase
+        .from('users')
+        .select('fullname')
+        .eq('email', session.user.email)
+        .maybeSingle()
+
+      if (uData && uData.fullname) {
+        setProfileName(uData.fullname)
+      } else {
+        const fallback = session.user.user_metadata?.full_name || session.user.user_metadata?.fullName || session.user.email || 'Learner'
+        setProfileName(fallback)
+      }
+
+      // 2. Fetch activity streak
+      const { data: sessions } = await supabase
+        .from('flashcard_sessions')
+        .select('created_at')
+        .eq('user_id', uid)
+
+      const { data: mcqRaw } = await supabase
+        .from('multiple_choice_results')
+        .select('answered_at')
+        .eq('user_id', uid)
+
+      const { data: tfRaw } = await supabase
+        .from('true_false_results')
+        .select('answered_at')
+        .eq('user_id', uid)
+
+      const ses = sessions ?? []
+      const mcq = mcqRaw ?? []
+      const tf = tfRaw ?? []
+
+      const activityDays = new Set([
+        ...ses.map(s => s.created_at?.slice(0,10)),
+        ...mcq.map(r => r.answered_at?.slice(0,10)),
+        ...tf.map(r => r.answered_at?.slice(0,10)),
+      ].filter(Boolean))
+
+      let streak = 0
+      const today = new Date()
+      for (let i = 0; i < 30; i++) {
+        const d = new Date(today); d.setDate(today.getDate() - i)
+        const key = d.toISOString().slice(0,10)
+        if (activityDays.has(key)) {
+          streak++
+        } else if (i > 0) {
+          break
+        }
+      }
+      setStreakDays(streak)
+    } catch (err) {
+      console.warn('Error fetching home data:', err)
+    }
+  }, [])
+
   // Fetch CSE schedule & readiness on mount
   useEffect(() => {
     fetchCSESchedule()
     fetchReadiness()
-  }, [fetchCSESchedule, fetchReadiness])
+    fetchRankings()
+    fetchHomeData()
+  }, [fetchCSESchedule, fetchReadiness, fetchRankings, fetchHomeData])
 
   // ─── Pull-to-refresh ───────────────────────────────────────────
   const onRefresh = useCallback(async () => {
     setRefreshing(true)
-    await Promise.all([fetchQuote(), fetchCSESchedule(), fetchReadiness()])
+    await Promise.all([fetchQuote(), fetchCSESchedule(), fetchReadiness(), fetchRankings(), fetchHomeData()])
     setRefreshing(false)
-  }, [fetchQuote, fetchCSESchedule, fetchReadiness])
+  }, [fetchQuote, fetchCSESchedule, fetchReadiness, fetchRankings, fetchHomeData])
 
   // ─── Notification helpers ──────────────────────────────────────
   const openNotifications = () => {
@@ -291,8 +474,44 @@ export default function Home({ session, navigation }) {
     <View style={styles.screen}>
       <StatusBar barStyle="dark-content" backgroundColor="#fff" />
 
+      {/* Sticky Top Bar */}
+      <View style={[styles.topBar, { paddingTop: insets.top + 10, paddingHorizontal: 16, paddingBottom: 10, backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#e8edf5', marginBottom: 0 }]}>
+        {/* Logo */}
+        <View style={styles.logoWrap}>
+          <Image
+            source={require('../../../assets/loading.png')}
+            style={styles.logoImage}
+            resizeMode="contain"
+          />
+        </View>
+
+        <View style={styles.topRight}>
+          {/* Streak badge */}
+          <View style={styles.streakBadge}>
+            <Feather name="zap" size={15} color={NAVY} />
+            <Text style={styles.streakText}>{streakDays}</Text>
+          </View>
+
+          {/* Notification bell */}
+          <TouchableOpacity
+            style={styles.bellWrap}
+            onPress={openNotifications}
+            activeOpacity={0.75}
+          >
+            <Ionicons name="notifications-outline" size={26} color={NAVY} />
+            {unreadCount > 0 && (
+              <View style={styles.notifDot}>
+                <Text style={styles.notifDotText}>
+                  {unreadCount > 9 ? '9+' : unreadCount}
+                </Text>
+              </View>
+            )}
+          </TouchableOpacity>
+        </View>
+      </View>
+
       <ScrollView
-        contentContainerStyle={styles.scrollContent}
+        contentContainerStyle={[styles.scrollContent, { paddingTop: 16 }]}
         showsVerticalScrollIndicator={false}
         refreshControl={
           <RefreshControl
@@ -303,45 +522,10 @@ export default function Home({ session, navigation }) {
           />
         }
       >
-        {/* ── Top Bar ── */}
-        <View style={styles.topBar}>
-          {/* Logo */}
-          <View style={styles.logoWrap}>
-            <Image
-              source={require('../../../assets/loading.png')}
-              style={styles.logoImage}
-              resizeMode="contain"
-            />
-          </View>
-
-          <View style={styles.topRight}>
-            {/* Streak badge */}
-            <View style={styles.streakBadge}>
-              <Feather name="zap" size={15} color={NAVY} />
-              <Text style={styles.streakText}>3</Text>
-            </View>
-
-            {/* Notification bell */}
-            <TouchableOpacity
-              style={styles.bellWrap}
-              onPress={openNotifications}
-              activeOpacity={0.75}
-            >
-              <Ionicons name="notifications-outline" size={26} color={NAVY} />
-              {unreadCount > 0 && (
-                <View style={styles.notifDot}>
-                  <Text style={styles.notifDotText}>
-                    {unreadCount > 9 ? '9+' : unreadCount}
-                  </Text>
-                </View>
-              )}
-            </TouchableOpacity>
-          </View>
-        </View>
 
         {/* ── Hero Card ── */}
         <View style={styles.heroCard}>
-          <Text style={styles.greeting}>Hello, {firstName}! 👋</Text>
+          <Text style={styles.greeting}>Hello, {profileName}! 👋</Text>
           <Text style={styles.greetingSub}>Your CSE journey continues today.</Text>
           <TouchableOpacity
             style={styles.studyPlanBtn}
@@ -446,6 +630,37 @@ export default function Home({ session, navigation }) {
           </TouchableOpacity>
         </View>
 
+        {/* ── Rankings / Leaderboard ── */}
+        <View style={styles.rankingsCard}>
+          <View style={styles.rankingHeaderRow}>
+            <MaterialCommunityIcons name="trophy-outline" size={20} color={NAVY} />
+            <Text style={styles.rankingsTitle}>Leaderboard Rankings</Text>
+          </View>
+
+          {rankingsLoading ? (
+            <ActivityIndicator size="small" color={NAVY} style={{ marginVertical: 12 }} />
+          ) : rankings.length === 0 ? (
+            <Text style={styles.emptyRankingsText}>No performance records found yet.</Text>
+          ) : (
+            rankings.map((rank, idx) => {
+              const medalColor = idx === 0 ? '#fbbf24' : idx === 1 ? '#94a3b8' : idx === 2 ? '#b45309' : null
+              return (
+                <View key={rank.uid} style={styles.rankingRow}>
+                  <View style={styles.rankLeft}>
+                    {medalColor ? (
+                      <Ionicons name="medal" size={18} color={medalColor} style={styles.rankBadge} />
+                    ) : (
+                      <Text style={styles.rankIndex}>{idx + 1}</Text>
+                    )}
+                    <Text style={styles.rankName} numberOfLines={1}>{rank.name}</Text>
+                  </View>
+                  <Text style={styles.rankScore}>{rank.score} pts</Text>
+                </View>
+              )
+            })
+          )}
+        </View>
+
         {/* ── Quick Actions ── */}
         <Text style={styles.sectionLabel}>Quick Actions</Text>
         <View style={styles.actionRow}>
@@ -461,7 +676,7 @@ export default function Home({ session, navigation }) {
           <TouchableOpacity
             style={[styles.actionCard, styles.actionCream]}
             activeOpacity={0.85}
-            onPress={() => navigation?.navigate('Flashcards', { from: 'Home' })}
+            onPress={() => navigation?.navigate('PracticeOverview', { typeId: 'Flashcards', from: 'Home' })}
           >
             <MaterialCommunityIcons name="cards-outline" size={32} color={NAVY} />
             <Text style={styles.actionText}>Review{'\n'}Flashcards</Text>
@@ -566,7 +781,6 @@ const styles = StyleSheet.create({
     backgroundColor: '#f5f7fb',
   },
   scrollContent: {
-    paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight + 8 : 54,
     paddingHorizontal: 16,
     paddingBottom: 110,
   },
@@ -808,6 +1022,72 @@ const styles = StyleSheet.create({
     color: 'rgba(255,255,255,0.65)',
     marginTop: 8,
     fontStyle: 'italic',
+  },
+
+  // ── Leaderboard ──
+  rankingsCard: {
+    backgroundColor: '#fff',
+    borderRadius: 22,
+    padding: 18,
+    marginBottom: 14,
+    shadowColor: '#000',
+    shadowOpacity: 0.05,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
+  },
+  rankingHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 14,
+  },
+  rankingsTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: NAVY,
+  },
+  emptyRankingsText: {
+    fontSize: 12,
+    color: '#64748b',
+    textAlign: 'center',
+    paddingVertical: 10,
+    fontWeight: '600',
+  },
+  rankingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f1f5f9',
+  },
+  rankLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    flex: 1,
+  },
+  rankBadge: {
+    width: 20,
+    textAlign: 'center',
+  },
+  rankIndex: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#64748b',
+    width: 20,
+    textAlign: 'center',
+  },
+  rankName: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: NAVY,
+  },
+  rankScore: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: ACCENT,
   },
 
   // ── Quick Actions ──

@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { ActivityIndicator, StyleSheet, View } from 'react-native'
 import { NavigationContainer, useNavigationContainerRef, DefaultTheme } from '@react-navigation/native'
+import { SafeAreaProvider } from 'react-native-safe-area-context'
 import { createNativeStackNavigator } from '@react-navigation/native-stack'
 import Onboarding from './screens/onboarding/Onboarding'
 import Login from './screens/authentication/Login'
@@ -19,6 +20,8 @@ import TrueFalse from './screens/navigations/practice/TrueFalse'
 import MultipleChoice from './screens/navigations/practice/MultipleChoice'
 import MockExamHome from './screens/navigations/practice/MockExamHome'
 import MockExamTake from './screens/navigations/practice/MockExamTake'
+import PracticeResult from './screens/navigations/practice/PracticeResult'
+import MockExamResult from './screens/navigations/practice/MockExamResult'
 import PracticeOverview from './screens/navigations/practice/PracticeOverview'
 import Performance from './screens/navigations/performance/Performance'
 import Profile from './screens/navigations/profile/Profile'
@@ -29,6 +32,7 @@ import Report from './screens/navigations/profile/Report'
 import TermsConditions from './screens/navigations/profile/TermsConditions'
 import RateApp from './screens/navigations/profile/RateApp'
 import AboutApp from './screens/navigations/profile/AboutApp'
+import CseGuide from './screens/navigations/profile/CseGuide'
 import BottomNav from './components/BottomNav'
 import { supabase } from './utils/supabase'
 
@@ -86,7 +90,8 @@ export default function App() {
 	}
 
 	return (
-		<View style={styles.root}>
+		<SafeAreaProvider>
+			<View style={styles.root}>
 			<NavigationContainer
 				ref={navigationRef}
 				theme={navTheme}
@@ -129,6 +134,9 @@ export default function App() {
 					<Stack.Screen name="TermsConditions" component={TermsConditions} />
 					<Stack.Screen name="RateApp" component={RateApp} />
 					<Stack.Screen name="AboutApp" component={AboutApp} />
+					<Stack.Screen name="CseGuide" component={CseGuide} />
+					<Stack.Screen name="PracticeResult" component={PracticeResult} />
+					<Stack.Screen name="MockExamResult" component={MockExamResult} />
 				</Stack.Navigator>
 			</NavigationContainer>
 
@@ -136,7 +144,8 @@ export default function App() {
 			{showNav && (
 				<BottomNav navigation={navigationRef} activeRoute={currentRoute} />
 			)}
-		</View>
+			</View>
+		</SafeAreaProvider>
 	)
 }
 

@@ -2,6 +2,7 @@ import React from 'react'
 import { StyleSheet, TouchableOpacity, View } from 'react-native'
 import { Ionicons, Feather } from '@expo/vector-icons'
 import { StackActions } from '@react-navigation/native'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
 // Route name → which nav tab index is "active"
 const ROUTE_TAB_MAP = {
@@ -81,6 +82,7 @@ const TABS = [
 
 export default function BottomNav({ navigation, activeRoute }) {
   const activeIndex = ROUTE_TAB_MAP[activeRoute] ?? -1
+  const insets = useSafeAreaInsets()
 
   const handlePress = (tab, index) => {
     if (index === activeIndex) return
@@ -88,7 +90,7 @@ export default function BottomNav({ navigation, activeRoute }) {
   }
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { paddingBottom: Math.max(insets.bottom, 8), height: 60 + insets.bottom }]}>
       {TABS.map((tab, index) => {
         const active = index === activeIndex
         return (

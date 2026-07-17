@@ -50,7 +50,10 @@ export default function RootNavigator() {
     <NavigationContainer>
       <Stack.Navigator
         initialRouteName={initialRoute}
-        screenOptions={{ headerShown: false }}
+        screenOptions={{ 
+          headerShown: false,
+          animation: 'fade_from_bottom',
+        }}
       >
         {/* Onboarding Flow */}
         <Stack.Screen

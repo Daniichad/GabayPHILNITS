@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react'
 import {
   Image, ScrollView, StyleSheet, Text, TouchableOpacity,
-  View, ActivityIndicator, TextInput, SafeAreaView, Platform,
-} from 'react-native'
+  View, ActivityIndicator, TextInput, Platform, Linking } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { Feather, Ionicons } from '@expo/vector-icons'
 import { supabase } from '../../../supabase'
 
@@ -16,6 +16,36 @@ const CSE_SUBJECTS = [
   'Logical Reasoning',
   'General Information',
   'Clerical Operations',
+]
+
+const VIDEO_LECTURES = [
+  {
+    id: 'vid-1',
+    title: 'Basic Arithmetic Review',
+    duration: '12 minutes',
+    durationMinutes: 12,
+    progressMinutes: 5,
+    url: 'https://www.youtube.com/watch?v=sI9pP3s63c8',
+    thumbnail: 'https://images.unsplash.com/photo-1434030216411-0b793f4b4173?w=400&q=80',
+  },
+  {
+    id: 'vid-2',
+    title: 'Percentages & Decimals',
+    duration: '5 minutes',
+    durationMinutes: 5,
+    progressMinutes: 1,
+    url: 'https://www.youtube.com/watch?v=FqE2wPif_9E',
+    thumbnail: 'https://images.unsplash.com/photo-1454165804606-c3d57bc86b40?w=400&q=80',
+  },
+  {
+    id: 'vid-3',
+    title: 'Word Analogy reviewer',
+    duration: '15 minutes',
+    durationMinutes: 15,
+    progressMinutes: 8,
+    url: 'https://www.youtube.com/watch?v=F388d0xG7m0',
+    thumbnail: 'https://images.unsplash.com/photo-1546410531-bb4caa6b424d?w=400&q=80',
+  },
 ]
 
 
@@ -46,6 +76,7 @@ function MaterialCard({ item, onPress }) {
 // ─── Main component ──────────────────────────────────────────
 export default function Library({ navigation }) {
   const [materials, setMaterials]   = useState([])
+  const [videos,    setVideos]      = useState([])
   const [loading,   setLoading]     = useState(true)
   const [error,     setError]       = useState(null)
   const [search,    setSearch]      = useState('')
@@ -64,6 +95,14 @@ export default function Library({ navigation }) {
         .order('sort_order')
       if (err) throw err
       setMaterials(data ?? [])
+
+      // Fetch video lectures
+      const { data: videoData, error: videoErr } = await supabase
+        .from('video_lectures')
+        .select('*')
+        .order('created_at', { ascending: false })
+      if (videoErr) throw videoErr
+      setVideos(videoData ?? [])
     } catch (e) {
       console.error('Library load error:', e)
       setError('Failed to load materials.')
@@ -89,18 +128,15 @@ export default function Library({ navigation }) {
   return (
     <SafeAreaView style={styles.screen}>
 
+      {/* Sticky top bar without back button */}
+      <View style={{ paddingTop: 14, paddingBottom: 14, borderBottomWidth: 1, borderBottomColor: '#e8edf5', backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center' }}>
+        <Text style={{ fontSize: 18, fontWeight: '900', color: NAVY, letterSpacing: 2, textTransform: 'uppercase' }}>Library</Text>
+      </View>
+
       <ScrollView
-        contentContainerStyle={styles.scrollContent}
+        contentContainerStyle={[styles.scrollContent, { paddingTop: 16 }]}
         showsVerticalScrollIndicator={false}
       >
-        {/* Top bar */}
-        <View style={styles.topBar}>
-          <TouchableOpacity onPress={() => navigation?.goBack()}>
-            <Ionicons name="chevron-back" size={28} color={NAVY} />
-          </TouchableOpacity>
-          <Text style={styles.title}>Library</Text>
-          <View style={styles.rightSpacer} />
-        </View>
 
         {/* Search */}
         <View style={styles.searchBar}>
@@ -194,6 +230,46 @@ export default function Library({ navigation }) {
           </View>
         ))}
 
+        {/* ── Video Lectures Section ── */}
+        {!loading && !error && (
+          <View style={{ marginTop: 14 }}>
+            <View style={styles.sectionHeaderRow}>
+              <View style={styles.sectionTitleRow}>
+                <Ionicons name="videocam-outline" size={20} color={NAVY} />
+                <Text style={styles.sectionHeaderText}>Video Lectures</Text>
+              </View>
+            </View>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={[styles.horizontalCards, { marginTop: 10 }]}>
+              {videos.map(video => {
+                const durationMins = video.duration_minutes || 10
+                const progressMins = Math.min(Math.round(durationMins * 0.4), 8)
+                const progressPct = (progressMins / durationMins) * 100
+                const thumb = video.thumbnail_url || 'https://images.unsplash.com/photo-1434030216411-0b793f4b4173?w=400&q=80'
+                return (
+                  <TouchableOpacity
+                    key={video.id}
+                    style={styles.videoCard}
+                    activeOpacity={0.85}
+                    onPress={() => Linking.openURL(video.url)}
+                  >
+                    <Image source={{ uri: thumb }} style={styles.videoThumbnail} />
+                    <View style={styles.videoBody}>
+                      <Text style={styles.videoTitle} numberOfLines={1}>{video.title}</Text>
+                      <Text style={styles.videoDuration}>{durationMins} minutes</Text>
+                      <View style={styles.videoProgressRow}>
+                        <View style={styles.videoProgressTrack}>
+                          <View style={[styles.videoProgressFill, { width: `${progressPct}%` }]} />
+                        </View>
+                        <Text style={styles.videoProgressText}>{video.progressMinutes} min</Text>
+                      </View>
+                    </View>
+                  </TouchableOpacity>
+                )
+              })}
+            </ScrollView>
+          </View>
+        )}
+
         <View style={{ height: 16 }} />
       </ScrollView>
 
@@ -208,7 +284,7 @@ export default function Library({ navigation }) {
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: '#fff', paddingTop: Platform.OS === 'android' ? 30 : 0 },
+  screen: { flex: 1, backgroundColor: '#fff' },
   scrollContent: { paddingTop: 18, paddingHorizontal: 18, paddingBottom: 100 },
 
   // Top
@@ -256,6 +332,62 @@ const styles = StyleSheet.create({
   progressTrack:           { flex: 1, height: 5, borderRadius: 999, backgroundColor: '#e5e7eb', overflow: 'hidden' },
   progressFill:            { height: '100%', borderRadius: 999, backgroundColor: NAVY },
   progressText:            { fontSize: 10, color: '#6b7280', fontWeight: '600' },
+
+  // Video Cards
+  videoCard: {
+    width: 160,
+    borderRadius: 12,
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    overflow: 'hidden',
+    elevation: 1,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.06,
+    shadowRadius: 3,
+  },
+  videoThumbnail: {
+    height: 84,
+    backgroundColor: '#edf2f7',
+    width: '100%',
+  },
+  videoBody: {
+    padding: 10,
+  },
+  videoTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: NAVY,
+    marginBottom: 3,
+  },
+  videoDuration: {
+    fontSize: 11,
+    color: '#64748b',
+    marginBottom: 8,
+  },
+  videoProgressRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  videoProgressTrack: {
+    flex: 1,
+    height: 5,
+    borderRadius: 999,
+    backgroundColor: '#e5e7eb',
+    overflow: 'hidden',
+  },
+  videoProgressFill: {
+    height: '100%',
+    borderRadius: 999,
+    backgroundColor: NAVY,
+  },
+  videoProgressText: {
+    fontSize: 10,
+    color: '#6b7280',
+    fontWeight: '600',
+  },
 
   // FAB
   fab: { position: 'absolute', right: 18, bottom: 82, width: 56, height: 56, borderRadius: 28, backgroundColor: NAVY, alignItems: 'center', justifyContent: 'center', elevation: 6, shadowColor: '#000', shadowOpacity: 0.22, shadowRadius: 8, shadowOffset: { width: 0, height: 4 } },

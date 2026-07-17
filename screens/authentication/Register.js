@@ -16,16 +16,19 @@ import {
 } from 'react-native'
 import { Feather, Ionicons } from '@expo/vector-icons'
 import { supabase } from '../../utils/supabase'
+import { sendEmailJsOtp } from '../../utils/emailjs'
 
 export default function Register({ navigation }) {
   // Custom warning popup alert states
   const [alertVisible, setAlertVisible] = useState(false)
   const [alertTitle, setAlertTitle] = useState('')
   const [alertMessage, setAlertMessage] = useState('')
+  const [alertType, setAlertType] = useState('error')
 
-  const showCustomAlert = (title, message) => {
+  const showCustomAlert = (title, message, type = 'error') => {
     setAlertTitle(title)
     setAlertMessage(message)
+    setAlertType(type)
     setAlertVisible(true)
   }
 
@@ -41,6 +44,7 @@ export default function Register({ navigation }) {
   const [verifying, setVerifying] = useState(false)
   const [resending, setResending] = useState(false)
   const [resendCooldown, setResendCooldown] = useState(0)
+  const [generatedOtp, setGeneratedOtp] = useState(null)
 
   // Floating placeholder animations
   const nameAnim = useState(new Animated.Value(fullName ? 1 : 0))[0]
@@ -71,8 +75,8 @@ export default function Register({ navigation }) {
     }
   }
 
-  // 6-digit OTP state
-  const [otp, setOtp] = useState(['', '', '', '', '', ''])
+  // 4-digit OTP state
+  const [otp, setOtp] = useState(['', '', '', ''])
   const inputRefs = useRef([])
 
   // ─── OTP helpers ───────────────────────────────────────────────
@@ -83,7 +87,7 @@ export default function Register({ navigation }) {
     setOtp(newOtp)
 
     // Auto-advance to next box
-    if (digit && index < 5) {
+    if (digit && index < 3) {
       inputRefs.current[index + 1]?.focus()
     }
   }
@@ -104,14 +108,14 @@ export default function Register({ navigation }) {
   }
 
   const handleOtpPaste = (text, index) => {
-    const digits = text.replace(/[^0-9]/g, '').slice(0, 6)
+    const digits = text.replace(/[^0-9]/g, '').slice(0, 4)
     if (digits.length > 0) {
-      const newOtp = ['', '', '', '', '', '']
+      const newOtp = ['', '', '', '']
       digits.split('').forEach((d, i) => {
         newOtp[i] = d
       })
       setOtp(newOtp)
-      const nextIndex = Math.min(digits.length, 5)
+      const nextIndex = Math.min(digits.length, 3)
       inputRefs.current[nextIndex]?.focus()
     }
   }
@@ -141,21 +145,17 @@ export default function Register({ navigation }) {
       return
     }
 
-    // Name length check
     if (trimmedName.length < 2) {
       showCustomAlert('Validation Error', 'Full Name must be at least 2 characters.')
       return
     }
 
-    // Email format check
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
     if (!emailRegex.test(trimmedEmail)) {
       showCustomAlert('Validation Error', 'Please enter a valid email address.')
       return
     }
 
-    // Password strength check
-    // 8+ characters, 1 uppercase, 1 lowercase, 1 number, 1 special char
     const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&#])[A-Za-z\d@$!%*?&#]{8,}$/
     if (!passwordRegex.test(password)) {
       showCustomAlert(
@@ -177,8 +177,40 @@ export default function Register({ navigation }) {
 
     setLoading(true)
     try {
-      // Step 1: Create the Supabase auth account
-      // Supabase will send a 6-digit OTP to the email when "Email OTP" is enabled
+      // 1. Generate 4-digit code
+      const code = Math.floor(1000 + Math.random() * 9000).toString()
+      setGeneratedOtp(code)
+
+      // 2. Send 4-digit code using EmailJS
+      await sendEmailJsOtp(trimmedEmail, code, trimmedName)
+
+      // 3. Open Verification Modal
+      setOtp(['', '', '', ''])
+      setVerifyVisible(true)
+      startResendCooldown()
+    } catch (err) {
+      showCustomAlert('Email Error', err.message || 'Could not send verification email. Please verify your EmailJS configuration.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  // ─── Verify OTP ───────────────────────────────────────────────
+  const handleVerifyEmail = async () => {
+    const code = getOtpString()
+    if (code.length < 4) {
+      showCustomAlert('Error', 'Please enter the complete 4-digit code')
+      return
+    }
+
+    if (code !== generatedOtp) {
+      showCustomAlert('Verification Failed', 'Invalid verification code. Please try again.')
+      return
+    }
+
+    setVerifying(true)
+    try {
+      // Create user account in Supabase since verification is successful
       const { data, error } = await supabase.auth.signUp({
         email: email.trim(),
         password,
@@ -194,63 +226,30 @@ export default function Register({ navigation }) {
         return
       }
 
-      // Step 2: Save profile to users table
+      // Save profile to users table
       const { error: profileError } = await supabase.from('users').upsert(
         [
           {
             fullname: fullName.trim(),
             email: email.trim(),
             role: 'user',
+            password: password,
           },
         ],
         { onConflict: 'email' }
       )
 
       if (profileError) {
-        console.warn('Profile save warning:', profileError.message)
-      }
-
-      // Step 3: Show OTP verification modal
-      // Supabase automatically sends 6-digit OTP to the email on signUp
-      setOtp(['', '', '', '', '', ''])
-      setVerifyVisible(true)
-      startResendCooldown()
-    } catch (err) {
-      showCustomAlert('Registration Error', err.message || String(err))
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  // ─── Verify OTP ───────────────────────────────────────────────
-  const handleVerifyEmail = async () => {
-    const code = getOtpString()
-    if (code.length < 6) {
-      showCustomAlert('Error', 'Please enter the complete 6-digit code')
-      return
-    }
-
-    setVerifying(true)
-    try {
-      const { data, error } = await supabase.auth.verifyOtp({
-        email: email.trim(),
-        token: code,
-        type: 'signup',
-      })
-
-      if (error) {
-        showCustomAlert('Verification Failed', error.message || 'Invalid or expired code. Please try again.')
+        showCustomAlert('Database Profile Error', profileError.message || 'Could not save profile record.')
         return
       }
 
+      // Sign out to clear the auto-login session from signUp
+      await supabase.auth.signOut()
+
       setVerifyVisible(false)
-      setOtp(['', '', '', '', '', ''])
-      Alert.alert('Success! 🎉', 'Your email has been verified. Welcome to Gabay PhilCSE!', [
-        {
-          text: 'Continue',
-          onPress: () => navigation?.replace('PersonalInfo'),
-        },
-      ])
+      setOtp(['', '', '', ''])
+      navigation?.replace('Login')
     } catch (err) {
       showCustomAlert('Verification Error', err.message || String(err))
     } finally {
@@ -264,21 +263,16 @@ export default function Register({ navigation }) {
 
     setResending(true)
     try {
-      const { error } = await supabase.auth.signInWithOtp({
-        email: email.trim(),
-        options: { shouldCreateUser: false },
-      })
+      const code = Math.floor(1000 + Math.random() * 9000).toString()
+      setGeneratedOtp(code)
 
-      if (error) {
-        showCustomAlert('Error', error.message || 'Could not resend code')
-        return
-      }
+      await sendEmailJsOtp(email.trim(), code, fullName.trim() || 'Student')
 
-      setOtp(['', '', '', '', '', ''])
+      setOtp(['', '', '', ''])
       startResendCooldown()
-      showCustomAlert('Code Sent', `A new verification code has been sent to ${email}`)
+      showCustomAlert('Code Sent', `A new 4-digit verification code has been sent to ${email}`, 'success')
     } catch (err) {
-      showCustomAlert('Error', err.message || String(err))
+      showCustomAlert('Error', err.message || 'Could not resend verification email.')
     } finally {
       setResending(false)
     }
@@ -454,7 +448,7 @@ export default function Register({ navigation }) {
                 style={styles.eyeButton}
                 onPress={() => setShowPassword((v) => !v)}
               >
-                <Feather name={showPassword ? 'eye' : 'eye-off'} size={18} color="#9CA3AF" />
+                <Feather name={showPassword ? 'eye-off' : 'eye'} size={18} color="#9CA3AF" />
               </TouchableOpacity>
             </View>
           </View>
@@ -510,7 +504,7 @@ export default function Register({ navigation }) {
                 style={styles.eyeButton}
                 onPress={() => setShowPassword((v) => !v)}
               >
-                <Feather name={showPassword ? 'eye' : 'eye-off'} size={18} color="#9CA3AF" />
+                <Feather name={showPassword ? 'eye-off' : 'eye'} size={18} color="#9CA3AF" />
               </TouchableOpacity>
             </View>
           </View>
@@ -616,11 +610,11 @@ export default function Register({ navigation }) {
               </View>
               <Text style={styles.verifyTitle}>Verify your email</Text>
               <Text style={styles.verifySubtitle}>
-                We sent a 6-digit code to
+                We sent a 4-digit code to
               </Text>
               <Text style={styles.verifyEmail}>{email}</Text>
 
-              {/* 6-Digit OTP Boxes */}
+              {/* 4-Digit OTP Boxes */}
               <View style={styles.otpContainer}>
                 {otp.map((digit, index) => (
                   <TextInput
@@ -641,7 +635,7 @@ export default function Register({ navigation }) {
                     }}
                     onKeyPress={(e) => handleOtpKeyPress(e, index)}
                     keyboardType="number-pad"
-                    maxLength={6}
+                    maxLength={1}
                     textAlign="center"
                     selectionColor="#D9989E"
                     placeholderTextColor="#D1D5DB"
@@ -654,10 +648,10 @@ export default function Register({ navigation }) {
               <TouchableOpacity
                 style={[
                   styles.verifyButton,
-                  (verifying || getOtpString().length < 6) && styles.verifyButtonDisabled,
+                  (verifying || getOtpString().length < 4) && styles.verifyButtonDisabled,
                 ]}
                 onPress={handleVerifyEmail}
-                disabled={verifying || getOtpString().length < 6}
+                disabled={verifying || getOtpString().length < 4}
               >
                 {verifying ? (
                   <ActivityIndicator color="#fff" />
@@ -700,7 +694,7 @@ export default function Register({ navigation }) {
         </KeyboardAvoidingView>
       </Modal>
 
-      {/* Custom Warning Alert Modal */}
+      {/* Custom Alert Modal */}
       <Modal
         transparent
         visible={alertVisible}
@@ -709,15 +703,24 @@ export default function Register({ navigation }) {
       >
         <View style={styles.modalOverlay}>
           <View style={[styles.modalCard, { alignItems: 'center', padding: 24 }]}>
-            <View style={{ backgroundColor: '#FEE2E2', padding: 12, borderRadius: 32, marginBottom: 16 }}>
-              <Ionicons name="warning" size={32} color="#EF4444" />
-            </View>
+            {alertType === 'success' ? (
+              <View style={{ backgroundColor: '#D1FAE5', padding: 12, borderRadius: 32, marginBottom: 16 }}>
+                <Ionicons name="checkmark-circle" size={32} color="#10B981" />
+              </View>
+            ) : (
+              <View style={{ backgroundColor: '#FEE2E2', padding: 12, borderRadius: 32, marginBottom: 16 }}>
+                <Ionicons name="warning" size={32} color="#EF4444" />
+              </View>
+            )}
             <Text style={[styles.modalTitle, { fontSize: 18, marginBottom: 8 }]}>{alertTitle}</Text>
             <Text style={{ color: '#4B5563', fontSize: 14, textAlign: 'center', lineHeight: 20, marginBottom: 20 }}>
               {alertMessage}
             </Text>
             <TouchableOpacity
-              style={[styles.modalButton, { width: '100%', backgroundColor: '#EF4444' }]}
+              style={[
+                styles.modalButton,
+                { width: '100%', backgroundColor: alertType === 'success' ? '#10B981' : '#EF4444' }
+              ]}
               onPress={() => setAlertVisible(false)}
             >
               <Text style={styles.modalButtonText}>Okay</Text>

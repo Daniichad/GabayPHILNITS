@@ -1,9 +1,10 @@
-import React from 'react'
+import React, { useState, useEffect } from 'react'
 import {
   View, Text, StyleSheet, ScrollView,
-  TouchableOpacity, SafeAreaView, StatusBar, Platform,
-} from 'react-native'
+  TouchableOpacity, StatusBar, Platform, ActivityIndicator } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons, Feather, MaterialCommunityIcons } from '@expo/vector-icons'
+import { supabase } from '../../../supabase'
 
 
 // ─── Colours matching the image ────────────────────────────────
@@ -18,34 +19,140 @@ const PRACTICE_TYPES = [
   { id: 'MockExamHome',  label: 'MOCK EXAMINATION', bg: '#fff',    text: NAVY, outlined: true },
 ]
 
-// ─── Recent activity data (static for now) ────────────────────
-const RECENT = [
-  {
-    section: 'Flashcard sets',
-    items: [
-      { id: 1, title: 'Vocabulary',           count: '21 items', hasIcon: true },
-      { id: 2, title: 'Reading Comprehension', count: '21 items', hasIcon: false },
-    ],
-  },
-  {
-    section: 'True or False',
-    items: [
-      { id: 3, title: 'Fractions & Decimals', count: '21 items', hasIcon: false },
-    ],
-  },
-]
+// (Static RECENT array removed and replaced with dynamic supabase queries)
 
 
 // ─── Main component ───────────────────────────────────────────
 export default function PracticeLibraryScreen({ navigation }) {
+  const [recentActivities, setRecentActivities] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const unsubscribe = navigation.addListener('focus', () => {
+      loadRecentActivity();
+    });
+    return unsubscribe;
+  }, [navigation]);
+
+  const loadRecentActivity = async () => {
+    try {
+      setLoading(true);
+      const { data: { session } } = await supabase.auth.getSession();
+      const uid = session?.user?.id;
+      if (!uid) {
+        setLoading(false);
+        return;
+      }
+
+      // Fetch MCQ results
+      const { data: mcqRaw } = await supabase
+        .from('multiple_choice_results')
+        .select('is_correct, answered_at, multiple_choice_questions(practice_categories(name))')
+        .eq('user_id', uid)
+        .order('answered_at', { ascending: false })
+        .limit(15);
+
+      // Fetch TF results
+      const { data: tfRaw } = await supabase
+        .from('true_false_results')
+        .select('is_correct, answered_at, true_false_questions(practice_categories(name))')
+        .eq('user_id', uid)
+        .order('answered_at', { ascending: false })
+        .limit(15);
+
+      // Fetch Matching results
+      const { data: matchRaw } = await supabase
+        .from('matching_results')
+        .select('set_title, completed, mistakes, duration_seconds, id')
+        .eq('user_id', uid)
+        .order('id', { ascending: false })
+        .limit(5);
+
+      const activities = [];
+
+      // Group MCQ by category name
+      if (mcqRaw && mcqRaw.length > 0) {
+        const mcqGroups = {};
+        mcqRaw.forEach(item => {
+          const categoryName = item.multiple_choice_questions?.practice_categories?.name || 'General';
+          if (!mcqGroups[categoryName]) {
+            mcqGroups[categoryName] = { correct: 0, total: 0, date: item.answered_at };
+          }
+          mcqGroups[categoryName].total += 1;
+          if (item.is_correct) mcqGroups[categoryName].correct += 1;
+        });
+        
+        Object.keys(mcqGroups).forEach(cat => {
+          activities.push({
+            id: 'mcq-' + cat,
+            type: 'Multiple Choice',
+            title: cat,
+            subtitle: `${mcqGroups[cat].correct}/${mcqGroups[cat].total} Correct`,
+            timestamp: new Date(mcqGroups[cat].date).getTime(),
+            route: 'PracticeOverview',
+            params: { typeId: 'MultipleChoice', subject: cat }
+          });
+        });
+      }
+
+      // Group TF by category name
+      if (tfRaw && tfRaw.length > 0) {
+        const tfGroups = {};
+        tfRaw.forEach(item => {
+          const categoryName = item.true_false_questions?.practice_categories?.name || 'General';
+          if (!tfGroups[categoryName]) {
+            tfGroups[categoryName] = { correct: 0, total: 0, date: item.answered_at };
+          }
+          tfGroups[categoryName].total += 1;
+          if (item.is_correct) tfGroups[categoryName].correct += 1;
+        });
+
+        Object.keys(tfGroups).forEach(cat => {
+          activities.push({
+            id: 'tf-' + cat,
+            type: 'True or False',
+            title: cat,
+            subtitle: `${tfGroups[cat].correct}/${tfGroups[cat].total} Correct`,
+            timestamp: new Date(tfGroups[cat].date).getTime(),
+            route: 'PracticeOverview',
+            params: { typeId: 'TrueFalse', subject: cat }
+          });
+        });
+      }
+
+      // Format Matching activities
+      if (matchRaw && matchRaw.length > 0) {
+        matchRaw.forEach((item, idx) => {
+          activities.push({
+            id: 'match-' + item.id,
+            type: 'Matching',
+            title: item.set_title || 'Matching Game',
+            subtitle: item.completed ? `Completed · ${item.mistakes} Mistakes` : `Incomplete`,
+            timestamp: Date.now() - idx * 60000,
+            route: 'PracticeOverview',
+            params: { typeId: 'Matching', subject: item.set_title }
+          });
+        });
+      }
+
+      // Sort by newest first
+      activities.sort((a, b) => b.timestamp - a.timestamp);
+      setRecentActivities(activities.slice(0, 5));
+    } catch (err) {
+      console.error('Error loading recent activity:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <SafeAreaView style={styles.safeArea}>
       <StatusBar barStyle="dark-content" backgroundColor="#fff" />
 
-      {/* ── Header ── */}
-      <View style={styles.header}>
+      {/* Sticky header */}
+      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingTop: 14, paddingBottom: 14, borderBottomWidth: 1, borderBottomColor: '#e8edf5', backgroundColor: '#fff' }}>
         <View style={{ width: 36 }} />
-        <Text style={styles.headerTitle}>PRACTICE</Text>
+        <Text style={{ fontSize: 18, fontWeight: '900', color: NAVY, letterSpacing: 2, textTransform: 'uppercase' }}>Practice</Text>
         <TouchableOpacity style={styles.headerIcon} onPress={() => navigation.navigate('PracticeScreen')}>
           <MaterialCommunityIcons name="folder-outline" size={22} color={NAVY} />
         </TouchableOpacity>
@@ -86,37 +193,28 @@ export default function PracticeLibraryScreen({ navigation }) {
         <View style={styles.recentSection}>
           <Text style={styles.recentTitle}>Recent Activity</Text>
 
-          {RECENT.map((group) => (
-            <View key={group.section} style={styles.activityGroup}>
-              {/* Section header */}
-              <View style={styles.sectionRow}>
-                <Text style={styles.sectionLabel}>{group.section}</Text>
-                <TouchableOpacity>
-                  <Text style={styles.viewAll}>View all</Text>
-                </TouchableOpacity>
-              </View>
-
-              {/* Activity cards */}
-              {group.items.map((item) => (
-                <View key={item.id} style={styles.activityCard}>
-                  <View style={styles.activityInfo}>
-                    <Text style={styles.activityTitle}>{item.title}</Text>
-                    <Text style={styles.activityCount}>{item.count}</Text>
-                  </View>
-                  {item.hasIcon && (
-                    <View style={styles.activityIconCircle}>
-                      <MaterialCommunityIcons name="wrench" size={18} color="#fff" />
-                    </View>
-                  )}
-                  {!item.hasIcon && (
-                    <TouchableOpacity style={styles.activityDots}>
-                      <MaterialCommunityIcons name="dots-vertical" size={18} color="#94a3b8" />
-                    </TouchableOpacity>
-                  )}
+          {loading ? (
+            <ActivityIndicator size="small" color={NAVY} style={{ marginVertical: 12 }} />
+          ) : recentActivities.length === 0 ? (
+            <Text style={styles.emptyText}>No recent activity yet. Start practicing!</Text>
+          ) : (
+            recentActivities.map((activity) => (
+              <TouchableOpacity
+                key={activity.id}
+                activeOpacity={0.82}
+                style={styles.activityCard}
+                onPress={() => navigation.navigate(activity.route, activity.params)}
+              >
+                <View style={styles.activityInfo}>
+                  <Text style={styles.activityTitle}>{activity.title}</Text>
+                  <Text style={styles.activityCount}>{activity.type} · {activity.subtitle}</Text>
                 </View>
-              ))}
-            </View>
-          ))}
+                <View style={styles.activityIconCircle}>
+                  <MaterialCommunityIcons name="chevron-right" size={20} color="#fff" />
+                </View>
+              </TouchableOpacity>
+            ))
+          )}
         </View>
 
         {/* Spacer for bottom nav */}
@@ -132,7 +230,6 @@ const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
     backgroundColor: '#fff',
-    paddingTop: Platform.OS === 'android' ? 30 : 0,
   },
 
   // ── Header ──
@@ -200,6 +297,13 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: NAVY,
     marginBottom: 16,
+  },
+  emptyText: {
+    fontSize: 13,
+    color: '#64748b',
+    textAlign: 'center',
+    marginVertical: 20,
+    fontWeight: '600',
   },
   activityGroup: {
     marginBottom: 20,

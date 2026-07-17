@@ -1,8 +1,8 @@
 import React, { useState, useRef, useMemo, useEffect } from 'react';
 import {
-  SafeAreaView, View, Text, StyleSheet, TouchableOpacity,
-  StatusBar, Platform, ActivityIndicator, ScrollView, Modal,
-} from 'react-native';
+  View, Text, StyleSheet, TouchableOpacity,
+  StatusBar, Platform, ActivityIndicator, ScrollView, Modal } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';;
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../../../supabase';
 
@@ -108,7 +108,17 @@ export default function Matching({ navigation, route }) {
           setMatched((prev) => { const s = new Set(prev); s.add(cards[a].pairId); return s; });
           setSelected([]); setLocked(false);
           const newMatched = matched.size + 1;
-          if (newMatched === totalPairs) logResult(newMatched);
+          if (newMatched === totalPairs) {
+            logResult(newMatched);
+            setTimeout(() => {
+              navigation.replace('PracticeResult', {
+                score: Math.max(0, totalPairs - mistakes),
+                total: totalPairs,
+                subject,
+                type: 'Matching'
+              });
+            }, 300);
+          }
         }, MATCH_DELAY);
       } else {
         setMistakes((m) => m + 1);
@@ -223,33 +233,13 @@ export default function Matching({ navigation, route }) {
         <Text style={styles.footerText}>Mistakes: {mistakes}</Text>
       </View>
 
-      {/* Centered Success Overlay Modal popup */}
-      <Modal
-        visible={allSolved}
-        transparent
-        animationType="fade"
-        onRequestClose={resetGame}
-      >
-        <View style={styles.overlayContainer}>
-          <View style={styles.overlayCard}>
-            <Ionicons name="checkmark-circle" size={54} color="#10B981" style={{ marginBottom: 12 }} />
-            <Text style={styles.overlayTitle}>Excellent Job!</Text>
-            <Text style={styles.overlayBody}>
-              You matched all cards successfully.
-            </Text>
-            <Text style={styles.overlayStats}>Mistakes made: {mistakes}</Text>
-            <TouchableOpacity style={styles.resetButton} onPress={resetGame}>
-              <Text style={styles.resetButtonText}>Play again</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
+      {/* Success Modal removed to redirect to PracticeResult instead */}
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  safeArea:        { flex: 1, backgroundColor: '#FFFFFF', paddingTop: Platform.OS === 'android' ? 30 : 0 },
+  safeArea:        { flex: 1, backgroundColor: '#FFFFFF' },
   header:          { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 8, paddingTop: 8, paddingBottom: 4 },
   iconButton:      { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
   headerTitle:     { fontSize: 17, fontWeight: '700', color: NAVY },

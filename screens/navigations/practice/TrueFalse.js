@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import {
-  SafeAreaView, View, Text, StyleSheet, TouchableOpacity,
-  StatusBar, Platform, ActivityIndicator,
-} from 'react-native';
+  View, Text, StyleSheet, TouchableOpacity,
+  StatusBar, Platform, ActivityIndicator } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';;
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../../../supabase';
 
@@ -18,6 +18,7 @@ export default function TrueOrFalse({ navigation, route }) {
   const [loading,   setLoading]   = useState(true);
   const [error,     setError]     = useState(null);
   const [userId,    setUserId]    = useState(null);
+  const [score,     setScore]     = useState(0);
 
   useEffect(() => { loadData(); }, []);
 
@@ -68,11 +69,23 @@ export default function TrueOrFalse({ navigation, route }) {
     if (hasAnswered) return;
     setSelected(value);
     logResult(question, value);
+    if (value === question?.answer) {
+      setScore((s) => s + 1);
+    }
   };
 
   const goToNext = () => {
-    setSelected(null);
-    setIndex((p) => (p + 1) % questions.length);
+    if (isLast) {
+      navigation.replace('PracticeResult', {
+        score,
+        total: questions.length,
+        subject,
+        type: 'True or False'
+      });
+    } else {
+      setSelected(null);
+      setIndex((p) => p + 1);
+    }
   };
 
   // ------------------------------------------------------------
@@ -189,7 +202,7 @@ export default function TrueOrFalse({ navigation, route }) {
 }
 
 const styles = StyleSheet.create({
-  safeArea:          { flex: 1, backgroundColor: '#FFFFFF', paddingTop: Platform.OS === 'android' ? 30 : 0 },
+  safeArea:          { flex: 1, backgroundColor: '#FFFFFF' },
   header:            { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 8, paddingTop: 8, paddingBottom: 4 },
   iconButton:        { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
   headerTitle:       { fontSize: 17, fontWeight: '700', color: NAVY },

@@ -1,6 +1,5 @@
 import React from 'react';
 import {
-  SafeAreaView,
   ScrollView,
   View,
   Text,
@@ -9,6 +8,7 @@ import {
   StatusBar,
   Platform,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 
 // ---------------------------------------------------------------------------
@@ -19,7 +19,7 @@ const SCREEN_SUBTITLE = '1 HP - P Mock Exam';
 
 const UPCOMING_EXAM = {
   label: 'Upcoming CSE Exam',
-  daysLeft: 45,
+  daysLeft: "-",
 };
 
 const LATEST_RESULT = {
@@ -33,14 +33,14 @@ const LEVELS = [
   {
     id: 'professional',
     title: 'Professional Level',
-    questions: 180,
-    hours: 3,
+    questions: 170,
+    duration: '3 hours, 10 minutes',
   },
   {
     id: 'sub-professional',
     title: 'Sub-Professional Level',
-    questions: 120,
-    hours: 2,
+    questions: 165,
+    duration: '2 hours, 40 minutes',
   },
 ];
 
@@ -108,7 +108,7 @@ const parseCseDatesFromRSS = (xml) => {
 
 export default function MockExamHome({ navigation, route }) {
   const from = route?.params?.from
-  const [daysLeft, setDaysLeft] = React.useState(45)
+  const [daysLeft, setDaysLeft] = React.useState('-')
 
   React.useEffect(() => {
     let active = true
@@ -213,7 +213,7 @@ export default function MockExamHome({ navigation, route }) {
             <Text style={styles.levelMeta}>
               {level.questions} Questions
             </Text>
-            <Text style={styles.levelMeta}>{level.hours} hours</Text>
+            <Text style={styles.levelMeta}>{level.duration}</Text>
 
             <TouchableOpacity
               style={styles.startButton}
@@ -234,7 +234,6 @@ const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
     backgroundColor: '#FFFFFF',
-    paddingTop: Platform.OS === 'android' ? 30 : 0,
   },
   header: {
     flexDirection: 'row',
