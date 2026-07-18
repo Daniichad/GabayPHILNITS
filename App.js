@@ -1,5 +1,6 @@
-import React, { useEffect, useState } from 'react'
-import { ActivityIndicator, StyleSheet, View } from 'react-native'
+import React, { useEffect, useState, useRef } from 'react'
+import { Animated, Image, StyleSheet, View } from 'react-native'
+import AsyncStorage from '@react-native-async-storage/async-storage'
 import { NavigationContainer, useNavigationContainerRef, DefaultTheme } from '@react-navigation/native'
 import { SafeAreaProvider } from 'react-native-safe-area-context'
 import { createNativeStackNavigator } from '@react-navigation/native-stack'
@@ -53,12 +54,76 @@ const NAV_SCREENS = new Set([
 export default function App() {
 	const [loading, setLoading] = useState(true)
 	const [currentRoute, setCurrentRoute] = useState('Login')
+	const [initialRoute, setInitialRoute] = useState('Login')
 	const navigationRef = useNavigationContainerRef()
+	const fadeAnim = useRef(new Animated.Value(1)).current
+
+	const determineInitialRoute = async () => {
+		try {
+			// 1. Check if user is logged in
+			const { data: { session } } = await supabase.auth.getSession()
+			if (session?.user) {
+				const userId = session.user.id
+
+				// Check personal info completion
+				const { data: personalInfoData } = await supabase
+					.from('personal_info')
+					.select('user_id')
+					.eq('user_id', userId)
+					.maybeSingle()
+
+				if (!personalInfoData) {
+					return 'PersonalInfo'
+				}
+
+				// Check diagnostic assessment completion
+				const { data: diagnosticData } = await supabase
+					.from('diagnostic_assessment_attempts')
+					.select('id')
+					.eq('user_id', userId)
+					.limit(1)
+					.maybeSingle()
+
+				if (!diagnosticData) {
+					return 'DiagnosticAssessment'
+				}
+
+				return 'Home'
+			}
+
+			// 2. If not logged in, check onboarding
+			const onboardingComplete = await AsyncStorage.getItem('onboardingComplete')
+			if (onboardingComplete === 'true') {
+				return 'Login'
+			} else {
+				return 'Onboarding'
+			}
+		} catch (err) {
+			console.warn('Error determining initial route:', err)
+			return 'Onboarding' // Safe fallback
+		}
+	}
 
 	useEffect(() => {
-		const timer = setTimeout(() => setLoading(false), 300)
-		return () => clearTimeout(timer)
-	}, [])
+		const init = async () => {
+			const route = await determineInitialRoute()
+			setInitialRoute(route)
+			setCurrentRoute(route)
+
+			// Hold for 3 seconds, then fade out
+			Animated.sequence([
+				Animated.delay(3000),
+				Animated.timing(fadeAnim, {
+					toValue: 0,
+					duration: 800,
+					useNativeDriver: true,
+				}),
+			]).start(() => {
+				setLoading(false)
+			})
+		}
+		init()
+	}, [fadeAnim])
 
 	useEffect(() => {
 		const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
@@ -82,7 +147,11 @@ export default function App() {
 	if (loading) {
 		return (
 			<View style={styles.loadingContainer}>
-				<ActivityIndicator size="large" color="#D9989E" />
+				<Animated.Image
+					source={require('./assets/logo_text_dark.png')}
+					style={[styles.splashImage, { opacity: fadeAnim }]}
+					resizeMode="contain"
+				/>
 			</View>
 		)
 	}
@@ -103,7 +172,7 @@ export default function App() {
 							headerShown: false,
 							animation: 'fade_from_bottom',
 						}}
-						initialRouteName="Login"
+						initialRouteName="Onboarding"//{initialRoute}
 					>
 						<Stack.Screen name="Onboarding" component={Onboarding} />
 						<Stack.Screen name="Login" component={Login} options={{ animation: 'fade_from_bottom' }} />
@@ -154,6 +223,10 @@ const styles = StyleSheet.create({
 		flex: 1,
 		justifyContent: 'center',
 		alignItems: 'center',
-		backgroundColor: '#0f1e35',
+		backgroundColor: '#f5f7fb',
+	},
+	splashImage: {
+		width: '75%',
+		height: '75%',
 	},
 })

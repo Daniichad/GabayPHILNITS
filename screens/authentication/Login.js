@@ -22,6 +22,28 @@ export default function Login({ navigation }) {
     setAlertVisible(true)
   }
   const checkUserRedirects = async (userId) => {
+    // Ensure user profile exists in public.users
+    try {
+      const { data: { user: authUser } } = await supabase.auth.getUser()
+      if (authUser) {
+        const { data: existingUser } = await supabase
+          .from('users')
+          .select('email')
+          .eq('email', authUser.email)
+          .maybeSingle()
+
+        if (!existingUser) {
+          await supabase.from('users').upsert({
+            fullname: authUser.user_metadata?.full_name || authUser.user_metadata?.fullName || 'Student',
+            email: authUser.email,
+            role: 'user',
+          }, { onConflict: 'email' })
+        }
+      }
+    } catch (profileErr) {
+      console.warn('Error checking/creating public profile:', profileErr)
+    }
+
     // Check if personal info has been completed
     const { data: personalInfoData, error: personalInfoError } = await supabase
       .from('personal_info')
@@ -139,7 +161,7 @@ export default function Login({ navigation }) {
     setLoading(true)
     try {
       const redirectUrl = QueryParams.makeRedirectUri({
-        scheme: 'gabay_philcse',
+        scheme: 'gabay-philcse',
       })
       
       const { data, error } = await supabase.auth.signInWithOAuth({
@@ -175,8 +197,9 @@ export default function Login({ navigation }) {
               return
             }
 
-            if (sessionData?.user) {
-              await checkUserRedirects(sessionData.user.id)
+            const activeUser = sessionData?.user || sessionData?.session?.user
+            if (activeUser) {
+              await checkUserRedirects(activeUser.id)
             }
           }
         }

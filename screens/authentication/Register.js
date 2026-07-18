@@ -177,11 +177,28 @@ export default function Register({ navigation }) {
 
     setLoading(true)
     try {
-      // 1. Generate 4-digit code
+      // 1. Check if email is already registered
+      const { data: existingUser, error: checkError } = await supabase
+        .from('users')
+        .select('email')
+        .eq('email', trimmedEmail)
+        .maybeSingle()
+
+      if (checkError) {
+        console.warn('Email check error:', checkError.message)
+      }
+
+      if (existingUser) {
+        showCustomAlert('Registration Error', 'This email is already registered. Please log in or use a different email address.')
+        setLoading(false)
+        return
+      }
+
+      // 2. Generate 4-digit code
       const code = Math.floor(1000 + Math.random() * 9000).toString()
       setGeneratedOtp(code)
 
-      // 2. Send 4-digit code using EmailJS
+      // 3. Send 4-digit code using EmailJS
       await sendEmailJsOtp(trimmedEmail, code, trimmedName)
 
       // 3. Open Verification Modal

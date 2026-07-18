@@ -1,7 +1,7 @@
 import React from 'react'
 import {
   Alert, Image, Linking, Modal, Platform, ScrollView,
-  StatusBar, StyleSheet, Text, TouchableOpacity, View, ActivityIndicator
+  StatusBar, StyleSheet, Text, TouchableOpacity, View, ActivityIndicator, Animated
 } from 'react-native'
 import { Ionicons, Feather, MaterialCommunityIcons } from '@expo/vector-icons'
 import { SafeAreaView } from 'react-native-safe-area-context'
@@ -17,6 +17,29 @@ export default function Profile({ session: initialSession, navigation }) {
   const [loading, setLoading] = React.useState(true)
   const [uploading, setUploading] = React.useState(false)
   const [logoutVisible, setLogoutVisible] = React.useState(false)
+  const logoutSlideAnim = React.useRef(new Animated.Value(300)).current
+
+  React.useEffect(() => {
+    if (logoutVisible) {
+      Animated.timing(logoutSlideAnim, {
+        toValue: 0,
+        duration: 250,
+        useNativeDriver: true,
+      }).start()
+    } else {
+      logoutSlideAnim.setValue(300)
+    }
+  }, [logoutVisible])
+
+  const closeLogout = () => {
+    Animated.timing(logoutSlideAnim, {
+      toValue: 300,
+      duration: 200,
+      useNativeDriver: true,
+    }).start(() => {
+      setLogoutVisible(false)
+    })
+  }
 
   const loadSessionAndProfile = async () => {
     try {
@@ -246,44 +269,46 @@ export default function Profile({ session: initialSession, navigation }) {
       <Modal
         visible={logoutVisible}
         transparent
-        animationType="slide"
-        onRequestClose={() => setLogoutVisible(false)}
+        animationType="fade"
+        onRequestClose={closeLogout}
       >
-        <TouchableOpacity
-          style={styles.modalBackdrop}
-          activeOpacity={1}
-          onPress={() => setLogoutVisible(false)}
-        />
-        <View style={styles.logoutSheet}>
-          <View style={styles.sheetHeader}>
-            <TouchableOpacity onPress={() => setLogoutVisible(false)} style={styles.closeBtn}>
-              <Feather name="x" size={24} color="#64748b" />
-            </TouchableOpacity>
-            <Text style={styles.sheetTitle}>Logout</Text>
-            <View style={styles.closeBtn} />
-          </View>
+        <View style={styles.modalContainer}>
+          <TouchableOpacity
+            style={styles.modalBackdrop}
+            activeOpacity={1}
+            onPress={closeLogout}
+          />
+          <Animated.View style={[styles.logoutSheet, { transform: [{ translateY: logoutSlideAnim }] }]}>
+            <View style={styles.sheetHeader}>
+              <TouchableOpacity onPress={closeLogout} style={styles.closeBtn}>
+                <Feather name="x" size={24} color="#64748b" />
+              </TouchableOpacity>
+              <Text style={styles.sheetTitle}>Logout</Text>
+              <View style={styles.closeBtn} />
+            </View>
 
-          <Text style={styles.logoutText}>
-            Are you sure you want to Logout?
-          </Text>
-          <Text style={styles.logoutSubtext}>
-            You can always log back in at any time.
-          </Text>
+            <Text style={styles.logoutText}>
+              Are you sure you want to Logout?
+            </Text>
+            <Text style={styles.logoutSubtext}>
+              You can always log back in at any time.
+            </Text>
 
-          <View style={styles.modalBtnRow}>
-            <TouchableOpacity
-              style={styles.modalBtnSecondary}
-              onPress={() => setLogoutVisible(false)}
-            >
-              <Text style={styles.modalBtnSecondaryText}>Cancel</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.modalBtnPrimary}
-              onPress={handleLogout}
-            >
-              <Text style={styles.modalBtnPrimaryText}>Logout</Text>
-            </TouchableOpacity>
-          </View>
+            <View style={styles.modalBtnRow}>
+              <TouchableOpacity
+                style={styles.modalBtnSecondary}
+                onPress={closeLogout}
+              >
+                <Text style={styles.modalBtnSecondaryText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.modalBtnPrimary}
+                onPress={handleLogout}
+              >
+                <Text style={styles.modalBtnPrimaryText}>Logout</Text>
+              </TouchableOpacity>
+            </View>
+          </Animated.View>
         </View>
       </Modal>
     </SafeAreaView>
@@ -457,8 +482,16 @@ const styles = StyleSheet.create({
   },
 
   // ── Logout Bottom Sheet Modal ──
-  modalBackdrop: {
+  modalContainer: {
     flex: 1,
+    justifyContent: 'flex-end',
+  },
+  modalBackdrop: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
     backgroundColor: 'rgba(0,0,0,0.3)',
   },
   logoutSheet: {

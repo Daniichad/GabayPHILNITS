@@ -105,10 +105,11 @@ export default function Onboarding({ navigation }) {
       <View style={styles.content}>
         {item.showGabayLogo ? (
           <View style={styles.logoContainer}>
-            <Text style={styles.gabayLogo}>GABAY</Text>
-            <Text style={[styles.logoSubtitle, { color: item.buttonColor }]}>
-              PhilCSE
-            </Text>
+            <Image
+              source={require('../../assets/img_onboarding.png')}
+              style={styles.logoImage}
+              resizeMode="contain"
+            />
           </View>
         ) : (
           <View style={styles.iconContainer}>
@@ -213,11 +214,11 @@ export default function Onboarding({ navigation }) {
             currentIndex === onboardingData.length - 1
               ? handleSkip
               : () => {
-                  flatListRef.current?.scrollToIndex({
-                    index: currentIndex + 1,
-                    animated: true,
-                  })
-                }
+                flatListRef.current?.scrollToIndex({
+                  index: currentIndex + 1,
+                  animated: true,
+                })
+              }
           }
         >
           <Text style={styles.actionButtonText}>
@@ -275,17 +276,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 24,
   },
-  gabayLogo: {
-    fontSize: 48,
-    fontWeight: '900',
-    color: '#D9989E',
-    letterSpacing: 3,
-  },
-  logoSubtitle: {
-    fontSize: 16,
-    fontWeight: '700',
-    marginTop: 8,
-    letterSpacing: 1,
+  logoImage: {
+    width: 240,
+    height: 120,
+    marginBottom: 8,
   },
   title: {
     fontSize: 28,

@@ -88,6 +88,19 @@ export default function Home({ session, navigation }) {
 
   const quoteTimer = useRef(null)
   const quoteOpacity = useRef(new Animated.Value(1)).current
+  const notifSlideAnim = useRef(new Animated.Value(300)).current
+
+  useEffect(() => {
+    if (notifVisible) {
+      Animated.timing(notifSlideAnim, {
+        toValue: 0,
+        duration: 250,
+        useNativeDriver: true,
+      }).start()
+    } else {
+      notifSlideAnim.setValue(300)
+    }
+  }, [notifVisible])
 
   const unreadCount = notifications.filter((n) => !n.read).length
 
@@ -455,6 +468,16 @@ export default function Home({ session, navigation }) {
     setNotifications((prev) => prev.map((n) => ({ ...n, read: true })))
   }
 
+  const closeNotifications = () => {
+    Animated.timing(notifSlideAnim, {
+      toValue: 300,
+      duration: 200,
+      useNativeDriver: true,
+    }).start(() => {
+      setNotifVisible(false)
+    })
+  }
+
   const handleLogout = async () => {
     Alert.alert('Sign Out', 'Are you sure you want to sign out?', [
       { text: 'Cancel', style: 'cancel' },
@@ -718,22 +741,23 @@ export default function Home({ session, navigation }) {
       <Modal
         visible={notifVisible}
         transparent
-        animationType="slide"
-        onRequestClose={() => setNotifVisible(false)}
+        animationType="fade"
+        onRequestClose={closeNotifications}
       >
-        <TouchableOpacity
-          style={styles.modalBackdrop}
-          activeOpacity={1}
-          onPress={() => setNotifVisible(false)}
-        />
-        <View style={styles.notifSheet}>
-          {/* Handle */}
-          <View style={styles.sheetHandle} />
+        <View style={styles.modalContainer}>
+          <TouchableOpacity
+            style={styles.modalBackdrop}
+            activeOpacity={1}
+            onPress={closeNotifications}
+          />
+          <Animated.View style={[styles.notifSheet, { transform: [{ translateY: notifSlideAnim }] }]}>
+            {/* Handle */}
+            <View style={styles.sheetHandle} />
 
-          {/* Header */}
-          <View style={styles.notifSheetHeader}>
-            <Text style={styles.notifSheetTitle}>Notifications</Text>
-            <TouchableOpacity onPress={() => setNotifVisible(false)}>
+            {/* Header */}
+            <View style={styles.notifSheetHeader}>
+              <Text style={styles.notifSheetTitle}>Notifications</Text>
+            <TouchableOpacity onPress={closeNotifications}>
               <Ionicons name="close" size={24} color={NAVY} />
             </TouchableOpacity>
           </View>
@@ -769,6 +793,7 @@ export default function Home({ session, navigation }) {
               ))
             )}
           </ScrollView>
+        </Animated.View>
         </View>
       </Modal>
     </View>
@@ -1193,8 +1218,16 @@ const styles = StyleSheet.create({
   },
 
   // ── Notification Modal ──
-  modalBackdrop: {
+  modalContainer: {
     flex: 1,
+    justifyContent: 'flex-end',
+  },
+  modalBackdrop: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
     backgroundColor: 'rgba(0,0,0,0.35)',
   },
   notifSheet: {

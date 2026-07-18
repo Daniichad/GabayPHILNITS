@@ -2,25 +2,25 @@
   "expo": {
     "name": "Gabay PhilCSE",
     "slug": "gabay_philcse",
-    "scheme": "gabay_philcse",
+    "scheme": "gabay-philcse",
     "version": "1.0.0",
     "updates": {
       "enabled": false
     },
     "orientation": "portrait",
-    "icon": "./assets/icon-transparent.png",
+    "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "splash": {
-      "image": "./assets/splash-icon.png",
+      "image": "./assets/logo_text_dark.png",
       "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
+      "backgroundColor": "#f5f7fb"
     },
     "ios": {
       "supportsTablet": true
     },
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "./assets/adaptive-icon.png",
+        "foregroundImage": "./assets/icon.png",
         "backgroundColor": "#ffffff"
       },
       "package": "com.anonymous.gabay_philcse"
@@ -30,6 +30,11 @@
     },
     "plugins": [
       "expo-web-browser"
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "b5909ad9-e928-4b90-aeeb-af2966fb4339"
+      }
+    }
   }
 }
