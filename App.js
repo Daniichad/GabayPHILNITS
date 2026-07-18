@@ -172,7 +172,7 @@ export default function App() {
 							headerShown: false,
 							animation: 'fade_from_bottom',
 						}}
-						initialRouteName="Onboarding"//{initialRoute}
+						initialRouteName={initialRoute}
 					>
 						<Stack.Screen name="Onboarding" component={Onboarding} />
 						<Stack.Screen name="Login" component={Login} options={{ animation: 'fade_from_bottom' }} />

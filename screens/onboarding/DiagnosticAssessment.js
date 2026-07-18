@@ -1,8 +1,9 @@
 import React from 'react'
 import {
   Alert, ActivityIndicator, Modal, ScrollView,
-  StyleSheet, Text, TouchableOpacity, View,
+  StyleSheet, Text, TouchableOpacity, View, BackHandler,
 } from 'react-native'
+import { SafeAreaView } from 'react-native-safe-area-context'
 import { supabase } from '../../supabase'
 
 const CATEGORY_ORDER = [
@@ -85,6 +86,32 @@ export default function DiagnosticAssessment({ navigation, route }) {
 
   // ── Load questions from Supabase ───────────────────────────
   React.useEffect(() => { loadQuestions() }, [])
+
+  // Disable back gesture on iOS / Android navigators
+  React.useEffect(() => {
+    navigation.setOptions({
+      gestureEnabled: false,
+    })
+  }, [navigation])
+
+  // Handle hardware back press (3-dot nav / gestures)
+  React.useEffect(() => {
+    const backAction = () => {
+      // If the assessment is active (started and not finished), show the exit modal
+      if (started && !finished) {
+        setExitVisible(true)
+        return true // block default goBack action
+      }
+      return false // let default goBack action execute
+    }
+
+    const backHandler = BackHandler.addEventListener(
+      'hardwareBackPress',
+      backAction
+    )
+
+    return () => backHandler.remove()
+  }, [started, finished])
 
   const loadQuestions = async () => {
     try {
@@ -204,24 +231,28 @@ export default function DiagnosticAssessment({ navigation, route }) {
   // ─────────────────────────────── LOADING STATE ────────────
   if (loading) {
     return (
-      <View style={styles.centered}>
-        <ActivityIndicator size="large" color="#0F2747" />
-        <Text style={styles.loadingText}>Loading questions…</Text>
-      </View>
+      <SafeAreaView style={styles.safeArea}>
+        <View style={styles.centered}>
+          <ActivityIndicator size="large" color="#0F2747" />
+          <Text style={styles.loadingText}>Loading questions…</Text>
+        </View>
+      </SafeAreaView>
     )
   }
 
   if (loadError) {
     return (
-      <View style={styles.centered}>
-        <Text style={styles.errorText}>{loadError}</Text>
-        <TouchableOpacity style={styles.retryBtn} onPress={loadQuestions}>
-          <Text style={styles.retryText}>Retry</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.laterLinkBtn} onPress={() => navigation?.replace('Home')}>
-          <Text style={styles.laterText}>Go to Home</Text>
-        </TouchableOpacity>
-      </View>
+      <SafeAreaView style={styles.safeArea}>
+        <View style={styles.centered}>
+          <Text style={styles.errorText}>{loadError}</Text>
+          <TouchableOpacity style={styles.retryBtn} onPress={loadQuestions}>
+            <Text style={styles.retryText}>Retry</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.laterLinkBtn} onPress={() => navigation?.replace('Home')}>
+            <Text style={styles.laterText}>Go to Home</Text>
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
     )
   }
 
@@ -238,97 +269,161 @@ export default function DiagnosticAssessment({ navigation, route }) {
     }).slice(0, 3)
 
     return (
-      <View style={styles.resultContainer}>
-        <ScrollView style={styles.resultScroll} contentContainerStyle={styles.resultScrollContent} showsVerticalScrollIndicator={false}>
-          <View style={styles.resultCard}>
-            <View style={styles.resultIconWrap}>
-              <Text style={styles.resultIcon}>✓</Text>
-            </View>
-            <Text style={styles.resultTitle}>Assessment Complete!</Text>
-            <Text style={styles.resultSubtitle}>Here's your score</Text>
+      <SafeAreaView style={styles.safeArea}>
+        <View style={styles.resultContainer}>
+          <ScrollView style={styles.resultScroll} contentContainerStyle={styles.resultScrollContent} showsVerticalScrollIndicator={false}>
+            <View style={styles.resultCard}>
+              <View style={styles.resultIconWrap}>
+                <Text style={styles.resultIcon}>✓</Text>
+              </View>
+              <Text style={styles.resultTitle}>Assessment Complete!</Text>
+              <Text style={styles.resultSubtitle}>Here's your score</Text>
 
-            <View style={styles.scoreBox}>
-              <Text style={styles.scoreText}>{result.correctCount} / {result.totalQuestions}</Text>
-              <Text style={styles.scorePercent}>{result.scorePercent}%</Text>
-            </View>
+              <View style={styles.scoreBox}>
+                <Text style={styles.scoreText}>{result.correctCount} / {result.totalQuestions}</Text>
+                <Text style={styles.scorePercent}>{result.scorePercent}%</Text>
+              </View>
 
-            <View style={styles.levelBox}>
-              <Text style={styles.levelText}>{result.level}</Text>
-            </View>
+              <View style={styles.levelBox}>
+                <Text style={styles.levelText}>{result.level}</Text>
+              </View>
 
-            <Text style={styles.sectionTitle}>Category Breakdown</Text>
-            <View style={styles.breakdownBox}>
-              {CATEGORY_ORDER.map((cat) => {
-                const b = result.categoryScores[cat]
-                return (
-                  <View key={cat} style={styles.breakdownRow}>
-                    <Text style={styles.breakdownLabel}>{cat}</Text>
-                    <Text style={styles.breakdownValue}>{b.correct}/{b.total}</Text>
-                  </View>
-                )
-              })}
-            </View>
+              <Text style={styles.sectionTitle}>Category Breakdown</Text>
+              <View style={styles.breakdownBox}>
+                {CATEGORY_ORDER.map((cat) => {
+                  const b = result.categoryScores[cat]
+                  return (
+                    <View key={cat} style={styles.breakdownRow}>
+                      <Text style={styles.breakdownLabel}>{cat}</Text>
+                      <Text style={styles.breakdownValue}>{b.correct}/{b.total}</Text>
+                    </View>
+                  )
+                })}
+              </View>
 
-            <View style={styles.insightDangerBox}>
-              <Text style={styles.insightTitle}>Areas for Improvement</Text>
-              {weakCategories.length > 0
-                ? weakCategories.map((cat) => <Text key={cat} style={styles.insightItem}>• {cat}</Text>)
-                : <Text style={styles.insightItem}>• None detected</Text>}
-            </View>
+              <View style={styles.insightDangerBox}>
+                <Text style={styles.insightTitle}>Areas for Improvement</Text>
+                {weakCategories.length > 0
+                  ? weakCategories.map((cat) => <Text key={cat} style={styles.insightItem}>• {cat}</Text>)
+                  : <Text style={styles.insightItem}>• None detected</Text>}
+              </View>
 
-            <View style={styles.insightSafeBox}>
-              <Text style={styles.insightTitle}>Strong Areas</Text>
-              {strongCategories.length > 0
-                ? strongCategories.map((cat) => <Text key={cat} style={styles.insightItem}>• {cat}</Text>)
-                : <Text style={styles.insightItem}>• Keep practicing to build stronger areas</Text>}
-            </View>
+              <View style={styles.insightSafeBox}>
+                <Text style={styles.insightTitle}>Strong Areas</Text>
+                {strongCategories.length > 0
+                  ? strongCategories.map((cat) => <Text key={cat} style={styles.insightItem}>• {cat}</Text>)
+                  : <Text style={styles.insightItem}>• Keep practicing to build stronger areas</Text>}
+              </View>
 
-            <TouchableOpacity style={styles.finalButton} activeOpacity={0.85} onPress={() => navigation?.replace('Home')}>
-              <Text style={styles.finalButtonText}>{saving ? 'SAVING...' : "LET'S START YOUR JOURNEY"}</Text>
-            </TouchableOpacity>
-          </View>
-        </ScrollView>
-      </View>
+              <TouchableOpacity style={styles.finalButton} activeOpacity={0.85} onPress={() => navigation?.replace('Home')}>
+                <Text style={styles.finalButtonText}>{saving ? 'SAVING...' : "LET'S START YOUR JOURNEY"}</Text>
+              </TouchableOpacity>
+            </View>
+          </ScrollView>
+        </View>
+      </SafeAreaView>
     )
   }
 
   // ─────────────────────────────── INTRO STATE ────────────
   if (!started) {
     return (
-      <View style={styles.introContainer}>
-        <View style={styles.topBar}>
+      <SafeAreaView style={styles.safeArea}>
+        <View style={styles.introContainer}>
+          <View style={styles.topBar}>
+            <TouchableOpacity onPress={() => setExitVisible(true)}>
+              <Text style={styles.backText}>‹</Text>
+            </TouchableOpacity>
+            <Text style={styles.stepText}>Diagnostic Assessment</Text>
+            <View style={styles.backSpacer} />
+          </View>
+
+          <View style={styles.introCard}>
+            <Text style={styles.introTitle}>Diagnostic Assessment</Text>
+            <Text style={styles.introSubtitle}>Let's see how prepared you are</Text>
+            <Text style={styles.introBody}>
+              Check your knowledge level and get study recommendations based on your results.
+            </Text>
+            <View style={styles.bulletBox}>
+              <Text style={styles.bulletText}>• {questions.length} questions covering all core areas</Text>
+              <Text style={styles.bulletText}>• Takes about {Math.ceil(questions.length / 2.5)} minutes</Text>
+              <Text style={styles.bulletText}>• Receive personalized study recommendations</Text>
+            </View>
+            <TouchableOpacity style={styles.startButton} activeOpacity={0.85} onPress={() => setStarted(true)}>
+              <Text style={styles.startButtonText}>START ASSESSMENT</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => navigation?.replace('Home')}>
+              <Text style={styles.laterText}>Maybe Later</Text>
+            </TouchableOpacity>
+          </View>
+
+          <Modal transparent visible={exitVisible} animationType="fade" onRequestClose={() => setExitVisible(false)}>
+            <View style={styles.exitOverlay}>
+              <View style={styles.exitCard}>
+                <Text style={styles.exitTitle}>Are You Sure You Want to Exit?</Text>
+                <Text style={styles.exitSubtitle}>Your progress will not be saved if you exit now.</Text>
+                <TouchableOpacity style={styles.exitPrimaryButton} onPress={handleExitAssessment}>
+                  <Text style={styles.exitPrimaryButtonText}>Continue Assessment</Text>
+                </TouchableOpacity>
+                <TouchableOpacity onPress={() => navigation?.replace('Home')}>
+                  <Text style={styles.exitSecondaryText}>Exit Anyway</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </Modal>
+        </View>
+      </SafeAreaView>
+    )
+  }
+
+  // ─────────────────────────────── QUESTION STATE ────────────
+  return (
+    <SafeAreaView style={styles.safeArea}>
+      <View style={styles.questionContainer}>
+        <View style={styles.questionTopBar}>
           <TouchableOpacity onPress={() => setExitVisible(true)}>
             <Text style={styles.backText}>‹</Text>
           </TouchableOpacity>
-          <Text style={styles.stepText}>Diagnostic Assessment</Text>
+          <Text style={styles.stepText}>Question {progress}</Text>
           <View style={styles.backSpacer} />
         </View>
 
-        <View style={styles.introCard}>
-          <Text style={styles.introTitle}>Diagnostic Assessment</Text>
-          <Text style={styles.introSubtitle}>Let's see how prepared you are</Text>
-          <Text style={styles.introBody}>
-            Check your knowledge level and get study recommendations based on your results.
-          </Text>
-          <View style={styles.bulletBox}>
-            <Text style={styles.bulletText}>• {questions.length} questions covering all core areas</Text>
-            <Text style={styles.bulletText}>• Takes about {Math.ceil(questions.length / 2.5)} minutes</Text>
-            <Text style={styles.bulletText}>• Receive personalized study recommendations</Text>
-          </View>
-          <TouchableOpacity style={styles.startButton} activeOpacity={0.85} onPress={() => setStarted(true)}>
-            <Text style={styles.startButtonText}>START ASSESSMENT</Text>
-          </TouchableOpacity>
-          <TouchableOpacity onPress={() => navigation?.replace('Home')}>
-            <Text style={styles.laterText}>Maybe Later</Text>
-          </TouchableOpacity>
+        {/* Progress bar */}
+        <View style={styles.progressTrack}>
+          <View style={[styles.progressFill, { width: `${((questionIndex + 1) / questions.length) * 100}%` }]} />
         </View>
+
+        <Text style={styles.questionHeader}>{currentQuestion.category}</Text>
+        <Text style={styles.questionText}>{currentQuestion.question}</Text>
+
+        <View style={styles.optionsWrap}>
+          {(currentQuestion.options ?? []).map((option) => {
+            const active = selectedAnswer === option
+            return (
+              <TouchableOpacity
+                key={option}
+                style={[styles.optionButton, active && styles.optionButtonActive]}
+                activeOpacity={0.85}
+                onPress={() => handleChoose(option)}
+              >
+                <Text style={[styles.optionText, active && styles.optionTextActive]}>{option}</Text>
+              </TouchableOpacity>
+            )
+          })}
+        </View>
+
+        <TouchableOpacity style={styles.questionNextButton} activeOpacity={0.85} onPress={handleNext}>
+          <Text style={styles.questionNextButtonText}>
+            {questionIndex === questions.length - 1 ? 'FINISH' : 'NEXT'}
+          </Text>
+        </TouchableOpacity>
 
         <Modal transparent visible={exitVisible} animationType="fade" onRequestClose={() => setExitVisible(false)}>
           <View style={styles.exitOverlay}>
             <View style={styles.exitCard}>
               <Text style={styles.exitTitle}>Are You Sure You Want to Exit?</Text>
               <Text style={styles.exitSubtitle}>Your progress will not be saved if you exit now.</Text>
-              <TouchableOpacity style={styles.exitPrimaryButton} onPress={handleExitAssessment}>
+              <TouchableOpacity style={styles.exitPrimaryButton} onPress={() => setExitVisible(false)}>
                 <Text style={styles.exitPrimaryButtonText}>Continue Assessment</Text>
               </TouchableOpacity>
               <TouchableOpacity onPress={() => navigation?.replace('Home')}>
@@ -338,69 +433,12 @@ export default function DiagnosticAssessment({ navigation, route }) {
           </View>
         </Modal>
       </View>
-    )
-  }
-
-  // ─────────────────────────────── QUESTION STATE ────────────
-  return (
-    <View style={styles.questionContainer}>
-      <View style={styles.questionTopBar}>
-        <TouchableOpacity onPress={() => setExitVisible(true)}>
-          <Text style={styles.backText}>‹</Text>
-        </TouchableOpacity>
-        <Text style={styles.stepText}>Question {progress}</Text>
-        <View style={styles.backSpacer} />
-      </View>
-
-      {/* Progress bar */}
-      <View style={styles.progressTrack}>
-        <View style={[styles.progressFill, { width: `${((questionIndex + 1) / questions.length) * 100}%` }]} />
-      </View>
-
-      <Text style={styles.questionHeader}>{currentQuestion.category}</Text>
-      <Text style={styles.questionText}>{currentQuestion.question}</Text>
-
-      <View style={styles.optionsWrap}>
-        {(currentQuestion.options ?? []).map((option) => {
-          const active = selectedAnswer === option
-          return (
-            <TouchableOpacity
-              key={option}
-              style={[styles.optionButton, active && styles.optionButtonActive]}
-              activeOpacity={0.85}
-              onPress={() => handleChoose(option)}
-            >
-              <Text style={[styles.optionText, active && styles.optionTextActive]}>{option}</Text>
-            </TouchableOpacity>
-          )
-        })}
-      </View>
-
-      <TouchableOpacity style={styles.questionNextButton} activeOpacity={0.85} onPress={handleNext}>
-        <Text style={styles.questionNextButtonText}>
-          {questionIndex === questions.length - 1 ? 'FINISH' : 'NEXT'}
-        </Text>
-      </TouchableOpacity>
-
-      <Modal transparent visible={exitVisible} animationType="fade" onRequestClose={() => setExitVisible(false)}>
-        <View style={styles.exitOverlay}>
-          <View style={styles.exitCard}>
-            <Text style={styles.exitTitle}>Are You Sure You Want to Exit?</Text>
-            <Text style={styles.exitSubtitle}>Your progress will not be saved if you exit now.</Text>
-            <TouchableOpacity style={styles.exitPrimaryButton} onPress={() => setExitVisible(false)}>
-              <Text style={styles.exitPrimaryButtonText}>Continue Assessment</Text>
-            </TouchableOpacity>
-            <TouchableOpacity onPress={() => navigation?.replace('Home')}>
-              <Text style={styles.exitSecondaryText}>Exit Anyway</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
-    </View>
+    </SafeAreaView>
   )
 }
 
 const styles = StyleSheet.create({
+  safeArea:          { flex: 1, backgroundColor: '#ffffff' },
   centered:          { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#fff', paddingHorizontal: 24 },
   loadingText:       { marginTop: 14, fontSize: 14, color: '#6b7280', fontWeight: '600' },
   errorText:         { fontSize: 15, color: '#dc2626', textAlign: 'center', marginBottom: 20, fontWeight: '600' },
