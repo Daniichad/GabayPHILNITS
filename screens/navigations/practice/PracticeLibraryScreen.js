@@ -5,6 +5,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons, Feather, MaterialCommunityIcons } from '@expo/vector-icons'
 import { supabase } from '../../../supabase'
+import { SkeletonItem } from '../../../components/Skeleton'
 
 
 // ─── Colours matching the image ────────────────────────────────
@@ -194,7 +195,17 @@ export default function PracticeLibraryScreen({ navigation }) {
           <Text style={styles.recentTitle}>Recent Activity</Text>
 
           {loading ? (
-            <ActivityIndicator size="small" color={NAVY} style={{ marginVertical: 12 }} />
+            <View style={{ gap: 8 }}>
+              {[1, 2, 3].map((item) => (
+                <View key={item} style={styles.activityCard}>
+                  <View style={{ flex: 1, gap: 6 }}>
+                    <SkeletonItem width="60%" height={14} />
+                    <SkeletonItem width="40%" height={10} />
+                  </View>
+                  <SkeletonItem width={16} height={16} borderRadius={8} />
+                </View>
+              ))}
+            </View>
           ) : recentActivities.length === 0 ? (
             <Text style={styles.emptyText}>No recent activity yet. Start practicing!</Text>
           ) : (
@@ -209,9 +220,7 @@ export default function PracticeLibraryScreen({ navigation }) {
                   <Text style={styles.activityTitle}>{activity.title}</Text>
                   <Text style={styles.activityCount}>{activity.type} · {activity.subtitle}</Text>
                 </View>
-                <View style={styles.activityIconCircle}>
-                  <MaterialCommunityIcons name="chevron-right" size={20} color="#fff" />
-                </View>
+                <Feather name="chevron-right" size={18} color="#94a3b8" />
               </TouchableOpacity>
             ))
           )}
@@ -325,39 +334,27 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   activityCard: {
-    backgroundColor: '#3d5a80',
-    borderRadius: 14,
-    paddingVertical: 16,
-    paddingHorizontal: 16,
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 10,
-    elevation: 1,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.08,
-    shadowRadius: 3,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: '#e8edf5',
   },
   activityInfo: { flex: 1 },
   activityTitle: {
-    fontSize: 15,
-    fontWeight: '800',
-    color: '#fff',
-    marginBottom: 4,
+    fontSize: 14,
+    fontWeight: '700',
+    color: NAVY,
+    marginBottom: 2,
   },
   activityCount: {
     fontSize: 12,
-    color: '#b0c4d8',
-  },
-  activityIconCircle: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#2c4563',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginLeft: 12,
+    color: '#64748b',
   },
   activityDots: {
     padding: 4,

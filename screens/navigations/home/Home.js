@@ -7,6 +7,7 @@ import {
 import { supabase } from '../../../utils/supabase'
 import { Ionicons, Feather, MaterialCommunityIcons } from '@expo/vector-icons'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
+import { getCache, setCache, clearCache } from '../../../utils/cache'
 
 // ─── Fallback motivational quotes (used if API fails) ───────────
 const FALLBACK_QUOTES = [
@@ -61,6 +62,15 @@ const INITIAL_NOTIFICATIONS = [
 const NAVY = '#0f2747'
 const ACCENT = '#d85e67'
 
+const DEFAULT_SUBJECTS = [
+  { label: 'Verbal Ability', progress: 0 },
+  { label: 'Numerical Ability', progress: 0 },
+  { label: 'Analytical Ability', progress: 0 },
+  { label: 'Logical Reasoning', progress: 0 },
+  { label: 'General Information', progress: 0 },
+  { label: 'Clerical Operations', progress: 0 },
+]
+
 export default function Home({ session, navigation }) {
   const user = session?.user
   const insets = useSafeAreaInsets()
@@ -85,6 +95,10 @@ export default function Home({ session, navigation }) {
   const [rankingsLoading, setRankingsLoading] = useState(true)
   const [profileName, setProfileName] = useState('Learner')
   const [streakDays, setStreakDays] = useState(0)
+  const [subjects, setSubjectProgress] = useState(() => {
+    const cached = getCache('home_subject_progress')
+    return cached || DEFAULT_SUBJECTS
+  })
 
   const quoteTimer = useRef(null)
   const quoteOpacity = useRef(new Animated.Value(1)).current
@@ -119,8 +133,8 @@ export default function Home({ session, navigation }) {
 
   // Tries to parse CSE exam dates from the CSC RSS feed XML text
   const parseCseDatesFromRSS = (xml) => {
-    const monthNames = ['January','February','March','April','May','June',
-                        'July','August','September','October','November','December']
+    const monthNames = ['January', 'February', 'March', 'April', 'May', 'June',
+      'July', 'August', 'September', 'October', 'November', 'December']
     // Match pattern: Month D(D), YYYY — only near CSE-related keywords
     const cseKeywords = /career service exam|cse-ppt|cse ppt|civil service exam/i
     const datePattern = /(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{1,2}),?\s+(2026|2027)/gi
@@ -150,7 +164,13 @@ export default function Home({ session, navigation }) {
 
   // ─── Fetch CSE Schedule ────────────────────────────────────────
   const fetchCSESchedule = useCallback(async () => {
-    setCseLoading(true)
+    const cached = getCache('home_cse_schedule')
+    if (cached) {
+      setCseSchedule(cached)
+      setCseLoading(false)
+    } else {
+      setCseLoading(true)
+    }
     try {
       // Try RSS feed first — it's publicly accessible
       const res = await fetch('https://www.csc.gov.ph/?format=feed&type=rss', {
@@ -164,7 +184,9 @@ export default function Home({ session, navigation }) {
           const now = new Date()
           const diffDays = Math.ceil((next - now) / (1000 * 60 * 60 * 24))
           const label = next.toLocaleDateString('en-PH', { month: 'long', day: 'numeric', year: 'numeric' })
-          setCseSchedule({ date: next, label, daysLeft: diffDays, appPeriod: null, source: 'live' })
+          const payload = { date: next, label, daysLeft: diffDays, appPeriod: null, source: 'live' }
+          setCseSchedule(payload)
+          setCache('home_cse_schedule', payload)
           setCseLoading(false)
           return
         }
@@ -175,19 +197,27 @@ export default function Home({ session, navigation }) {
     const next = getNextDate(KNOWN_CSE_DATES_2026)
     const now = new Date()
     const diffDays = Math.ceil((next.date - now) / (1000 * 60 * 60 * 24))
-    setCseSchedule({
+    const payload = {
       date: next.date,
       label: next.label,
       daysLeft: diffDays > 0 ? diffDays : 0,
       appPeriod: next.appPeriod,
       cycle: next.cycle,
       source: 'official',
-    })
+    }
+    setCseSchedule(payload)
+    setCache('home_cse_schedule', payload)
     setCseLoading(false)
   }, [])
 
   const fetchReadiness = useCallback(async () => {
-    setReadinessLoading(true)
+    const cached = getCache('home_readiness')
+    if (cached !== null) {
+      setReadiness(cached)
+      setReadinessLoading(false)
+    } else {
+      setReadinessLoading(true)
+    }
     try {
       const { data: { session } } = await supabase.auth.getSession()
       const uid = session?.user?.id
@@ -201,17 +231,18 @@ export default function Home({ session, navigation }) {
 
       if (error) throw error
 
+      let score = 0
       if (attempts && attempts.length > 0) {
         const totalPct = attempts.reduce((sum, attempt) => {
-          const pct = attempt.total_questions > 0 
-            ? (attempt.correct_count / attempt.total_questions) * 100 
+          const pct = attempt.total_questions > 0
+            ? (attempt.correct_count / attempt.total_questions) * 100
             : 0
           return sum + pct
         }, 0)
-        setReadiness(Math.round(totalPct / attempts.length))
-      } else {
-        setReadiness(0)
+        score = Math.round(totalPct / attempts.length)
       }
+      setReadiness(score)
+      setCache('home_readiness', score)
     } catch (err) {
       console.warn('Error fetching readiness:', err)
       setReadiness(0)
@@ -221,7 +252,13 @@ export default function Home({ session, navigation }) {
   }, [])
 
   const fetchRankings = useCallback(async () => {
-    setRankingsLoading(true)
+    const cached = getCache('home_rankings')
+    if (cached) {
+      setRankings(cached)
+      setRankingsLoading(false)
+    } else {
+      setRankingsLoading(true)
+    }
     try {
       // 1. Fetch public profile names (excluding admins)
       const { data: publicUsers, error: uErr } = await supabase
@@ -248,7 +285,7 @@ export default function Home({ session, navigation }) {
       const { data: sessions } = await supabase.from('flashcard_sessions').select('user_id, completed, created_at')
 
       const userScores = {}
-      
+
       // Initialize map
       publicUsers.forEach(u => {
         userScores[u.id] = {
@@ -324,7 +361,9 @@ export default function Home({ session, navigation }) {
 
       // Sort by score descending and limit to top 5
       leaderboard.sort((a, b) => b.score - a.score)
-      setRankings(leaderboard.slice(0, 5))
+      const topRankings = leaderboard.slice(0, 5)
+      setRankings(topRankings)
+      setCache('home_rankings', topRankings)
     } catch (err) {
       console.warn('Error fetching rankings:', err)
     } finally {
@@ -332,14 +371,7 @@ export default function Home({ session, navigation }) {
     }
   }, [])
 
-  const subjects = [
-    { label: 'Verbal Ability', progress: 0.08 },
-    { label: 'Numerical Ability', progress: 0.0 },
-    { label: 'Analytical Ability', progress: 0.15 },
-    { label: 'Logical Reasoning', progress: 0.1 },
-    { label: 'General Information', progress: 0.0 },
-    { label: 'Clerical Operations', progress: 0.0 },
-  ]
+
 
   // ─── Fetch quote from API ───────────────────────────────────────
   const fetchQuote = useCallback(async (silent = false) => {
@@ -384,6 +416,14 @@ export default function Home({ session, navigation }) {
   }, [fetchQuote])
 
   const fetchHomeData = useCallback(async () => {
+    const cachedName = getCache('home_profile_name')
+    const cachedStreak = getCache('home_streak_days')
+    const cachedSubjects = getCache('home_subject_progress')
+    if (cachedName !== null && cachedStreak !== null && cachedSubjects) {
+      setProfileName(cachedName)
+      setStreakDays(cachedStreak)
+      setSubjectProgress(cachedSubjects)
+    }
     try {
       const { data: { session } } = await supabase.auth.getSession()
       const uid = session?.user?.id
@@ -396,12 +436,14 @@ export default function Home({ session, navigation }) {
         .eq('email', session.user.email)
         .maybeSingle()
 
+      let resolvedName = 'Learner'
       if (uData && uData.fullname) {
-        setProfileName(uData.fullname)
+        resolvedName = uData.fullname
       } else {
-        const fallback = session.user.user_metadata?.full_name || session.user.user_metadata?.fullName || session.user.email || 'Learner'
-        setProfileName(fallback)
+        resolvedName = session.user.user_metadata?.full_name || session.user.user_metadata?.fullName || session.user.email || 'Learner'
       }
+      setProfileName(resolvedName)
+      setCache('home_profile_name', resolvedName)
 
       // 2. Fetch activity streak
       const { data: sessions } = await supabase
@@ -424,16 +466,16 @@ export default function Home({ session, navigation }) {
       const tf = tfRaw ?? []
 
       const activityDays = new Set([
-        ...ses.map(s => s.created_at?.slice(0,10)),
-        ...mcq.map(r => r.answered_at?.slice(0,10)),
-        ...tf.map(r => r.answered_at?.slice(0,10)),
+        ...ses.map(s => s.created_at?.slice(0, 10)),
+        ...mcq.map(r => r.answered_at?.slice(0, 10)),
+        ...tf.map(r => r.answered_at?.slice(0, 10)),
       ].filter(Boolean))
 
       let streak = 0
       const today = new Date()
       for (let i = 0; i < 30; i++) {
         const d = new Date(today); d.setDate(today.getDate() - i)
-        const key = d.toISOString().slice(0,10)
+        const key = d.toISOString().slice(0, 10)
         if (activityDays.has(key)) {
           streak++
         } else if (i > 0) {
@@ -441,6 +483,52 @@ export default function Home({ session, navigation }) {
         }
       }
       setStreakDays(streak)
+      setCache('home_streak_days', streak)
+
+      // 3. Fetch MCQ + TF results to calculate subject progress
+      const { data: mcqPerformance } = await supabase
+        .from('multiple_choice_results')
+        .select('is_correct, multiple_choice_questions(practice_categories(name))')
+        .eq('user_id', uid)
+
+      const { data: tfPerformance } = await supabase
+        .from('true_false_results')
+        .select('is_correct, true_false_questions(practice_categories(name))')
+        .eq('user_id', uid)
+
+      const performanceMap = {}
+      DEFAULT_SUBJECTS.forEach(s => {
+        performanceMap[s.label] = { correct: 0, total: 0 }
+      })
+
+      if (mcqPerformance) {
+        mcqPerformance.forEach(r => {
+          const name = r.multiple_choice_questions?.practice_categories?.name
+          if (name && performanceMap[name] !== undefined) {
+            performanceMap[name].total++
+            if (r.is_correct) performanceMap[name].correct++
+          }
+        })
+      }
+
+      if (tfPerformance) {
+        tfPerformance.forEach(r => {
+          const name = r.true_false_questions?.practice_categories?.name
+          if (name && performanceMap[name] !== undefined) {
+            performanceMap[name].total++
+            if (r.is_correct) performanceMap[name].correct++
+          }
+        })
+      }
+
+      const updatedSubjects = DEFAULT_SUBJECTS.map(s => {
+        const stats = performanceMap[s.label]
+        const progress = stats.total > 0 ? (stats.correct / stats.total) : 0
+        return { label: s.label, progress }
+      })
+
+      setSubjectProgress(updatedSubjects)
+      setCache('home_subject_progress', updatedSubjects)
     } catch (err) {
       console.warn('Error fetching home data:', err)
     }
@@ -457,7 +545,20 @@ export default function Home({ session, navigation }) {
   // ─── Pull-to-refresh ───────────────────────────────────────────
   const onRefresh = useCallback(async () => {
     setRefreshing(true)
-    await Promise.all([fetchQuote(), fetchCSESchedule(), fetchReadiness(), fetchRankings(), fetchHomeData()])
+    // Clear cache first on pull-to-refresh to ensure loading live data
+    clearCache('home_cse_schedule')
+    clearCache('home_readiness')
+    clearCache('home_rankings')
+    clearCache('home_profile_name')
+    clearCache('home_streak_days')
+    clearCache('home_subject_progress')
+    await Promise.all([
+      fetchQuote(),
+      fetchCSESchedule(),
+      fetchReadiness(),
+      fetchRankings(),
+      fetchHomeData()
+    ])
     setRefreshing(false)
   }, [fetchQuote, fetchCSESchedule, fetchReadiness, fetchRankings, fetchHomeData])
 
@@ -548,7 +649,7 @@ export default function Home({ session, navigation }) {
 
         {/* ── Hero Card ── */}
         <View style={styles.heroCard}>
-          <Text style={styles.greeting}>Hello, {profileName}! 👋</Text>
+          <Text style={styles.greeting}>Hello, {profileName}!</Text>
           <Text style={styles.greetingSub}>Your CSE journey continues today.</Text>
           <TouchableOpacity
             style={styles.studyPlanBtn}
@@ -612,7 +713,7 @@ export default function Home({ session, navigation }) {
 
         {/* ── CSE Updates ── */}
         <View style={styles.updatesCard}>
-          <Text style={styles.updatesTitle}>📢  CSE UPDATES</Text>
+          <Text style={styles.updatesTitle}>CSE UPDATES</Text>
 
           {cseLoading ? (
             <ActivityIndicator size="small" color="rgba(255,255,255,0.8)" style={{ marginVertical: 8 }} />
@@ -638,7 +739,7 @@ export default function Home({ session, navigation }) {
                 </Text>
               </View>
               {cseSchedule?.source === 'official' && (
-                <Text style={styles.updateSourceNote}>📌 Official dates from csc.gov.ph</Text>
+                <Text style={styles.updateSourceNote}> Official dates from csc.gov.ph</Text>
               )}
             </>
           )}
@@ -757,43 +858,43 @@ export default function Home({ session, navigation }) {
             {/* Header */}
             <View style={styles.notifSheetHeader}>
               <Text style={styles.notifSheetTitle}>Notifications</Text>
-            <TouchableOpacity onPress={closeNotifications}>
-              <Ionicons name="close" size={24} color={NAVY} />
-            </TouchableOpacity>
-          </View>
+              <TouchableOpacity onPress={closeNotifications}>
+                <Ionicons name="close" size={24} color={NAVY} />
+              </TouchableOpacity>
+            </View>
 
-          <ScrollView showsVerticalScrollIndicator={false}>
-            {notifications.length === 0 ? (
-              <View style={styles.notifEmpty}>
-                <Ionicons name="notifications-off-outline" size={48} color="#cbd5e1" />
-                <Text style={styles.notifEmptyText}>No notifications yet</Text>
-              </View>
-            ) : (
-              notifications.map((notif) => (
-                <View
-                  key={notif.id}
-                  style={[styles.notifItem, !notif.read && styles.notifItemUnread]}
-                >
-                  <View style={styles.notifIconWrap}>
-                    <MaterialCommunityIcons
-                      name={notif.icon || 'bell'}
-                      size={22}
-                      color={notif.read ? '#94a3b8' : ACCENT}
-                    />
-                  </View>
-                  <View style={styles.notifBody}>
-                    <Text style={[styles.notifTitle, !notif.read && styles.notifTitleUnread]}>
-                      {notif.title}
-                    </Text>
-                    <Text style={styles.notifText}>{notif.body}</Text>
-                    <Text style={styles.notifTime}>{notif.time}</Text>
-                  </View>
-                  {!notif.read && <View style={styles.unreadDot} />}
+            <ScrollView showsVerticalScrollIndicator={false}>
+              {notifications.length === 0 ? (
+                <View style={styles.notifEmpty}>
+                  <Ionicons name="notifications-off-outline" size={48} color="#cbd5e1" />
+                  <Text style={styles.notifEmptyText}>No notifications yet</Text>
                 </View>
-              ))
-            )}
-          </ScrollView>
-        </Animated.View>
+              ) : (
+                notifications.map((notif) => (
+                  <View
+                    key={notif.id}
+                    style={[styles.notifItem, !notif.read && styles.notifItemUnread]}
+                  >
+                    <View style={styles.notifIconWrap}>
+                      <MaterialCommunityIcons
+                        name={notif.icon || 'bell'}
+                        size={22}
+                        color={notif.read ? '#94a3b8' : ACCENT}
+                      />
+                    </View>
+                    <View style={styles.notifBody}>
+                      <Text style={[styles.notifTitle, !notif.read && styles.notifTitleUnread]}>
+                        {notif.title}
+                      </Text>
+                      <Text style={styles.notifText}>{notif.body}</Text>
+                      <Text style={styles.notifTime}>{notif.time}</Text>
+                    </View>
+                    {!notif.read && <View style={styles.unreadDot} />}
+                  </View>
+                ))
+              )}
+            </ScrollView>
+          </Animated.View>
         </View>
       </Modal>
     </View>
@@ -1283,7 +1384,7 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   notifItemUnread: {
-    backgroundColor: '#fef9ff',
+    backgroundColor: '#edf2fa',
   },
   notifIconWrap: {
     width: 40,

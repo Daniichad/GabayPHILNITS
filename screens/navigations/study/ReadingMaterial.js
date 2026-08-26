@@ -1,46 +1,190 @@
 import React from 'react'
-import { Platform, ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
+import { Platform, ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, View, ActivityIndicator, LayoutAnimation, UIManager } from 'react-native'
 import { Ionicons, Feather } from '@expo/vector-icons'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
+import AsyncStorage from '@react-native-async-storage/async-storage'
+import { supabase } from '../../../supabase'
+import { SkeletonItem } from '../../../components/Skeleton'
+import { getCache, setCache } from '../../../utils/cache'
 
 
-const CONTENTS = {
-  Vocabulary: {
-    chapter: 'Chapter 1',
-    title: 'Fundamentals of Vocabulary',
-    body:
-      'Vocabulary questions test your ability to understand word meanings, context clues, antonyms, and synonyms. A strong vocabulary helps you answer verbal items faster and with more accuracy.\n\nReview words in context, look for root words, and practice using new terms in simple sentences. The best way to improve vocabulary is through repeated exposure and active recall.\n\nCommon strategies include reading passages, making flashcards, and learning words by theme. Always read the sentence before choosing the best answer because context can change the meaning of a word.',
-  },
-  'Reading Comprehension': {
-    chapter: 'Chapter 2',
-    title: 'Introduction to Reading Comprehension',
-    body:
-      'Reading comprehension measures how well you understand a passage, identify the main idea, and infer meaning from details. Focus on the author’s purpose, tone, and supporting evidence.\n\nWhen answering comprehension items, read the questions first if needed, then scan the passage for key details. Avoid guessing from memory alone.\n\nPractice summarizing paragraphs in one sentence, because this improves your ability to identify the central idea quickly during exams.',
-  },
-  'Basic Arithmetic': {
-    chapter: 'Chapter 1',
-    title: 'Fundamentals of Basic Arithmetic',
-    body:
-      'Basic arithmetic covers addition, subtraction, multiplication, division, fractions, decimals, percentages, and ratios. Many Civil Service questions are solved faster when you know simple shortcuts.\n\nAlways identify what the question asks before solving. Write down key numbers clearly and check units.\n\nFor word problems, turn the sentence into a math expression. Practice mental math for common percentage and ratio questions to build speed and accuracy.',
-  },
+if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental && !global.nativeFabricUIManager) {
+  UIManager.setLayoutAnimationEnabledExperimental(true);
 }
 
 export default function ReadingMaterial({ navigation, route }) {
-  const selectedTitle = route?.params?.title || 'Vocabulary'
-  const content = CONTENTS[selectedTitle] || CONTENTS.Vocabulary
+  const insets = useSafeAreaInsets()
+  const selectedTitle = route?.params?.title || 'Reading Material'
+  const materialId = route?.params?.materialId
 
-  const [showOverview, setShowOverview] = React.useState(true)
-  const [selectedChapter, setSelectedChapter] = React.useState('Chapter 1')
+  const [showOverview, setShowOverviewState] = React.useState(true)
+  const [chapters, setChapters] = React.useState([])
+  const [loading, setLoading] = React.useState(true)
+  const [selectedChapter, setSelectedChapterState] = React.useState('Chapter 1')
+  const [hasRead, setHasRead] = React.useState(false)
 
-  // Sample chapters list matching the mockup image
-  const chaptersList = [
-    { id: 'Chapter 1', title: 'Fundamentals of Vocabulary' },
-    { id: 'Chapter 2', title: 'Introduction' },
-    { id: 'Chapter 3', title: 'Basic Vocabulary' },
-    { id: 'Chapter 4', title: 'Intermediate Vocabulary' },
-    { id: 'Chapter 5', title: 'Advanced Vocabulary' },
-    { id: 'Chapter 6', title: 'Dictionary' },
-    { id: 'Chapter 7', title: 'Related Topics' },
-  ]
+  const setShowOverview = (val) => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut)
+    setShowOverviewState(val)
+  }
+
+  const setSelectedChapter = async (val) => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut)
+    setSelectedChapterState(val)
+    if (materialId) {
+      try {
+        const { data: { session } } = await supabase.auth.getSession()
+        const uid = session?.user?.id
+        if (uid) {
+          const chapNum = parseInt(val.replace('Chapter ', ''), 10)
+          const { error } = await supabase.from('user_reading_progress').upsert({
+            user_id: uid,
+            reading_material_id: materialId,
+            current_chapter_number: chapNum,
+            updated_at: new Date().toISOString()
+          }, { onConflict: 'user_id,reading_material_id' })
+          if (error) console.error('Error upserting progress:', error.message)
+        }
+      } catch (err) {
+        console.warn('Error saving chapter progress:', err)
+      }
+    }
+  }
+
+  React.useEffect(() => {
+    navigation.setParams({ hideNav: false })
+    async function checkReadStatus() {
+      if (materialId) {
+        try {
+          const { data: { session } } = await supabase.auth.getSession()
+          const uid = session?.user?.id
+          if (uid) {
+            const { data } = await supabase
+              .from('user_reading_progress')
+              .select('*')
+              .eq('user_id', uid)
+              .eq('reading_material_id', materialId)
+              .maybeSingle()
+
+            if (data) {
+              setHasRead(data.is_completed)
+              setSelectedChapterState(`Chapter ${data.current_chapter_number}`)
+            }
+          }
+        } catch (err) {
+          console.warn('Error reading progress:', err)
+        }
+      }
+    }
+    checkReadStatus()
+  }, [])
+
+  React.useEffect(() => {
+    async function fetchChapters() {
+      if (!materialId) {
+        setLoading(false)
+        return
+      }
+      try {
+        const cacheKey = `chapters_${materialId}`
+        const cached = getCache(cacheKey)
+        if (cached && cached.length > 0) {
+          setChapters(cached)
+          setSelectedChapter(`Chapter ${cached[0].chapter_number}`)
+          setLoading(false)
+          return
+        }
+
+        const { data, error } = await supabase
+          .from('reading_material_chapters')
+          .select('*')
+          .eq('reading_material_id', materialId)
+          .order('chapter_number', { ascending: true })
+
+        if (error) {
+          console.error('Error fetching chapters:', error)
+        } else if (data && data.length > 0) {
+          setChapters(data)
+          setSelectedChapter(`Chapter ${data[0].chapter_number}`)
+          setCache(cacheKey, data)
+        }
+      } catch (err) {
+        console.error('Error in fetchChapters:', err)
+      } finally {
+        setLoading(false)
+      }
+    }
+    fetchChapters()
+  }, [materialId])
+
+  // Dynamic chapters list from database
+  const chaptersList = chapters.map(c => ({
+    id: `Chapter ${c.chapter_number}`,
+    title: c.title,
+    body: c.content
+  }))
+
+  const activeChapterData = chaptersList.find(chap => chap.id === selectedChapter) || chaptersList[0]
+
+  const handleNextChapter = async () => {
+    const currentIndex = chaptersList.findIndex(chap => chap.id === selectedChapter)
+    if (currentIndex >= 0 && currentIndex < chaptersList.length - 1) {
+      setSelectedChapter(chaptersList[currentIndex + 1].id)
+    } else {
+      if (materialId) {
+        try {
+          const { data: { session } } = await supabase.auth.getSession()
+          const uid = session?.user?.id
+          if (uid) {
+            const { error } = await supabase.from('user_reading_progress').upsert({
+              user_id: uid,
+              reading_material_id: materialId,
+              is_completed: true,
+              updated_at: new Date().toISOString()
+            }, { onConflict: 'user_id,reading_material_id' })
+            if (error) console.error('Error saving read status:', error.message)
+            setHasRead(true)
+          }
+        } catch (err) {
+          console.warn('Error saving read status:', err)
+        }
+      }
+      navigation?.navigate('Library')
+    }
+  }
+
+  if (loading) {
+    return (
+      <View style={styles.screen}>
+        <StatusBar barStyle="dark-content" backgroundColor="#fff" />
+        <View style={styles.topBar}>
+          <SkeletonItem width={28} height={28} borderRadius={14} />
+          <SkeletonItem width={120} height={24} style={{ marginLeft: 16 }} />
+          <View style={styles.rightSpacer} />
+        </View>
+
+        <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+
+          <View style={styles.timelineContainer}>
+            {[1, 2, 3, 4, 5].map((item, index) => (
+              <View key={item} style={[styles.chapterItemRow, { alignItems: 'center' }]}>
+                <View style={styles.timelineLeftCol}>
+                  <SkeletonItem width={14} height={14} borderRadius={7} style={{ marginTop: 0 }} />
+                  {index < 4 && <View style={styles.timelineLine} />}
+                </View>
+                <View style={[styles.chapterTextCol, { gap: 6 }]}>
+                  <SkeletonItem width={80} height={14} />
+                  <SkeletonItem width={150} height={12} />
+                </View>
+              </View>
+            ))}
+          </View>
+
+          <SkeletonItem width="100%" height={48} borderRadius={24} style={{ marginTop: 10, marginBottom: 20 }} />
+        </ScrollView>
+      </View>
+    )
+  }
 
   if (showOverview) {
     return (
@@ -55,42 +199,65 @@ export default function ReadingMaterial({ navigation, route }) {
         </View>
 
         <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-          <Text style={styles.sectionTitle}>{selectedTitle}</Text>
 
           {/* Timeline-style vertical list of chapters */}
           <View style={styles.timelineContainer}>
-            {chaptersList.map((chap, index) => {
-              const isSelected = selectedChapter === chap.id
-              return (
-                <TouchableOpacity
-                  key={chap.id}
-                  style={styles.chapterItemRow}
-                  activeOpacity={0.8}
-                  onPress={() => setSelectedChapter(chap.id)}
-                >
+            {loading ? (
+              [1, 2, 3, 4, 5].map((item, index) => (
+                <View key={item} style={[styles.chapterItemRow, { alignItems: 'center' }]}>
                   <View style={styles.timelineLeftCol}>
-                    <View style={[styles.timelineNode, isSelected && styles.timelineNodeActive]} />
-                    {index < chaptersList.length - 1 && <View style={styles.timelineLine} />}
+                    <SkeletonItem width={14} height={14} borderRadius={7} style={{ marginTop: 0 }} />
+                    {index < 4 && <View style={styles.timelineLine} />}
                   </View>
-                  <View style={styles.chapterTextCol}>
-                    <Text style={[styles.chapterLabelText, isSelected && styles.chapterLabelActive]}>
-                      {chap.id}
-                    </Text>
-                    <Text style={styles.chapterTitleText}>{chap.title}</Text>
+                  <View style={[styles.chapterTextCol, { gap: 6 }]}>
+                    <SkeletonItem width={80} height={14} />
+                    <SkeletonItem width={150} height={12} />
                   </View>
-                </TouchableOpacity>
-              )
-            })}
+                </View>
+              ))
+            ) : chaptersList.length === 0 ? (
+              <View style={{ paddingVertical: 32, alignItems: 'center' }}>
+                <Text style={{ fontSize: 14, color: '#64748b', fontWeight: '500' }}>No chapters found for this reading material.</Text>
+              </View>
+            ) : (
+              chaptersList.map((chap, index) => {
+                const isSelected = selectedChapter === chap.id
+                return (
+                  <TouchableOpacity
+                    key={chap.id}
+                    style={styles.chapterItemRow}
+                    activeOpacity={0.8}
+                    onPress={() => setSelectedChapter(chap.id)}
+                  >
+                    <View style={styles.timelineLeftCol}>
+                      <View style={[styles.timelineNode, isSelected && styles.timelineNodeActive]} />
+                      {index < chaptersList.length - 1 && <View style={styles.timelineLine} />}
+                    </View>
+                    <View style={styles.chapterTextCol}>
+                      <Text style={[styles.chapterLabelText, isSelected && styles.chapterLabelActive]}>
+                        {chap.id}
+                      </Text>
+                      <Text style={styles.chapterTitleText}>{chap.title}</Text>
+                    </View>
+                  </TouchableOpacity>
+                )
+              })
+            )}
           </View>
+        </ScrollView>
 
+        <View style={[styles.continueButtonWrapper, { paddingBottom: insets.bottom > 0 ? insets.bottom + 24 : 32 }]}>
           <TouchableOpacity
             style={styles.continueButton}
             activeOpacity={0.85}
             onPress={() => setShowOverview(false)}
+            disabled={loading || chaptersList.length === 0}
           >
-            <Text style={styles.continueButtonText}>Continue Reading</Text>
+            <Text style={styles.continueButtonText}>
+              {hasRead ? 'Continue Reading' : 'Start Reading'}
+            </Text>
           </TouchableOpacity>
-        </ScrollView>
+        </View>
       </View>
     )
   }
@@ -108,27 +275,28 @@ export default function ReadingMaterial({ navigation, route }) {
 
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         <Text style={styles.sectionTitle}>
-          {selectedChapter === 'Chapter 1' ? content.title : `Exploring ${selectedChapter}`}
+          {activeChapterData?.title || 'No Title'}
         </Text>
 
         <View style={styles.contentCard}>
           <Text style={styles.contentText}>
-            {selectedChapter === 'Chapter 1' 
-              ? content.body 
-              : `This is the lesson content detail screen for ${selectedChapter}. GABAY PhilCSE provides targeted practice, flashcards, reading materials and real-time assessments to boost your mock score.`
-            }
+            {activeChapterData?.body || 'No content found.'}
           </Text>
         </View>
+      </ScrollView>
 
+      <View style={[styles.continueButtonWrapper, { paddingBottom: insets.bottom > 0 ? insets.bottom + 24 : 32 }]}>
         <View style={styles.bottomActions}>
           <TouchableOpacity style={styles.secondaryButton} activeOpacity={0.85} onPress={() => setShowOverview(true)}>
             <Text style={styles.secondaryButtonText}>Back</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.primaryButton} activeOpacity={0.85} onPress={() => navigation?.navigate('Library')}>
-            <Text style={styles.primaryButtonText}>Next Chapter</Text>
+          <TouchableOpacity style={styles.primaryButton} activeOpacity={0.85} onPress={handleNextChapter}>
+            <Text style={styles.primaryButtonText}>
+              {chaptersList.findIndex(chap => chap.id === selectedChapter) === chaptersList.length - 1 ? 'Finish' : 'Next Chapter'}
+            </Text>
           </TouchableOpacity>
         </View>
-      </ScrollView>
+      </View>
 
       <TouchableOpacity style={styles.fab} activeOpacity={0.85}>
         <Feather name="settings" size={24} color="#fff" />
@@ -185,31 +353,30 @@ const styles = StyleSheet.create({
   bottomActions: {
     flexDirection: 'row',
     gap: 12,
-    marginTop: 16,
   },
   primaryButton: {
     flex: 1,
     backgroundColor: '#0f2747',
-    borderRadius: 14,
-    paddingVertical: 12,
+    borderRadius: 24,
+    paddingVertical: 14,
     alignItems: 'center',
   },
   primaryButtonText: {
     color: '#fff',
     fontWeight: '800',
-    fontSize: 14,
+    fontSize: 15,
   },
   secondaryButton: {
     flex: 1,
     backgroundColor: '#eef1f5',
-    borderRadius: 14,
-    paddingVertical: 12,
+    borderRadius: 24,
+    paddingVertical: 14,
     alignItems: 'center',
   },
   secondaryButtonText: {
     color: '#13294b',
     fontWeight: '800',
-    fontSize: 14,
+    fontSize: 15,
   },
   fab: {
     position: 'absolute',
@@ -315,12 +482,14 @@ const styles = StyleSheet.create({
     borderRadius: 24,
     paddingVertical: 14,
     alignItems: 'center',
-    marginTop: 10,
-    marginBottom: 20,
   },
   continueButtonText: {
     color: '#fff',
     fontWeight: '800',
     fontSize: 15,
+  },
+  continueButtonWrapper: {
+    paddingHorizontal: 18,
+    paddingTop: 12,
   },
 })

@@ -4,7 +4,7 @@ import {
   StatusBar, StyleSheet, Text, TouchableOpacity, View, ActivityIndicator, Animated
 } from 'react-native'
 import { Ionicons, Feather, MaterialCommunityIcons } from '@expo/vector-icons'
-import { SafeAreaView } from 'react-native-safe-area-context'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import * as ImagePicker from 'expo-image-picker'
 import { supabase } from '../../../utils/supabase'
 
@@ -12,6 +12,7 @@ const NAVY = '#0f2747'
 const ACCENT = '#d85e67'
 
 export default function Profile({ session: initialSession, navigation }) {
+  const insets = useSafeAreaInsets()
   const [user, setUser] = React.useState(initialSession?.user || null)
   const [profile, setProfile] = React.useState(null)
   const [loading, setLoading] = React.useState(true)
@@ -155,11 +156,11 @@ export default function Profile({ session: initialSession, navigation }) {
   )
 
   return (
-    <SafeAreaView style={styles.screen}>
-      <StatusBar barStyle="dark-content" backgroundColor="#f5f7fb" />
+    <View style={styles.screen}>
+      <StatusBar barStyle="dark-content" backgroundColor="#fff" />
 
       {/* Sticky header */}
-      <View style={{ paddingTop: 14, paddingBottom: 14, borderBottomWidth: 1, borderBottomColor: '#e8edf5', backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center' }}>
+      <View style={{ paddingTop: insets.top + 8, paddingBottom: 14, borderBottomWidth: 1, borderBottomColor: '#e8edf5', backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center' }}>
         <Text style={{ fontSize: 18, fontWeight: '900', color: NAVY, letterSpacing: 2, textTransform: 'uppercase' }}>Profile</Text>
       </View>
 
@@ -245,6 +246,13 @@ export default function Profile({ session: initialSession, navigation }) {
           />
           <View style={styles.divider} />
           <MenuRow
+            icon="map-pin"
+            iconFamily="Feather"
+            label="CSE Sites Near Me"
+            onPress={() => navigation.navigate('CseSitesNearMe')}
+          />
+          <View style={styles.divider} />
+          <MenuRow
             icon="log-out"
             iconFamily="Feather"
             label="Logout"
@@ -311,7 +319,7 @@ export default function Profile({ session: initialSession, navigation }) {
           </Animated.View>
         </View>
       </Modal>
-    </SafeAreaView>
+    </View>
   )
 }
 

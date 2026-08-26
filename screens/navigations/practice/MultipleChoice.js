@@ -1,24 +1,26 @@
 import React, { useState, useEffect } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity,
-  StatusBar, Platform, ActivityIndicator } from 'react-native';
+  StatusBar, Platform, ActivityIndicator
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';;
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../../../supabase';
+import { SkeletonItem } from '../../../components/Skeleton';
 
 const NAVY = '#0B2540';
 
 export default function MultipleChoice({ navigation, route }) {
   const subject = route?.params?.subject;
-  const limit   = route?.params?.limit ?? 10;
+  const limit = route?.params?.limit ?? 10;
 
   const [questions, setQuestions] = useState([]);
-  const [index,     setIndex]     = useState(0);
-  const [selected,  setSelected]  = useState(null);
-  const [loading,   setLoading]   = useState(true);
-  const [error,     setError]     = useState(null);
-  const [userId,    setUserId]    = useState(null);
-  const [score,     setScore]     = useState(0);
+  const [index, setIndex] = useState(0);
+  const [selected, setSelected] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [userId, setUserId] = useState(null);
+  const [score, setScore] = useState(0);
 
   useEffect(() => { loadData(); }, []);
 
@@ -52,18 +54,18 @@ export default function MultipleChoice({ navigation, route }) {
   const logResult = async (question, selectedIdx) => {
     if (!userId) return;
     await supabase.from('multiple_choice_results').insert({
-      user_id:        userId,
-      question_id:    question.id,
+      user_id: userId,
+      question_id: question.id,
       selected_index: selectedIdx,
-      is_correct:     selectedIdx === question.correct_index,
+      is_correct: selectedIdx === question.correct_index,
     });
   };
 
   // ------------------------------------------------------------
-  const question   = questions[index];
-  const isLast     = index === questions.length - 1;
+  const question = questions[index];
+  const isLast = index === questions.length - 1;
   const hasAnswered = selected !== null;
-  const isCorrect  = hasAnswered && selected === question?.correct_index;
+  const isCorrect = hasAnswered && selected === question?.correct_index;
 
   const handleSelect = (optIdx) => {
     if (hasAnswered) return;
@@ -95,9 +97,26 @@ export default function MultipleChoice({ navigation, route }) {
     return (
       <SafeAreaView style={styles.safeArea}>
         <StatusBar barStyle="dark-content" />
-        <View style={styles.centered}>
-          <ActivityIndicator size="large" color={NAVY} />
-          <Text style={styles.loadingText}>Loading questions…</Text>
+        <View style={styles.header}>
+          <SkeletonItem width={26} height={26} borderRadius={13} />
+          <SkeletonItem width={120} height={20} style={{ marginLeft: 16 }} />
+          <View style={styles.iconButton} />
+        </View>
+        <View style={[styles.body, { gap: 20, paddingTop: 20 }]}>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+            <SkeletonItem width={100} height={16} />
+            <SkeletonItem width={40} height={16} />
+          </View>
+          <View style={[styles.card, { justifyContent: 'center', minHeight: 140, gap: 10 }]}>
+            <SkeletonItem width="90%" height={16} />
+            <SkeletonItem width="80%" height={16} />
+            <SkeletonItem width="40%" height={16} />
+          </View>
+          <View style={{ gap: 10 }}>
+            {[1, 2, 3, 4].map(idx => (
+              <SkeletonItem key={idx} width="100%" height={50} borderRadius={12} />
+            ))}
+          </View>
         </View>
       </SafeAreaView>
     );
@@ -152,19 +171,19 @@ export default function MultipleChoice({ navigation, route }) {
 
         <View style={styles.optionsList}>
           {question.options.map((option, optIdx) => {
-            const isSelected      = selected === optIdx;
+            const isSelected = selected === optIdx;
             const isTheCorrectOne = optIdx === question.correct_index;
 
             let optionStyle = styles.optionButton;
-            let textStyle   = styles.optionText;
+            let textStyle = styles.optionText;
 
             if (hasAnswered) {
-              if (isSelected && isCorrect)  { optionStyle = [styles.optionButton, styles.optionCorrect];   textStyle = [styles.optionText, styles.optionTextActive]; }
-              else if (isSelected)           { optionStyle = [styles.optionButton, styles.optionIncorrect]; textStyle = [styles.optionText, styles.optionTextActive]; }
-              else if (isTheCorrectOne)      { optionStyle = [styles.optionButton, styles.optionReveal];    textStyle = [styles.optionText, styles.optionTextReveal]; }
+              if (isSelected && isCorrect) { optionStyle = [styles.optionButton, styles.optionCorrect]; textStyle = [styles.optionText, styles.optionTextActive]; }
+              else if (isSelected) { optionStyle = [styles.optionButton, styles.optionIncorrect]; textStyle = [styles.optionText, styles.optionTextActive]; }
+              else if (isTheCorrectOne) { optionStyle = [styles.optionButton, styles.optionReveal]; textStyle = [styles.optionText, styles.optionTextReveal]; }
             } else if (isSelected) {
               optionStyle = [styles.optionButton, styles.optionSelected];
-              textStyle   = [styles.optionText, styles.optionTextActive];
+              textStyle = [styles.optionText, styles.optionTextActive];
             }
 
             return (
@@ -201,35 +220,35 @@ export default function MultipleChoice({ navigation, route }) {
 }
 
 const styles = StyleSheet.create({
-  safeArea:       { flex: 1, backgroundColor: '#FFFFFF' },
-  header:         { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 8, paddingTop: 8, paddingBottom: 4 },
-  iconButton:     { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
-  headerTitle:    { fontSize: 17, fontWeight: '700', color: NAVY },
-  centered:       { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 28 },
-  loadingText:    { marginTop: 12, fontSize: 14, color: '#9AA5B1', fontWeight: '600' },
-  emptyText:      { marginTop: 12, fontSize: 14, color: '#9AA5B1', fontWeight: '600', textAlign: 'center' },
-  retryBtn:       { marginTop: 16, paddingHorizontal: 24, paddingVertical: 10, backgroundColor: NAVY, borderRadius: 20 },
-  retryText:      { color: '#fff', fontWeight: '700', fontSize: 14 },
-  body:           { flex: 1, justifyContent: 'flex-start', paddingHorizontal: 28, paddingTop: 16 },
-  card:           { width: '100%', minHeight: 90, borderRadius: 20, borderWidth: 1, borderColor: '#D7DEE8', backgroundColor: '#FFFFFF', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 24, paddingVertical: 18, shadowColor: '#000', shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.08, shadowRadius: 12, elevation: 3 },
-  promptText:     { fontSize: 16, lineHeight: 22, fontWeight: '600', color: NAVY, textAlign: 'center' },
-  optionsList:    { marginTop: 16 },
-  optionButton:   { borderWidth: 1.5, borderColor: '#D7DEE8', backgroundColor: '#FFFFFF', borderRadius: 16, paddingVertical: 14, paddingHorizontal: 18, marginBottom: 12 },
+  safeArea: { flex: 1, backgroundColor: '#FFFFFF' },
+  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 8, paddingTop: 8, paddingBottom: 4 },
+  iconButton: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
+  headerTitle: { fontSize: 17, fontWeight: '700', color: NAVY },
+  centered: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 28 },
+  loadingText: { marginTop: 12, fontSize: 14, color: '#9AA5B1', fontWeight: '600' },
+  emptyText: { marginTop: 12, fontSize: 14, color: '#9AA5B1', fontWeight: '600', textAlign: 'center' },
+  retryBtn: { marginTop: 16, paddingHorizontal: 24, paddingVertical: 10, backgroundColor: NAVY, borderRadius: 20 },
+  retryText: { color: '#fff', fontWeight: '700', fontSize: 14 },
+  body: { flex: 1, justifyContent: 'flex-start', paddingHorizontal: 28, paddingTop: 16 },
+  card: { width: '100%', minHeight: 90, borderRadius: 20, borderWidth: 1, borderColor: '#D7DEE8', backgroundColor: '#FFFFFF', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 24, paddingVertical: 18, shadowColor: '#000', shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.08, shadowRadius: 12, elevation: 3 },
+  promptText: { fontSize: 16, lineHeight: 22, fontWeight: '600', color: NAVY, textAlign: 'center' },
+  optionsList: { marginTop: 16 },
+  optionButton: { borderWidth: 1.5, borderColor: '#D7DEE8', backgroundColor: '#FFFFFF', borderRadius: 16, paddingVertical: 14, paddingHorizontal: 18, marginBottom: 12 },
   optionSelected: { backgroundColor: NAVY, borderColor: NAVY },
-  optionCorrect:  { backgroundColor: '#3CB878', borderColor: '#3CB878' },
-  optionIncorrect:{ backgroundColor: '#E0475A', borderColor: '#E0475A' },
-  optionReveal:   { borderColor: '#3CB878', backgroundColor: '#EAFBF2' },
-  optionText:     { fontSize: 14, fontWeight: '600', color: NAVY },
-  optionTextActive:{ color: '#FFFFFF' },
-  optionTextReveal:{ color: '#3CB878' },
-  feedbackArea:   { marginTop: 8, padding: 16, borderRadius: 14, backgroundColor: '#F5F7FA' },
-  resultRow:      { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 },
-  resultText:     { fontSize: 14, fontWeight: '700' },
-  explanationText:{ fontSize: 13, lineHeight: 19, color: '#4A5563' },
-  footer:         { alignItems: 'center', paddingBottom: 30, paddingTop: 4 },
-  nextButton:     { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 22, paddingVertical: 12, borderRadius: 24, backgroundColor: NAVY },
+  optionCorrect: { backgroundColor: '#3CB878', borderColor: '#3CB878' },
+  optionIncorrect: { backgroundColor: '#E0475A', borderColor: '#E0475A' },
+  optionReveal: { borderColor: '#3CB878', backgroundColor: '#EAFBF2' },
+  optionText: { fontSize: 14, fontWeight: '600', color: NAVY },
+  optionTextActive: { color: '#FFFFFF' },
+  optionTextReveal: { color: '#3CB878' },
+  feedbackArea: { marginTop: 8, padding: 16, borderRadius: 14, backgroundColor: '#F5F7FA' },
+  resultRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 },
+  resultText: { fontSize: 14, fontWeight: '700' },
+  explanationText: { fontSize: 13, lineHeight: 19, color: '#4A5563' },
+  footer: { alignItems: 'center', paddingBottom: 30, paddingTop: 4 },
+  nextButton: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 22, paddingVertical: 12, borderRadius: 24, backgroundColor: NAVY },
   nextButtonText: { color: '#FFFFFF', fontWeight: '700', fontSize: 14 },
-  topMetaRow:    { width: '100%', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, paddingHorizontal: 4 },
+  topMetaRow: { width: '100%', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, paddingHorizontal: 4 },
   metaSubjectText: { fontSize: 13, fontWeight: '700', color: NAVY, textTransform: 'uppercase', letterSpacing: 0.5 },
   metaProgressText: { fontSize: 13, fontWeight: '600', color: '#9AA5B1' },
 });

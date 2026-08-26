@@ -1,24 +1,26 @@
 import React, { useState, useEffect } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity,
-  StatusBar, Platform, ActivityIndicator } from 'react-native';
+  StatusBar, Platform, ActivityIndicator
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';;
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../../../supabase';
+import { SkeletonItem } from '../../../components/Skeleton';
 
 const NAVY = '#0B2540';
 
 export default function TrueOrFalse({ navigation, route }) {
   const subject = route?.params?.subject;
-  const limit   = route?.params?.limit ?? 10;
+  const limit = route?.params?.limit ?? 10;
 
   const [questions, setQuestions] = useState([]);
-  const [index,     setIndex]     = useState(0);
-  const [selected,  setSelected]  = useState(null); // true | false | null
-  const [loading,   setLoading]   = useState(true);
-  const [error,     setError]     = useState(null);
-  const [userId,    setUserId]    = useState(null);
-  const [score,     setScore]     = useState(0);
+  const [index, setIndex] = useState(0);
+  const [selected, setSelected] = useState(null); // true | false | null
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [userId, setUserId] = useState(null);
+  const [score, setScore] = useState(0);
 
   useEffect(() => { loadData(); }, []);
 
@@ -52,18 +54,18 @@ export default function TrueOrFalse({ navigation, route }) {
   const logResult = async (question, answer) => {
     if (!userId) return;
     await supabase.from('true_false_results').insert({
-      user_id:         userId,
-      question_id:     question.id,
+      user_id: userId,
+      question_id: question.id,
       selected_answer: answer,
-      is_correct:      answer === question.answer,
+      is_correct: answer === question.answer,
     });
   };
 
   // ------------------------------------------------------------
-  const question    = questions[index];
-  const isLast      = index === questions.length - 1;
-  const hasAnswered  = selected !== null;
-  const isCorrect    = hasAnswered && selected === question?.answer;
+  const question = questions[index];
+  const isLast = index === questions.length - 1;
+  const hasAnswered = selected !== null;
+  const isCorrect = hasAnswered && selected === question?.answer;
 
   const handleSelect = (value) => {
     if (hasAnswered) return;
@@ -93,9 +95,25 @@ export default function TrueOrFalse({ navigation, route }) {
     return (
       <SafeAreaView style={styles.safeArea}>
         <StatusBar barStyle="dark-content" />
-        <View style={styles.centered}>
-          <ActivityIndicator size="large" color={NAVY} />
-          <Text style={styles.loadingText}>Loading questions…</Text>
+        <View style={styles.header}>
+          <SkeletonItem width={26} height={26} borderRadius={13} />
+          <SkeletonItem width={120} height={20} style={{ marginLeft: 16 }} />
+          <View style={styles.iconButton} />
+        </View>
+        <View style={[styles.body, { gap: 20, paddingTop: 20 }]}>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+            <SkeletonItem width={100} height={16} />
+            <SkeletonItem width={40} height={16} />
+          </View>
+          <View style={[styles.card, { justifyContent: 'center', minHeight: 180, gap: 10 }]}>
+            <SkeletonItem width="90%" height={16} />
+            <SkeletonItem width="80%" height={16} />
+            <SkeletonItem width="50%" height={16} />
+          </View>
+          <View style={{ flexDirection: 'row', gap: 12 }}>
+            <SkeletonItem width="48%" height={54} borderRadius={12} style={{ flex: 1 }} />
+            <SkeletonItem width="48%" height={54} borderRadius={12} style={{ flex: 1 }} />
+          </View>
         </View>
       </SafeAreaView>
     );
@@ -150,15 +168,15 @@ export default function TrueOrFalse({ navigation, route }) {
 
         <View style={styles.choicesRow}>
           {[true, false].map((val) => {
-            const isSelected   = selected === val;
-            const isTheAnswer  = question.answer === val;
+            const isSelected = selected === val;
+            const isTheAnswer = question.answer === val;
             return (
               <TouchableOpacity
                 key={String(val)}
                 disabled={hasAnswered}
                 style={[
                   styles.choiceButton,
-                  isSelected && isCorrect  && styles.choiceButtonCorrect,
+                  isSelected && isCorrect && styles.choiceButtonCorrect,
                   isSelected && !isCorrect && styles.choiceButtonIncorrect,
                   hasAnswered && isTheAnswer && !isSelected && styles.choiceButtonReveal,
                 ]}
@@ -202,34 +220,34 @@ export default function TrueOrFalse({ navigation, route }) {
 }
 
 const styles = StyleSheet.create({
-  safeArea:          { flex: 1, backgroundColor: '#FFFFFF' },
-  header:            { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 8, paddingTop: 8, paddingBottom: 4 },
-  iconButton:        { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
-  headerTitle:       { fontSize: 17, fontWeight: '700', color: NAVY },
-  centered:          { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 28 },
-  loadingText:       { marginTop: 12, fontSize: 14, color: '#9AA5B1', fontWeight: '600' },
-  emptyText:         { marginTop: 12, fontSize: 14, color: '#9AA5B1', fontWeight: '600', textAlign: 'center' },
-  retryBtn:          { marginTop: 16, paddingHorizontal: 24, paddingVertical: 10, backgroundColor: NAVY, borderRadius: 20 },
-  retryText:         { color: '#fff', fontWeight: '700', fontSize: 14 },
-  body:              { flex: 1, alignItems: 'center', justifyContent: 'flex-start', paddingHorizontal: 28, paddingTop: 16 },
-  card:              { width: '100%', minHeight: 110, borderRadius: 20, borderWidth: 1, borderColor: '#D7DEE8', backgroundColor: '#FFFFFF', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 24, paddingVertical: 20, shadowColor: '#000', shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.08, shadowRadius: 12, elevation: 3 },
-  statementText:     { fontSize: 16, lineHeight: 22, fontWeight: '600', color: NAVY, textAlign: 'center' },
-  choicesRow:        { flexDirection: 'row', gap: 16, marginTop: 20 },
-  choiceButton:      { paddingHorizontal: 28, paddingVertical: 12, borderRadius: 24, borderWidth: 1.5, borderColor: '#D7DEE8', backgroundColor: '#FFFFFF' },
-  choiceButtonCorrect:  { backgroundColor: '#3CB878', borderColor: '#3CB878' },
-  choiceButtonIncorrect:{ backgroundColor: '#E0475A', borderColor: '#E0475A' },
-  choiceButtonReveal:   { borderColor: '#3CB878', borderWidth: 1.5, backgroundColor: '#EAFBF2' },
-  choiceText:        { fontSize: 14, fontWeight: '700', color: NAVY, letterSpacing: 0.5 },
-  choiceTextSelected:{ color: '#FFFFFF' },
-  choiceTextReveal:  { color: '#3CB878' },
-  feedbackArea:      { width: '100%', marginTop: 20, padding: 16, borderRadius: 14, backgroundColor: '#F5F7FA' },
-  resultRow:         { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 },
-  resultText:        { fontSize: 14, fontWeight: '700' },
-  explanationText:   { fontSize: 13, lineHeight: 19, color: '#4A5563' },
-  footer:            { alignItems: 'center', paddingBottom: 30, paddingTop: 4 },
-  nextButton:        { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 22, paddingVertical: 12, borderRadius: 24, backgroundColor: NAVY },
-  nextButtonText:    { color: '#FFFFFF', fontWeight: '700', fontSize: 14 },
-  topMetaRow:    { width: '100%', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, paddingHorizontal: 4 },
+  safeArea: { flex: 1, backgroundColor: '#FFFFFF' },
+  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 8, paddingTop: 8, paddingBottom: 4 },
+  iconButton: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
+  headerTitle: { fontSize: 17, fontWeight: '700', color: NAVY },
+  centered: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 28 },
+  loadingText: { marginTop: 12, fontSize: 14, color: '#9AA5B1', fontWeight: '600' },
+  emptyText: { marginTop: 12, fontSize: 14, color: '#9AA5B1', fontWeight: '600', textAlign: 'center' },
+  retryBtn: { marginTop: 16, paddingHorizontal: 24, paddingVertical: 10, backgroundColor: NAVY, borderRadius: 20 },
+  retryText: { color: '#fff', fontWeight: '700', fontSize: 14 },
+  body: { flex: 1, alignItems: 'center', justifyContent: 'flex-start', paddingHorizontal: 28, paddingTop: 16 },
+  card: { width: '100%', minHeight: 110, borderRadius: 20, borderWidth: 1, borderColor: '#D7DEE8', backgroundColor: '#FFFFFF', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 24, paddingVertical: 20, shadowColor: '#000', shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.08, shadowRadius: 12, elevation: 3 },
+  statementText: { fontSize: 16, lineHeight: 22, fontWeight: '600', color: NAVY, textAlign: 'center' },
+  choicesRow: { flexDirection: 'row', gap: 16, marginTop: 20 },
+  choiceButton: { paddingHorizontal: 28, paddingVertical: 12, borderRadius: 24, borderWidth: 1.5, borderColor: '#D7DEE8', backgroundColor: '#FFFFFF' },
+  choiceButtonCorrect: { backgroundColor: '#3CB878', borderColor: '#3CB878' },
+  choiceButtonIncorrect: { backgroundColor: '#E0475A', borderColor: '#E0475A' },
+  choiceButtonReveal: { borderColor: '#3CB878', borderWidth: 1.5, backgroundColor: '#EAFBF2' },
+  choiceText: { fontSize: 14, fontWeight: '700', color: NAVY, letterSpacing: 0.5 },
+  choiceTextSelected: { color: '#FFFFFF' },
+  choiceTextReveal: { color: '#3CB878' },
+  feedbackArea: { width: '100%', marginTop: 20, padding: 16, borderRadius: 14, backgroundColor: '#F5F7FA' },
+  resultRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 },
+  resultText: { fontSize: 14, fontWeight: '700' },
+  explanationText: { fontSize: 13, lineHeight: 19, color: '#4A5563' },
+  footer: { alignItems: 'center', paddingBottom: 30, paddingTop: 4 },
+  nextButton: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 22, paddingVertical: 12, borderRadius: 24, backgroundColor: NAVY },
+  nextButtonText: { color: '#FFFFFF', fontWeight: '700', fontSize: 14 },
+  topMetaRow: { width: '100%', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, paddingHorizontal: 4 },
   metaSubjectText: { fontSize: 13, fontWeight: '700', color: NAVY, textTransform: 'uppercase', letterSpacing: 0.5 },
   metaProgressText: { fontSize: 13, fontWeight: '600', color: '#9AA5B1' },
 });

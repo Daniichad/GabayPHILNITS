@@ -1,10 +1,13 @@
 import React, { useState, useEffect } from 'react'
 import {
   Image, ScrollView, StyleSheet, Text, TouchableOpacity,
-  View, ActivityIndicator, TextInput, Platform, Linking } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+  View, ActivityIndicator, TextInput, Platform, Linking, StatusBar } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Feather, Ionicons } from '@expo/vector-icons'
+import AsyncStorage from '@react-native-async-storage/async-storage'
 import { supabase } from '../../../supabase'
+import { SkeletonItem } from '../../../components/Skeleton'
+import { getCache, setCache } from '../../../utils/cache'
 
 
 const NAVY = '#13294b'
@@ -51,9 +54,7 @@ const VIDEO_LECTURES = [
 
 // ─── Material card ───────────────────────────────────────────
 function MaterialCard({ item, onPress }) {
-  const progress = item.pages_read > 0 && item.total_pages > 0
-    ? Math.round((item.pages_read / item.total_pages) * 100)
-    : 0
+  const progress = item.progress || 0
   return (
     <TouchableOpacity style={styles.materialCard} activeOpacity={0.85} onPress={onPress}>
       <View style={styles.materialImagePlaceholder}>
@@ -75,6 +76,7 @@ function MaterialCard({ item, onPress }) {
 
 // ─── Main component ──────────────────────────────────────────
 export default function Library({ navigation }) {
+  const insets = useSafeAreaInsets()
   const [materials, setMaterials]   = useState([])
   const [videos,    setVideos]      = useState([])
   const [loading,   setLoading]     = useState(true)
@@ -82,20 +84,30 @@ export default function Library({ navigation }) {
   const [search,    setSearch]      = useState('')
   const [activeChip, setActiveChip] = useState(null)
 
-  useEffect(() => { loadMaterials() }, [])
+  useEffect(() => {
+    const unsubscribe = navigation.addListener('focus', () => {
+      loadMaterials(true)
+    })
+    return unsubscribe
+  }, [navigation])
 
-  const loadMaterials = async () => {
+  const loadMaterials = async (forceRefresh = false) => {
     try {
-      setLoading(true); setError(null)
-      const { data, error: err } = await supabase
-        .from('reading_materials')
-        .select('*')
-        .eq('is_published', true)
-        .order('subject')
-        .order('sort_order')
-      if (err) throw err
-      setMaterials(data ?? [])
+      setError(null)
 
+      if (!forceRefresh) {
+        const cachedMaterials = getCache('library_materials')
+        const cachedVideos = getCache('library_videos')
+        if (cachedMaterials && cachedVideos) {
+          setMaterials(cachedMaterials)
+          setVideos(cachedVideos)
+          setLoading(false)
+          return
+        }
+      }
+
+      setLoading(true)
+      
       // Fetch video lectures
       const { data: videoData, error: videoErr } = await supabase
         .from('video_lectures')
@@ -103,6 +115,52 @@ export default function Library({ navigation }) {
         .order('created_at', { ascending: false })
       if (videoErr) throw videoErr
       setVideos(videoData ?? [])
+
+      // Fetch reading materials
+      const { data: readData, error: readErr } = await supabase
+        .from('reading_materials')
+        .select('*')
+        .eq('is_published', true)
+        .order('subject')
+        .order('sort_order')
+
+      if (readErr) throw readErr
+
+      // Fetch user reading progress from Supabase
+      const { data: { session } } = await supabase.auth.getSession()
+      const uid = session?.user?.id
+
+      let progressList = []
+      if (uid) {
+        const { data: progData } = await supabase
+          .from('user_reading_progress')
+          .select('*')
+          .eq('user_id', uid)
+        progressList = progData ?? []
+      }
+
+      const progressMap = {}
+      progressList.forEach(p => {
+        progressMap[p.reading_material_id] = p
+      })
+
+      const materialsWithProgress = (readData ?? []).map(item => {
+        const prog = progressMap[item.id]
+        if (prog) {
+          if (prog.is_completed) {
+            return { ...item, progress: 100 }
+          }
+          if (prog.current_chapter_number && item.total_pages > 0) {
+            const computed = Math.round(((prog.current_chapter_number - 1) / item.total_pages) * 100)
+            return { ...item, progress: Math.min(Math.max(computed, 0), 100) }
+          }
+        }
+        return { ...item, progress: 0 }
+      })
+
+      setMaterials(materialsWithProgress)
+      setCache('library_materials', materialsWithProgress)
+      setCache('library_videos', videoData ?? [])
     } catch (e) {
       console.error('Library load error:', e)
       setError('Failed to load materials.')
@@ -126,10 +184,11 @@ export default function Library({ navigation }) {
   }, {})
 
   return (
-    <SafeAreaView style={styles.screen}>
+    <View style={styles.screen}>
+      <StatusBar barStyle="dark-content" backgroundColor="#fff" />
 
       {/* Sticky top bar without back button */}
-      <View style={{ paddingTop: 14, paddingBottom: 14, borderBottomWidth: 1, borderBottomColor: '#e8edf5', backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center' }}>
+      <View style={{ paddingTop: insets.top + 8, paddingBottom: 14, borderBottomWidth: 1, borderBottomColor: '#e8edf5', backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center' }}>
         <Text style={{ fontSize: 18, fontWeight: '900', color: NAVY, letterSpacing: 2, textTransform: 'uppercase' }}>Library</Text>
       </View>
 
@@ -180,16 +239,34 @@ export default function Library({ navigation }) {
             <Feather name="book-open" size={20} color={NAVY} />
             <Text style={styles.sectionHeaderText}>Reading Materials</Text>
           </View>
-          <TouchableOpacity onPress={loadMaterials}>
+          <TouchableOpacity onPress={() => loadMaterials(true)}>
             <Feather name="refresh-cw" size={16} color="#64748b" />
           </TouchableOpacity>
         </View>
 
         {/* Loading */}
         {loading && (
-          <View style={styles.centered}>
-            <ActivityIndicator size="large" color={NAVY} />
-            <Text style={styles.loadingText}>Loading materials…</Text>
+          <View style={{ gap: 20 }}>
+            {[1, 2].map((group) => (
+              <View key={group} style={styles.subjectSection}>
+                <View style={styles.categoryRow}>
+                  <SkeletonItem width={120} height={18} />
+                  <SkeletonItem width={50} height={14} />
+                </View>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.horizontalCards}>
+                  {[1, 2, 3].map((card) => (
+                    <View key={card} style={[styles.materialCard, { overflow: 'hidden' }]}>
+                      <SkeletonItem width="100%" height={80} borderRadius={0} />
+                      <View style={{ padding: 10, gap: 8 }}>
+                        <SkeletonItem width="80%" height={12} />
+                        <SkeletonItem width="60%" height={10} />
+                        <SkeletonItem width="40%" height={8} />
+                      </View>
+                    </View>
+                  ))}
+                </ScrollView>
+              </View>
+            ))}
           </View>
         )}
 
@@ -279,7 +356,7 @@ export default function Library({ navigation }) {
       </TouchableOpacity>
 
 
-    </SafeAreaView>
+    </View>
   )
 }
 

@@ -32,6 +32,7 @@ import TermsConditions from './screens/navigations/profile/TermsConditions'
 import RateApp from './screens/navigations/profile/RateApp'
 import AboutApp from './screens/navigations/profile/AboutApp'
 import CseGuide from './screens/navigations/profile/CseGuide'
+import CseSitesNearMe from './screens/navigations/profile/CseSitesNearMe'
 import BottomNav from './components/BottomNav'
 import { supabase } from './utils/supabase'
 
@@ -45,10 +46,9 @@ const navTheme = {
 	},
 }
 
-// Screens that should show the persistent bottom navbar
 const NAV_SCREENS = new Set([
-	'Home', 'Library', 'StudyPlan', 'ReadingMaterial',
-	'PracticeLibrary', 'PracticeScreen', 'Performance', 'Profile', 'AccountInformation', 'Settings', 'HelpCenter', 'Report', 'TermsConditions', 'RateApp', 'AboutApp', 'PracticeOverview', 'CseGuide',
+	'Home', 'Library', 'StudyPlan',
+	'PracticeLibrary', 'PracticeScreen', 'Performance', 'Profile', 'AccountInformation', 'Settings', 'HelpCenter', 'Report', 'TermsConditions', 'RateApp', 'AboutApp', 'PracticeOverview', 'CseGuide', 'CseSitesNearMe',
 ])
 
 export default function App() {
@@ -61,7 +61,11 @@ export default function App() {
 	const determineInitialRoute = async () => {
 		try {
 			// 1. Check if user is logged in
-			const { data: { session } } = await supabase.auth.getSession()
+			const { data: { session }, error } = await supabase.auth.getSession()
+			if (error) {
+				console.warn('Session check error, clearing local session:', error.message)
+				await supabase.auth.signOut()
+			}
 			if (session?.user) {
 				const userId = session.user.id
 
@@ -142,7 +146,8 @@ export default function App() {
 		}
 	}, [])
 
-	const showNav = NAV_SCREENS.has(currentRoute)
+	const activeRoute = navigationRef.isReady() ? navigationRef.getCurrentRoute() : null
+	const showNav = NAV_SCREENS.has(currentRoute) && !(activeRoute?.params?.hideNav)
 
 	if (loading) {
 		return (
@@ -202,6 +207,7 @@ export default function App() {
 						<Stack.Screen name="RateApp" component={RateApp} />
 						<Stack.Screen name="AboutApp" component={AboutApp} />
 						<Stack.Screen name="CseGuide" component={CseGuide} />
+						<Stack.Screen name="CseSitesNearMe" component={CseSitesNearMe} />
 					</Stack.Navigator>
 				</NavigationContainer>
 
@@ -217,7 +223,7 @@ export default function App() {
 const styles = StyleSheet.create({
 	root: {
 		flex: 1,
-		backgroundColor: '#0f1e35',
+		backgroundColor: '#fff',
 	},
 	loadingContainer: {
 		flex: 1,
