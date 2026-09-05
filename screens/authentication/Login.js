@@ -69,8 +69,18 @@ export default function Login({ navigation }) {
       return
     }
 
-    // Both done — go straight to Home
-    navigation?.replace('Home')
+    // Both done — check if user has a PIN lock
+    const { data: pinData } = await supabase
+      .from('users')
+      .select('pin_hash')
+      .eq('email', (await supabase.auth.getUser()).data.user?.email)
+      .maybeSingle()
+
+    if (pinData?.pin_hash) {
+      navigation?.replace('PinAuth')
+    } else {
+      navigation?.replace('Home')
+    }
   }
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')

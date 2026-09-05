@@ -13,6 +13,8 @@ import StudyPlan from './screens/navigations/study/StudyPlan'
 import Library from './screens/navigations/study/Library'
 import ReadingMaterial from './screens/navigations/study/ReadingMaterial'
 import Register from './screens/authentication/Register'
+import SetPin from './screens/authentication/SetPin'
+import PinAuth from './screens/authentication/PinAuth'
 import PracticeLibraryScreen from './screens/navigations/practice/PracticeLibraryScreen.js'
 import PracticeScreen from './screens/navigations/practice/PracticeScreen.js'
 import Flashcards from './screens/navigations/practice/Flashcards.js'
@@ -21,6 +23,7 @@ import TrueFalse from './screens/navigations/practice/TrueFalse'
 import MultipleChoice from './screens/navigations/practice/MultipleChoice'
 import MockExamHome from './screens/navigations/practice/MockExamHome'
 import MockExamTake from './screens/navigations/practice/MockExamTake'
+import MockExamResult from './screens/navigations/practice/MockExamResult'
 import PracticeOverview from './screens/navigations/practice/PracticeOverview'
 import Performance from './screens/navigations/performance/Performance'
 import Profile from './screens/navigations/profile/Profile'
@@ -92,7 +95,14 @@ export default function App() {
 					return 'DiagnosticAssessment'
 				}
 
-				return 'Home'
+				// Check if user has a PIN — if so, gate with PinAuth
+				const { data: userData } = await supabase
+					.from('users')
+					.select('pin_hash')
+					.eq('email', session.user.email)
+					.maybeSingle()
+
+				return userData?.pin_hash ? 'PinAuth' : 'Home'
 			}
 
 			// 2. If not logged in, check onboarding
@@ -130,7 +140,7 @@ export default function App() {
 	}, [fadeAnim])
 
 	useEffect(() => {
-		const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+		const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
 			if (event === 'SIGNED_OUT') {
 				if (navigationRef.isReady()) {
 					navigationRef.reset({
@@ -138,6 +148,12 @@ export default function App() {
 						routes: [{ name: 'Login' }],
 					})
 				}
+			} else if (event === 'TOKEN_REFRESHED') {
+				// Token refreshed successfully — nothing to do
+			} else if (event === 'TOKEN_REFRESH_ERROR') {
+				// Refresh token is invalid/expired — clear session and redirect to Login
+				console.warn('Refresh token invalid, signing out...')
+				await supabase.auth.signOut()
 			}
 		})
 
@@ -182,6 +198,8 @@ export default function App() {
 						<Stack.Screen name="Onboarding" component={Onboarding} />
 						<Stack.Screen name="Login" component={Login} options={{ animation: 'fade_from_bottom' }} />
 						<Stack.Screen name="Register" component={Register} options={{ animation: 'fade_from_bottom' }} />
+						<Stack.Screen name="SetPin" component={SetPin} options={{ animation: 'slide_from_bottom' }} />
+						<Stack.Screen name="PinAuth" component={PinAuth} options={{ animation: 'fade', gestureEnabled: false }} />
 						<Stack.Screen name="PersonalInfo" component={PersonalInfo} />
 						<Stack.Screen name="DiagnosticAssessment" component={DiagnosticAssessment} />
 						<Stack.Screen name="StudyPlan" component={StudyPlan} />
@@ -196,6 +214,7 @@ export default function App() {
 						<Stack.Screen name="MultipleChoice" component={MultipleChoice} />
 						<Stack.Screen name="MockExamHome" component={MockExamHome} />
 						<Stack.Screen name="MockExamTake" component={MockExamTake} />
+						<Stack.Screen name="MockExamResult" component={MockExamResult} />
 						<Stack.Screen name="PracticeOverview" component={PracticeOverview} />
 						<Stack.Screen name="Performance" component={Performance} />
 						<Stack.Screen name="Profile" component={Profile} />

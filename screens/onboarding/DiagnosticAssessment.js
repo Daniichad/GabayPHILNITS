@@ -315,7 +315,7 @@ export default function DiagnosticAssessment({ navigation, route }) {
                   : <Text style={styles.insightItem}>• Keep practicing to build stronger areas</Text>}
               </View>
 
-              <TouchableOpacity style={styles.finalButton} activeOpacity={0.85} onPress={() => navigation?.replace('Home')}>
+              <TouchableOpacity style={styles.finalButton} activeOpacity={0.85} onPress={() => navigation?.replace('SetPin', { mode: 'prompt' })}>
                 <Text style={styles.finalButtonText}>{saving ? 'SAVING...' : "LET'S START YOUR JOURNEY"}</Text>
               </TouchableOpacity>
             </View>
