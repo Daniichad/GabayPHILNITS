@@ -7,7 +7,9 @@ import {
 import { supabase } from '../../../utils/supabase'
 import { Ionicons, Feather, MaterialCommunityIcons } from '@expo/vector-icons'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
+import { useFocusEffect } from '@react-navigation/native'
 import { getCache, setCache, clearCache } from '../../../utils/cache'
+import { getUnsyncedPoints } from '../../../utils/database'
 
 // ─── Fallback motivational quotes (used if API fails) ───────────
 const FALLBACK_QUOTES = [
@@ -93,6 +95,7 @@ export default function Home({ session, navigation }) {
   const [readinessLoading, setReadinessLoading] = useState(true)
   const [rankings, setRankings] = useState([])
   const [rankingsLoading, setRankingsLoading] = useState(true)
+  const [rankingTimeframe, setRankingTimeframe] = useState('all_time')
   const [profileName, setProfileName] = useState('Learner')
   const [streakDays, setStreakDays] = useState(0)
   const [subjects, setSubjectProgress] = useState(() => {
@@ -251,125 +254,194 @@ export default function Home({ session, navigation }) {
     }
   }, [])
 
-  const fetchRankings = useCallback(async () => {
-    const cached = getCache('home_rankings')
+  const fetchRankings = useCallback(async (selectedTimeframe = rankingTimeframe) => {
+    const cacheKey = `home_rankings_${selectedTimeframe}`
+    const cached = getCache(cacheKey) || getCache('home_rankings')
     if (cached) {
       setRankings(cached)
       setRankingsLoading(false)
     } else {
       setRankingsLoading(true)
     }
+
     try {
-      // 1. Fetch public profile names (excluding admins)
-      const { data: publicUsers, error: uErr } = await supabase
-        .from('users')
-        .select('id, email, fullname, avatar_url, role')
-        .neq('role', 'admin')
-      if (uErr) throw uErr
+      const { data: { session } } = await supabase.auth.getSession()
+      const currentUserId = session?.user?.id
 
-      // 2. Fetch mock exam attempts
-      const { data: attempts, error: aErr } = await supabase
-        .from('mock_exam_attempts')
-        .select('user_id, correct_count, total_questions')
-        .eq('status', 'completed')
-      if (aErr) throw aErr
+      let leaderboardData = []
+      const viewName = selectedTimeframe === 'monthly'
+        ? 'leaderboard_monthly'
+        : selectedTimeframe === 'weekly'
+          ? 'leaderboard_weekly'
+          : 'leaderboard_all_time'
 
-      // 3. Fetch MCQ + TF results
-      const { data: mcqRaw } = await supabase.from('multiple_choice_results').select('user_id, is_correct, answered_at')
-      const { data: tfRaw } = await supabase.from('true_false_results').select('user_id, is_correct, answered_at')
+      // Strategy 1: Fetch from official leaderboard view
+      const { data: viewData, error: viewErr } = await supabase
+        .from(viewName)
+        .select('user_id, total_points')
+        .limit(20)
 
-      // 4. Fetch matching results
-      const { data: matchRaw } = await supabase.from('matching_results').select('user_id, completed, mistakes, created_at')
-
-      // 5. Fetch flashcard sessions
-      const { data: sessions } = await supabase.from('flashcard_sessions').select('user_id, completed, created_at')
-
-      const userScores = {}
-
-      // Initialize map
-      publicUsers.forEach(u => {
-        userScores[u.id] = {
-          name: u.fullname || u.email || 'Learner',
-          points: 0
+      if (!viewErr && viewData && viewData.length > 0) {
+        leaderboardData = viewData.map(r => ({
+          user_id: r.user_id,
+          points: Number(r.total_points || 0),
+        }))
+      } else {
+        // Strategy 2: Query points_ledger directly
+        let ledgerQuery = supabase.from('points_ledger').select('user_id, points, created_at')
+        if (selectedTimeframe === 'monthly') {
+          const startOfMonth = new Date()
+          startOfMonth.setDate(1)
+          startOfMonth.setHours(0, 0, 0, 0)
+          ledgerQuery = ledgerQuery.gte('created_at', startOfMonth.toISOString())
+        } else if (selectedTimeframe === 'weekly') {
+          const startOfWeek = new Date()
+          const day = startOfWeek.getDay()
+          const diff = startOfWeek.getDate() - day + (day === 0 ? -6 : 1)
+          startOfWeek.setDate(diff)
+          startOfWeek.setHours(0, 0, 0, 0)
+          ledgerQuery = ledgerQuery.gte('created_at', startOfWeek.toISOString())
         }
-      })
 
-      // Add mock exam points (150 points per completed exam + 2 pts per correct answer)
-      attempts.forEach(att => {
-        const target = userScores[att.user_id]
-        if (target) {
-          target.points += 150
-          target.points += (att.correct_count || 0) * 2
+        const { data: ledgerData, error: ledgerErr } = await ledgerQuery
+
+        if (!ledgerErr && ledgerData && ledgerData.length > 0) {
+          const userMap = {}
+          ledgerData.forEach(row => {
+            if (!userMap[row.user_id]) userMap[row.user_id] = 0
+            userMap[row.user_id] += Number(row.points || 0)
+          })
+          leaderboardData = Object.keys(userMap).map(uid => ({
+            user_id: uid,
+            points: userMap[uid],
+          }))
+        } else {
+          // Strategy 3: Legacy fallback calculations
+          const { data: publicUsers } = await supabase
+            .from('users')
+            .select('id, email, fullname, role')
+            .neq('role', 'admin')
+
+          const { data: attempts } = await supabase
+            .from('mock_exam_attempts')
+            .select('user_id, correct_count')
+            .eq('status', 'completed')
+
+          const { data: mcqRaw } = await supabase.from('multiple_choice_results').select('user_id, is_correct')
+          const { data: tfRaw } = await supabase.from('true_false_results').select('user_id, is_correct')
+          const { data: matchRaw } = await supabase.from('matching_results').select('user_id, completed, mistakes')
+          const { data: sessions } = await supabase.from('flashcard_sessions').select('user_id, completed')
+
+          const userScores = {}
+          if (publicUsers) {
+            publicUsers.forEach(u => {
+              userScores[u.id] = { name: u.fullname || u.email || 'Learner', points: 0 }
+            })
+          }
+          if (attempts) {
+            attempts.forEach(att => {
+              if (userScores[att.user_id]) {
+                userScores[att.user_id].points += 150 + (att.correct_count || 0) * 2
+              }
+            })
+          }
+          if (mcqRaw) {
+            mcqRaw.forEach(r => {
+              if (userScores[r.user_id]) {
+                userScores[r.user_id].points += 10 + (r.is_correct ? 5 : 0)
+              }
+            })
+          }
+          if (tfRaw) {
+            tfRaw.forEach(r => {
+              if (userScores[r.user_id]) {
+                userScores[r.user_id].points += 10 + (r.is_correct ? 5 : 0)
+              }
+            })
+          }
+          if (matchRaw) {
+            matchRaw.forEach(r => {
+              if (userScores[r.user_id] && r.completed) {
+                userScores[r.user_id].points += 50 + Math.max(10, 30 - (r.mistakes || 0) * 2)
+              }
+            })
+          }
+          if (sessions) {
+            sessions.forEach(s => {
+              if (userScores[s.user_id]) {
+                userScores[s.user_id].points += s.completed ? 30 : 10
+              }
+            })
+          }
+
+          leaderboardData = Object.keys(userScores).map(uid => ({
+            user_id: uid,
+            points: userScores[uid].points,
+          }))
         }
-      })
-
-      // Add MCQ points (10 pts per answer + 5 pts bonus if correct)
-      if (mcqRaw) {
-        mcqRaw.forEach(r => {
-          const target = userScores[r.user_id]
-          if (target) {
-            target.points += 10
-            if (r.is_correct) target.points += 5
-          }
-        })
       }
 
-      // Add TF points (10 pts per answer + 5 pts bonus if correct)
-      if (tfRaw) {
-        tfRaw.forEach(r => {
-          const target = userScores[r.user_id]
+      // Include local unsynced points for current user
+      if (currentUserId) {
+        try {
+          const unsynced = await getUnsyncedPoints()
+          const unsyncedTotal = unsynced.reduce((sum, item) => sum + (Number(item.points) || 0), 0)
+          const target = leaderboardData.find(item => item.user_id === currentUserId)
           if (target) {
-            target.points += 10
-            if (r.is_correct) target.points += 5
+            target.points += unsyncedTotal
+          } else if (unsyncedTotal > 0 || leaderboardData.length === 0) {
+            leaderboardData.push({ user_id: currentUserId, points: unsyncedTotal })
           }
-        })
+        } catch (e) {
+          console.warn('Could not read unsynced local points:', e)
+        }
       }
 
-      // Add Matching points (50 pts per completed match + mistakes bonus)
-      if (matchRaw) {
-        matchRaw.forEach(r => {
-          const target = userScores[r.user_id]
-          if (target) {
-            if (r.completed) {
-              target.points += 50
-              target.points += Math.max(10, 30 - (r.mistakes || 0) * 2)
-            }
+      // Fetch user names
+      const userIds = leaderboardData.map(item => item.user_id).filter(Boolean)
+      const nameMap = {}
+
+      if (userIds.length > 0) {
+        try {
+          const { data: usersData } = await supabase
+            .from('users')
+            .select('id, fullname, email')
+            .in('id', userIds)
+
+          if (usersData) {
+            usersData.forEach(u => {
+              nameMap[u.id] = u.fullname || (u.email ? u.email.split('@')[0] : 'Learner')
+            })
           }
-        })
+        } catch (e) {
+          console.warn('Error fetching user names:', e)
+        }
       }
 
-      // Add Flashcard points (30 pts per completed study session)
-      if (sessions) {
-        sessions.forEach(s => {
-          const target = userScores[s.user_id]
-          if (target) {
-            if (s.completed) target.points += 30
-            else target.points += 10
-          }
-        })
-      }
-
-      // Calculate combined scores
-      const leaderboard = Object.keys(userScores).map(uid => {
-        const u = userScores[uid]
+      const finalized = leaderboardData.map(item => {
+        let name = nameMap[item.user_id]
+        if (!name && item.user_id === currentUserId) {
+          name = profileName || 'You'
+        }
         return {
-          uid,
-          name: u.name,
-          score: u.points
+          uid: item.user_id,
+          name: name || 'Learner',
+          score: item.points,
+          isCurrentUser: item.user_id === currentUserId,
         }
       })
 
-      // Sort by score descending and limit to top 5
-      leaderboard.sort((a, b) => b.score - a.score)
-      const topRankings = leaderboard.slice(0, 5)
+      finalized.sort((a, b) => b.score - a.score)
+      const topRankings = finalized.slice(0, 5)
+
       setRankings(topRankings)
-      setCache('home_rankings', topRankings)
+      setCache(cacheKey, topRankings)
     } catch (err) {
       console.warn('Error fetching rankings:', err)
     } finally {
       setRankingsLoading(false)
     }
-  }, [])
+  }, [profileName, rankingTimeframe])
 
 
 
@@ -541,6 +613,14 @@ export default function Home({ session, navigation }) {
     fetchRankings()
     fetchHomeData()
   }, [fetchCSESchedule, fetchReadiness, fetchRankings, fetchHomeData])
+
+  // Re-fetch rankings and home data when Home screen comes into focus
+  useFocusEffect(
+    useCallback(() => {
+      fetchRankings()
+      fetchHomeData()
+    }, [fetchRankings, fetchHomeData])
+  )
 
   // ─── Pull-to-refresh ───────────────────────────────────────────
   const onRefresh = useCallback(async () => {
@@ -757,26 +837,53 @@ export default function Home({ session, navigation }) {
         {/* ── Rankings / Leaderboard ── */}
         <View style={styles.rankingsCard}>
           <View style={styles.rankingHeaderRow}>
-            <MaterialCommunityIcons name="trophy-outline" size={20} color={NAVY} />
-            <Text style={styles.rankingsTitle}>Leaderboard Rankings</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <MaterialCommunityIcons name="trophy-outline" size={20} color={NAVY} />
+              <Text style={styles.rankingsTitle}>Leaderboard Rankings</Text>
+            </View>
+          </View>
+
+          {/* Timeframe selector tabs */}
+          <View style={styles.timeframeTabs}>
+            {[
+              { id: 'all_time', label: 'All Time' },
+              { id: 'monthly', label: 'Monthly' },
+              { id: 'weekly', label: 'Weekly' },
+            ].map(tab => (
+              <TouchableOpacity
+                key={tab.id}
+                style={[styles.timeframeTab, rankingTimeframe === tab.id && styles.timeframeTabActive]}
+                onPress={() => {
+                  setRankingTimeframe(tab.id)
+                  fetchRankings(tab.id)
+                }}
+                activeOpacity={0.75}
+              >
+                <Text style={[styles.timeframeTabText, rankingTimeframe === tab.id && styles.timeframeTabTextActive]}>
+                  {tab.label}
+                </Text>
+              </TouchableOpacity>
+            ))}
           </View>
 
           {rankingsLoading ? (
-            <ActivityIndicator size="small" color={NAVY} style={{ marginVertical: 12 }} />
+            <ActivityIndicator size="small" color={NAVY} style={{ marginVertical: 18 }} />
           ) : rankings.length === 0 ? (
             <Text style={styles.emptyRankingsText}>No performance records found yet.</Text>
           ) : (
             rankings.map((rank, idx) => {
               const medalColor = idx === 0 ? '#fbbf24' : idx === 1 ? '#94a3b8' : idx === 2 ? '#b45309' : null
               return (
-                <View key={rank.uid} style={styles.rankingRow}>
+                <View key={rank.uid} style={[styles.rankingRow, rank.isCurrentUser && styles.currentUserRankingRow]}>
                   <View style={styles.rankLeft}>
                     {medalColor ? (
                       <Ionicons name="medal" size={18} color={medalColor} style={styles.rankBadge} />
                     ) : (
                       <Text style={styles.rankIndex}>{idx + 1}</Text>
                     )}
-                    <Text style={styles.rankName} numberOfLines={1}>{rank.name}</Text>
+                    <Text style={[styles.rankName, rank.isCurrentUser && styles.currentUserRankText]} numberOfLines={1}>
+                      {rank.name} {rank.isCurrentUser ? '(You)' : ''}
+                    </Text>
                   </View>
                   <Text style={styles.rankScore}>{rank.score} pts</Text>
                 </View>
@@ -1173,6 +1280,36 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: NAVY,
   },
+  timeframeTabs: {
+    flexDirection: 'row',
+    backgroundColor: '#f1f5f9',
+    borderRadius: 12,
+    padding: 3,
+    marginBottom: 12,
+  },
+  timeframeTab: {
+    flex: 1,
+    paddingVertical: 6,
+    alignItems: 'center',
+    borderRadius: 9,
+  },
+  timeframeTabActive: {
+    backgroundColor: '#fff',
+    shadowColor: '#000',
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    shadowOffset: { width: 0, height: 1 },
+    elevation: 1,
+  },
+  timeframeTabText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#64748b',
+  },
+  timeframeTabTextActive: {
+    color: NAVY,
+    fontWeight: '700',
+  },
   emptyRankingsText: {
     fontSize: 12,
     color: '#64748b',
@@ -1187,6 +1324,17 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     borderBottomWidth: 1,
     borderBottomColor: '#f1f5f9',
+  },
+  currentUserRankingRow: {
+    backgroundColor: '#f0f7ff',
+    borderRadius: 10,
+    paddingHorizontal: 8,
+    borderBottomWidth: 0,
+    marginVertical: 2,
+  },
+  currentUserRankText: {
+    color: NAVY,
+    fontWeight: '800',
   },
   rankLeft: {
     flexDirection: 'row',

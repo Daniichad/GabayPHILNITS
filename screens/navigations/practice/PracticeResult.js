@@ -1,14 +1,30 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { StyleSheet, View, Text, TouchableOpacity, StatusBar } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import { calculatePracticePoints, recordPointsEntry } from '../../../utils/pointsEngine';
 
 const NAVY = '#0B2540';
 const ACCENT = '#D9989E';
 
 export default function PracticeResult({ route, navigation }) {
-  const { score, total, subject, type } = route?.params || { score: 0, total: 10, subject: 'Practice', type: 'Practice' };
+  const { score = 0, total = 10, subject = 'Practice', type = 'Practice' } = route?.params || {};
   const percentage = total > 0 ? (score / total) * 100 : 0;
+  const [earnedPoints, setEarnedPoints] = useState(0);
+
+  useEffect(() => {
+    async function award() {
+      const ptsObj = calculatePracticePoints({
+        isStart: false,
+        correctGestures: score,
+        totalGestures: total,
+        signId: subject || type,
+      });
+      await recordPointsEntry(ptsObj);
+      setEarnedPoints(ptsObj.points);
+    }
+    award();
+  }, [score, total, subject, type]);
 
   const handleRetake = () => {
     navigation.goBack();
@@ -40,6 +56,12 @@ export default function PracticeResult({ route, navigation }) {
           <Text style={styles.scoreCircleValue}>{score}/{total}</Text>
           <Text style={styles.percentageText}>{percentage.toFixed(0)}% Correct</Text>
         </View>
+
+        {earnedPoints > 0 && (
+          <View style={{ backgroundColor: '#fff8e1', paddingHorizontal: 16, paddingVertical: 6, borderRadius: 20, marginBottom: 12, borderWidth: 1, borderColor: '#fde047' }}>
+            <Text style={{ fontSize: 13, fontWeight: '800', color: '#b45309' }}>🏆 +{earnedPoints} Leaderboard Points Earned!</Text>
+          </View>
+        )}
 
         <Text style={styles.congratsTitle}>
           {percentage >= 80 ? 'Excellent!' : percentage >= 50 ? 'Good Job!' : 'Keep Practicing!'}

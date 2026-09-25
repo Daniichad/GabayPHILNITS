@@ -25,6 +25,7 @@ import MockExamHome from './screens/navigations/practice/MockExamHome'
 import MockExamTake from './screens/navigations/practice/MockExamTake'
 import MockExamResult from './screens/navigations/practice/MockExamResult'
 import PracticeOverview from './screens/navigations/practice/PracticeOverview'
+import PracticeResult from './screens/navigations/practice/PracticeResult'
 import Performance from './screens/navigations/performance/Performance'
 import Profile from './screens/navigations/profile/Profile'
 import AccountInformation from './screens/navigations/profile/AccountInformation'
@@ -38,6 +39,9 @@ import CseGuide from './screens/navigations/profile/CseGuide'
 import CseSitesNearMe from './screens/navigations/profile/CseSitesNearMe'
 import BottomNav from './components/BottomNav'
 import { supabase } from './utils/supabase'
+import NetInfo from '@react-native-community/netinfo'
+import { initDb, getUserCache, saveUserCache } from './utils/database'
+import { processSyncQueue } from './utils/syncManager'
 
 const Stack = createNativeStackNavigator()
 
@@ -72,6 +76,20 @@ export default function App() {
 			if (session?.user) {
 				const userId = session.user.id
 
+				// Check if online
+				const state = await NetInfo.fetch()
+				if (!state.isConnected) {
+					// Fallback to local cache
+					const cachedData = await getUserCache(userId)
+					if (cachedData) {
+						if (!cachedData.personal_info_completed) return 'PersonalInfo'
+						if (!cachedData.diagnostic_completed) return 'DiagnosticAssessment'
+						return cachedData.pin_hash ? 'PinAuth' : 'Home'
+					}
+					// If no cache, assume they finished onboarding but might be unstable
+					return 'Home'
+				}
+
 				// Check personal info completion
 				const { data: personalInfoData } = await supabase
 					.from('personal_info')
@@ -80,6 +98,7 @@ export default function App() {
 					.maybeSingle()
 
 				if (!personalInfoData) {
+					await saveUserCache(userId, null, false, false)
 					return 'PersonalInfo'
 				}
 
@@ -92,6 +111,7 @@ export default function App() {
 					.maybeSingle()
 
 				if (!diagnosticData) {
+					await saveUserCache(userId, null, true, false)
 					return 'DiagnosticAssessment'
 				}
 
@@ -102,6 +122,7 @@ export default function App() {
 					.eq('email', session.user.email)
 					.maybeSingle()
 
+				await saveUserCache(userId, userData?.pin_hash, true, true)
 				return userData?.pin_hash ? 'PinAuth' : 'Home'
 			}
 
@@ -120,6 +141,7 @@ export default function App() {
 
 	useEffect(() => {
 		const init = async () => {
+			await initDb()
 			const route = await determineInitialRoute()
 			setInitialRoute(route)
 			setCurrentRoute(route)
@@ -160,6 +182,15 @@ export default function App() {
 		return () => {
 			subscription?.unsubscribe()
 		}
+	}, [])
+
+	useEffect(() => {
+		const unsubscribe = NetInfo.addEventListener(state => {
+			if (state.isConnected) {
+				processSyncQueue()
+			}
+		})
+		return () => unsubscribe()
 	}, [])
 
 	const activeRoute = navigationRef.isReady() ? navigationRef.getCurrentRoute() : null
@@ -216,6 +247,7 @@ export default function App() {
 						<Stack.Screen name="MockExamTake" component={MockExamTake} />
 						<Stack.Screen name="MockExamResult" component={MockExamResult} />
 						<Stack.Screen name="PracticeOverview" component={PracticeOverview} />
+						<Stack.Screen name="PracticeResult" component={PracticeResult} />
 						<Stack.Screen name="Performance" component={Performance} />
 						<Stack.Screen name="Profile" component={Profile} />
 						<Stack.Screen name="AccountInformation" component={AccountInformation} />

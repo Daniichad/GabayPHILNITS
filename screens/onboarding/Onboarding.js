@@ -10,10 +10,12 @@ import {
 } from 'react-native'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
 const { width, height } = Dimensions.get('window')
 
 export default function Onboarding({ navigation }) {
+  const insets = useSafeAreaInsets()
   const [currentIndex, setCurrentIndex] = useState(0)
   const flatListRef = useRef(null)
 
@@ -168,14 +170,14 @@ export default function Onboarding({ navigation }) {
       />
 
       {/* Sticky Header with Skip Button */}
-      <View style={styles.stickyHeader}>
+      <View style={[styles.stickyHeader, { top: Math.max(insets.top + 10, 50) }]}>
         <TouchableOpacity onPress={handleSkip}>
           <Text style={styles.skipText}>Skip</Text>
         </TouchableOpacity>
       </View>
 
       {/* Sticky Dots Indicator */}
-      <View style={styles.stickyDotsContainer}>
+      <View style={[styles.stickyDotsContainer, { bottom: 80 + insets.bottom }]}>
         {onboardingData.map((_, index) => (
           <TouchableOpacity
             key={index}
@@ -203,7 +205,7 @@ export default function Onboarding({ navigation }) {
       </View>
 
       {/* Sticky Bottom Button */}
-      <View style={styles.stickyButton}>
+      <View style={[styles.stickyButton, { bottom: 20 + insets.bottom }]}>
         <TouchableOpacity
           style={[
             styles.actionButton,

@@ -6,6 +6,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage'
 import { supabase } from '../../../supabase'
 import { SkeletonItem } from '../../../components/Skeleton'
 import { getCache, setCache } from '../../../utils/cache'
+import { calculateReadingPoints, recordPointsEntry } from '../../../utils/pointsEngine'
 
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental && !global.nativeFabricUIManager) {
@@ -144,6 +145,15 @@ export default function ReadingMaterial({ navigation, route }) {
             }, { onConflict: 'user_id,reading_material_id' })
             if (error) console.error('Error saving read status:', error.message)
             setHasRead(true)
+
+            // Record reading points
+            const ptsObj = calculateReadingPoints({
+              isStart: false,
+              isFirstTime: !hasRead,
+              sessionData: { dwellTimeSeconds: 20, scrolledToBottom: true },
+              materialId: materialId,
+            })
+            await recordPointsEntry(ptsObj)
           }
         } catch (err) {
           console.warn('Error saving read status:', err)

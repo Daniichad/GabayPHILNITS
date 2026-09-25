@@ -12,6 +12,7 @@ import '@tensorflow/tfjs-react-native';
 import { decodeJpeg } from '@tensorflow/tfjs-react-native';
 import * as handpose from '@tensorflow-models/handpose';
 import { supabase } from '../../../supabase';
+import { calculateMockExamPoints, recordPointsEntry } from '../../../utils/pointsEngine';
 
 const NAVY = '#0B2540';
 
@@ -280,6 +281,18 @@ export default function MockExamTake({ navigation, route }) {
         completed_at:    new Date().toISOString(),
         duration_seconds: timeSpent,
       }).eq('id', attemptId);
+    }
+
+    try {
+      const scorePct = questions.length > 0 ? Math.round((correct / questions.length) * 100) : 0;
+      const ptsObj = calculateMockExamPoints({
+        examId: config?.id || levelKey || 'exam',
+        score: scorePct,
+        isFirstAttempt: true,
+      });
+      await recordPointsEntry(ptsObj);
+    } catch (e) {
+      console.warn('Error recording mock exam points:', e);
     }
 
     navigation.replace('MockExamResult', {
