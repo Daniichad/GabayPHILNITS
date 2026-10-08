@@ -2,15 +2,16 @@ import React, { useState, useEffect, useRef } from 'react';
 import {
   ScrollView, View, Text, StyleSheet,
   TouchableOpacity, StatusBar, Platform, ActivityIndicator,
-  AppState, Alert, BackHandler
+  AppState, Alert, BackHandler, Modal, Animated, PanResponder
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { CameraView, useCameraPermissions } from 'expo-camera';
+import * as ImageManipulator from 'expo-image-manipulator';
 import * as tf from '@tensorflow/tfjs';
 import '@tensorflow/tfjs-react-native';
 import { decodeJpeg } from '@tensorflow/tfjs-react-native';
-import * as handpose from '@tensorflow-models/handpose';
+import * as blazeface from '@tensorflow-models/blazeface';
 import { supabase } from '../../../supabase';
 import { calculateMockExamPoints, recordPointsEntry } from '../../../utils/pointsEngine';
 
@@ -37,8 +38,27 @@ export default function MockExamTake({ navigation, route }) {
   const [answers,        setAnswers]        = useState([]);
   const [secondsLeft,    setSecondsLeft]    = useState(0);
 
+  const pan = useRef(new Animated.ValueXY()).current;
+  const panResponder = useRef(
+    PanResponder.create({
+      onMoveShouldSetPanResponder: () => true,
+      onPanResponderMove: Animated.event(
+        [null, { dx: pan.x, dy: pan.y }],
+        { useNativeDriver: false }
+      ),
+      onPanResponderRelease: () => {
+        pan.extractOffset();
+      },
+    })
+  ).current;
+
   const answersRef = useRef(answers);
   const secondsLeftRef = useRef(secondsLeft);
+  
+  const appStateRef = useRef(AppState.currentState);
+  const backgroundWarningCountRef = useRef(0);
+  const [cheatWarningVisible, setCheatWarningVisible] = useState(false);
+  const [chancesLeft, setChancesLeft] = useState(3);
 
   useEffect(() => { answersRef.current = answers; }, [answers]);
   useEffect(() => { secondsLeftRef.current = secondsLeft; }, [secondsLeft]);
@@ -47,44 +67,70 @@ export default function MockExamTake({ navigation, route }) {
   useEffect(() => {
     if (stage !== 'quiz') return;
 
-    // Snapshot loop for hand tracking
+    // Snapshot loop for face tracking
     let isProcessing = false;
     const interval = setInterval(async () => {
-      if (isProcessing || !modelRef.current || !cameraActive || !cameraRef.current) return;
+      setDebugMsg(`M:${!!modelRef.current} R:${!!cameraRef.current} P:${isProcessing}`);
+      if (isProcessing || !modelRef.current || !cameraRef.current) return;
       isProcessing = true;
       try {
-        const photo = await cameraRef.current.takePictureAsync({ base64: true, quality: 0.1 });
-        if (photo?.base64) {
-          const imgBuffer = tf.util.encodeString(photo.base64, 'base64').buffer;
+        setDebugMsg('taking photo...');
+        const takePhotoPromise = cameraRef.current.takePictureAsync({ 
+          base64: false,
+          quality: 0.3
+        });
+        const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("hang")), 3000));
+        const photo = await Promise.race([takePhotoPromise, timeoutPromise]);
+        
+        if (photo?.uri) {
+          setDebugMsg('resizing...');
+          const manipResult = await ImageManipulator.manipulateAsync(
+            photo.uri,
+            [{ resize: { width: 320 } }],
+            { compress: 0.5, format: ImageManipulator.SaveFormat.JPEG, base64: true }
+          );
+
+          setDebugMsg('decoding...');
+          const imgBuffer = tf.util.encodeString(manipResult.base64, 'base64').buffer;
           const raw = new Uint8Array(imgBuffer);
           const imageTensor = decodeJpeg(raw);
-          const predictions = await modelRef.current.estimateHands(imageTensor);
+          setDebugMsg('estimating face...');
+          const predictions = await modelRef.current.estimateFaces(imageTensor, false);
           imageTensor.dispose();
 
-          console.log('Hand predictions:', predictions.length);
-
+          setDebugMsg(`faces: ${predictions.length}`);
           if (predictions.length === 0) {
-            setHandDetected(false);
-            setHandLandmarks(null);
-            warningCountRef.current += 1;
-            setHandWarnings(warningCountRef.current);
-            if (warningCountRef.current >= 3) {
-              Alert.alert('Exam Terminated', 'Hands were not detected in the camera frame multiple times. Your exam has been automatically submitted.', [{ text: 'OK' }]);
-              handleFinish(answersRef.current);
+            setFaceDetected(false);
+            setEyeLandmarks(null);
+            
+            if (!lookingAwaySinceRef.current) {
+              lookingAwaySinceRef.current = Date.now();
+            } else if (Date.now() - lookingAwaySinceRef.current >= 5000) {
+              warningCountRef.current += 1;
+              setFaceWarnings(warningCountRef.current);
+              lookingAwaySinceRef.current = null; // Reset for next strike
+              if (warningCountRef.current >= 3) {
+                handleTerminated('You looked away from the screen for too long.');
+              }
             }
           } else {
-             setHandDetected(true);
-             setHandLandmarks(predictions[0].landmarks);
+             setFaceDetected(true);
+             lookingAwaySinceRef.current = null;
+             const rightEye = predictions[0].landmarks[0];
+             const leftEye = predictions[0].landmarks[1];
+             setEyeLandmarks([rightEye, leftEye]);
              setPhotoSize({ width: photo.width, height: photo.height });
-             // Reset warnings if hands are found? (Optional, let's keep them cumulative for strictness)
           }
         }
       } catch (err) {
-        console.warn('Hand detection error:', err);
+        setDebugMsg(`err: ${err.message.substring(0, 15)}`);
+        console.warn('Face detection error:', err);
+        setFaceDetected(false);
+        setEyeLandmarks(null);
       } finally {
         isProcessing = false;
       }
-    }, 4500);
+    }, 250);
 
     const onBackPress = () => {
       Alert.alert('Exam in Progress', 'You cannot go back during the exam. Please finish the exam.', [{ text: 'OK' }]);
@@ -93,10 +139,22 @@ export default function MockExamTake({ navigation, route }) {
     const backHandler = BackHandler.addEventListener('hardwareBackPress', onBackPress);
 
     const subscription = AppState.addEventListener('change', nextAppState => {
-      if (nextAppState === 'background' || nextAppState === 'inactive') {
-        Alert.alert('Exam Terminated', 'You left the app during the mock exam. Your exam has been automatically submitted.', [{ text: 'OK' }]);
-        handleFinish(answersRef.current);
+      if (
+        appStateRef.current.match(/active/) &&
+        (nextAppState === 'background' || nextAppState === 'inactive')
+      ) {
+        backgroundWarningCountRef.current += 1;
+        const left = 3 - backgroundWarningCountRef.current;
+        
+        if (left <= 0) {
+          handleTerminated('You left the app multiple times.');
+          setCheatWarningVisible(false);
+        } else {
+          setChancesLeft(left);
+          setCheatWarningVisible(true);
+        }
       }
+      appStateRef.current = nextAppState;
     });
 
     return () => {
@@ -104,7 +162,7 @@ export default function MockExamTake({ navigation, route }) {
       backHandler.remove();
       subscription.remove();
     };
-  }, [stage, cameraActive]);
+  }, [stage]);
 
   // ── Supabase data ─────────────────────────────────────────────
   const [config,         setConfig]         = useState(null);
@@ -115,24 +173,26 @@ export default function MockExamTake({ navigation, route }) {
   const [attemptId,      setAttemptId]      = useState(null);
 
   const [permission, requestPermission] = useCameraPermissions();
-  const [handWarnings, setHandWarnings] = useState(0);
-  const [handDetected, setHandDetected] = useState(true);
-  const [handLandmarks, setHandLandmarks] = useState(null);
+  const [faceWarnings, setFaceWarnings] = useState(0);
+  const [faceDetected, setFaceDetected] = useState(false);
+  const [eyeLandmarks, setEyeLandmarks] = useState(null);
   const [photoSize, setPhotoSize] = useState({ width: 1, height: 1 });
   const [tfReady, setTfReady] = useState(false);
   const [cameraActive, setCameraActive] = useState(false);
+  const [debugMsg, setDebugMsg] = useState('waiting...');
 
   const timerRef = useRef(null);
   const cameraRef = useRef(null);
   const modelRef = useRef(null);
   const warningCountRef = useRef(0);
+  const lookingAwaySinceRef = useRef(null);
 
-  // Initialize TFJS and Handpose
+  // Initialize TFJS and Blazeface
   useEffect(() => {
     const initTF = async () => {
       try {
         await tf.ready();
-        modelRef.current = await handpose.load();
+        modelRef.current = await blazeface.load();
         setTfReady(true);
       } catch (err) {
         console.warn('TFJS Load Error:', err);
@@ -306,6 +366,32 @@ export default function MockExamTake({ navigation, route }) {
     });
   };
 
+  // ── Terminate exam ──────────────────────────────────────────────
+  const handleTerminated = async (reason) => {
+    if (timerRef.current) clearInterval(timerRef.current);
+    
+    if (attemptId && userId) {
+      await supabase.from('mock_exam_attempts').update({
+        status: 'terminated',
+      }).eq('id', attemptId);
+    }
+    
+    Alert.alert(
+      'Exam Terminated', 
+      `${reason} You must restart the exam from the beginning.`, 
+      [{ 
+        text: 'OK', 
+        onPress: () => {
+          setStage('intro');
+          warningCountRef.current = 0;
+          setFaceWarnings(0);
+          setChancesLeft(3);
+          setCheatWarningVisible(false);
+        }
+      }]
+    );
+  };
+
   const backToHome = () => {
     navigation?.navigate ? navigation.navigate('MockExamHome') : setStage('intro');
   };
@@ -428,49 +514,37 @@ export default function MockExamTake({ navigation, route }) {
     if (!question) return <SafeAreaView style={styles.safeArea}><StatusBar barStyle="dark-content" /></SafeAreaView>;
 
     return (
-      <SafeAreaView style={styles.safeArea}>
-        <StatusBar barStyle="dark-content" />
+      <View style={{ flex: 1, backgroundColor: '#FFFFFF' }}>
+        <SafeAreaView style={styles.safeArea}>
+          <StatusBar barStyle="dark-content" />
         
-        {/* Anti-cheat Camera PiP */}
-        <View style={[styles.pipContainer, { borderColor: handDetected ? '#22c55e' : '#eab308' }]}>
-          <CameraView 
-            ref={cameraRef}
-            style={styles.pipCamera} 
-            facing="front" 
-            onCameraReady={() => setCameraActive(true)}
-          />
-          {handLandmarks && handLandmarks.map((point, index) => {
-            // Assuming CameraView scales to cover the 80x100 container.
-            const scale = Math.max(80 / photoSize.width, 100 / photoSize.height);
-            const xOffset = (photoSize.width * scale - 80) / 2;
-            const yOffset = (photoSize.height * scale - 100) / 2;
-            
-            // For front camera, the preview is horizontally mirrored, so we mirror the X coordinate
-            const flippedX = photoSize.width - point[0];
-            const x = flippedX * scale - xOffset;
-            const y = point[1] * scale - yOffset;
-
-            return (
-              <View 
-                key={index}
-                style={{
-                  position: 'absolute',
-                  left: x - 2,
-                  top: y - 2,
-                  width: 4,
-                  height: 4,
-                  borderRadius: 2,
-                  backgroundColor: '#22c55e', // green landmark point
-                }}
-              />
-            );
-          })}
-          {handWarnings > 0 && (
-            <View style={styles.warningBadge}>
-              <Text style={styles.warningBadgeText}>{handWarnings}/3</Text>
+        <Modal
+          visible={cheatWarningVisible}
+          transparent={true}
+          animationType="fade"
+          onRequestClose={() => setCheatWarningVisible(false)}
+        >
+          <View style={styles.cheatWarningOverlay}>
+            <View style={styles.cheatWarningCard}>
+              <Ionicons name="warning" size={48} color="#eab308" style={{ marginBottom: 12 }} />
+              <Text style={styles.cheatWarningTitle}>Anti-Cheat Warning</Text>
+              <Text style={styles.cheatWarningText}>
+                You left the app during the exam. Leaving the app is not allowed.
+              </Text>
+              <Text style={styles.cheatWarningChances}>
+                {chancesLeft} chance{chancesLeft !== 1 ? 's' : ''} left
+              </Text>
+              <TouchableOpacity
+                style={styles.cheatWarningButton}
+                onPress={() => setCheatWarningVisible(false)}
+              >
+                <Text style={styles.cheatWarningButtonText}>Resume Exam</Text>
+              </TouchableOpacity>
             </View>
-          )}
-        </View>
+          </View>
+        </Modal>
+
+
 
         <View style={styles.quizHeader}>
           <TouchableOpacity style={styles.iconButton} onPress={() => {
@@ -505,6 +579,9 @@ export default function MockExamTake({ navigation, route }) {
         </View>
 
         <View style={styles.quizFooter}>
+          <Text style={{ textAlign: 'center', fontSize: 10, color: '#6B7684', marginBottom: 8 }}>
+            AI Status: {debugMsg}
+          </Text>
           <TouchableOpacity
             style={[styles.nextButton, selectedOption === null && styles.nextButtonDisabled]}
             onPress={goToNext}
@@ -513,7 +590,66 @@ export default function MockExamTake({ navigation, route }) {
             <Text style={styles.nextButtonText}>NEXT</Text>
           </TouchableOpacity>
         </View>
-      </SafeAreaView>
+        </SafeAreaView>
+
+        {/* Exam Blur Overlay when looking away */}
+        {!faceDetected && (
+          <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, width: '100%', height: '100%', backgroundColor: 'rgba(255, 255, 255, 0.95)', justifyContent: 'center', alignItems: 'center', padding: 24, zIndex: 10, elevation: 90 }}>
+            <View style={styles.cheatWarningCard}>
+              <Ionicons name="eye-off" size={56} color="#ef4444" style={{ marginBottom: 16 }} />
+              <Text style={styles.cheatWarningTitle}>Attention</Text>
+              <Text style={styles.cheatWarningText}>
+                Please look directly at the screen to continue the exam.
+              </Text>
+            </View>
+          </View>
+        )}
+
+        {/* Anti-cheat Camera PiP */}
+        <Animated.View 
+          {...panResponder.panHandlers}
+          style={[
+            styles.pipContainer, 
+            { borderColor: faceDetected ? '#22c55e' : '#ef4444', zIndex: 50 },
+            { transform: [{ translateX: pan.x }, { translateY: pan.y }] }
+          ]}
+        >
+          <CameraView 
+            ref={cameraRef}
+            style={styles.pipCamera} 
+            facing="front" 
+            onCameraReady={() => setCameraActive(true)}
+          />
+          {eyeLandmarks && eyeLandmarks.map((point, index) => {
+            const scale = Math.max(80 / photoSize.width, 100 / photoSize.height);
+            const xOffset = (photoSize.width * scale - 80) / 2;
+            const yOffset = (photoSize.height * scale - 100) / 2;
+            const flippedX = photoSize.width - point[0];
+            const x = flippedX * scale - xOffset;
+            const y = point[1] * scale - yOffset;
+
+            return (
+              <View 
+                key={index}
+                style={{
+                  position: 'absolute',
+                  left: x - 4,
+                  top: y - 4,
+                  width: 8,
+                  height: 8,
+                  borderRadius: 4,
+                  backgroundColor: '#22c55e', 
+                }}
+              />
+            );
+          })}
+          {faceWarnings > 0 && (
+            <View style={styles.warningBadge}>
+              <Text style={styles.warningBadgeText}>{faceWarnings}/3</Text>
+            </View>
+          )}
+        </Animated.View>
+      </View>
     );
   }
 
@@ -580,6 +716,14 @@ const styles = StyleSheet.create({
   resultsFooter:         { paddingHorizontal: 20, paddingBottom: 30, gap: 12 },
   secondaryButton:       { borderRadius: 24, borderWidth: 1.5, borderColor: '#D7DEE8', paddingVertical: 15, alignItems: 'center' },
   secondaryButtonText:   { color: NAVY, fontWeight: '700', fontSize: 14 },
+  cheatWarningOverlay:   { flex: 1, backgroundColor: 'rgba(255, 255, 255, 0.95)', justifyContent: 'center', alignItems: 'center', padding: 24 },
+  cheatWarningCard:      { backgroundColor: '#ffffff', borderRadius: 24, padding: 28, alignItems: 'center', width: '100%', maxWidth: 340, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.1, shadowRadius: 12, elevation: 8, borderWidth: 1, borderColor: '#e5e7eb' },
+  cheatWarningTitle:     { fontSize: 22, fontWeight: '800', color: '#111827', marginBottom: 10, textAlign: 'center' },
+  cheatWarningText:      { fontSize: 15, color: '#4b5563', textAlign: 'center', marginBottom: 16, lineHeight: 22 },
+  cheatWarningChances:   { fontSize: 16, fontWeight: '700', color: '#dc2626', marginBottom: 24 },
+  cheatWarningButton:    { backgroundColor: NAVY, paddingVertical: 14, paddingHorizontal: 32, borderRadius: 16, width: '100%', alignItems: 'center' },
+  cheatWarningButtonText:{ color: '#fff', fontSize: 16, fontWeight: '700' },
+
   pipContainer: {
     position: 'absolute',
     top: 60,
@@ -591,6 +735,7 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: '#D7DEE8',
     zIndex: 999,
+    elevation: 100,
     backgroundColor: '#000',
   },
   pipCamera: {

@@ -18,6 +18,27 @@ export default function StudyPlan({ navigation }) {
   const [alertMessage, setAlertMessage] = useState('')
   const [alertType, setAlertType] = useState('error')
 
+  // Fetch current user review speed on mount
+  React.useEffect(() => {
+    const fetchReviewSpeed = async () => {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (user?.email) {
+        const { data } = await supabase
+          .from('users')
+          .select('review_speed')
+          .eq('email', user.email)
+          .single()
+        
+        if (data?.review_speed) {
+          // ensure formatting matches REVIEW_SPEEDS array ('Slow', 'Normal', 'Fast')
+          const speed = data.review_speed.charAt(0).toUpperCase() + data.review_speed.slice(1).toLowerCase()
+          setReviewSpeed(speed)
+        }
+      }
+    }
+    fetchReviewSpeed()
+  }, [])
+
   const showCustomAlert = (title, message, type = 'error') => {
     setAlertTitle(title)
     setAlertMessage(message)

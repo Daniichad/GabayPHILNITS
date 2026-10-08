@@ -263,13 +263,10 @@ export default function Profile({ session: initialSession, navigation }) {
         {/* ── Bottom Branding ── */}
         <View style={styles.brandingWrap}>
           <Image
-            source={require('../../../assets/loading.png')}
-            style={styles.brandingLogo}
+            source={require('../../../assets/img_onboarding.png')}
+            style={styles.brandingLogoFull}
             resizeMode="contain"
           />
-          <Text style={styles.brandingText}>
-            <Text style={styles.brandingAccent}>G</Text>ABAY
-          </Text>
         </View>
       </ScrollView>
 
@@ -474,19 +471,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 6,
   },
-  brandingLogo: {
-    width: 32,
-    height: 32,
-  },
-  brandingText: {
-    fontSize: 22,
-    fontWeight: '800',
-    color: NAVY,
-    letterSpacing: 2,
-  },
-  brandingAccent: {
-    color: ACCENT,
-    fontWeight: '900',
+  brandingLogoFull: {
+    width: 220,
+    height: 60,
   },
 
   // ── Logout Bottom Sheet Modal ──

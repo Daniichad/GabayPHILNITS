@@ -6,6 +6,11 @@ import {
 import { Feather } from '@expo/vector-icons'
 import { supabase } from '../../../utils/supabase'
 import { sendEmailJsOtp } from '../../../utils/emailjs'
+import {
+  scheduleDailyStudyReminder,
+  cancelDailyStudyReminder,
+  sendInstantTestNotification,
+} from '../../../utils/notificationManager'
 
 const NAVY = '#0f2747'
 const LANGUAGES = ['English', 'Filipino (Tagalog)']
@@ -46,40 +51,17 @@ function ArrowRow({ label, subtitle, onPress, badge }) {
 
 // ── OTP Boxes ─────────────────────────────────────────────────────
 function OtpInput({ value, onChange }) {
-  const refs = useRef([])
-  const digits = value.split('')
-
-  const handleChange = (text, idx) => {
-    const clean = text.replace(/\D/g, '').slice(-1)
-    const next = digits.slice()
-    next[idx] = clean
-    // Fill array to 4 length
-    while (next.length < 4) next.push('')
-    onChange(next.join(''))
-    if (clean && idx < 3) refs.current[idx + 1]?.focus()
-  }
-
-  const handleKeyPress = (e, idx) => {
-    if (e.nativeEvent.key === 'Backspace' && !digits[idx] && idx > 0) {
-      refs.current[idx - 1]?.focus()
-    }
-  }
-
   return (
     <View style={styles.otpRow}>
-      {[0, 1, 2, 3].map((i) => (
-        <TextInput
-          key={i}
-          ref={(r) => { refs.current[i] = r }}
-          style={styles.otpBox}
-          value={digits[i] || ''}
-          onChangeText={(t) => handleChange(t, i)}
-          onKeyPress={(e) => handleKeyPress(e, i)}
-          keyboardType="number-pad"
-          maxLength={1}
-          selectTextOnFocus
-        />
-      ))}
+      <TextInput
+        style={[styles.modalInput, { textAlign: 'center', letterSpacing: 8, fontSize: 24, width: '100%', borderColor: '#CBD5E1', borderWidth: 1, borderRadius: 8, height: 48 }]}
+        value={value.split('').join(' ')}
+        onChangeText={(text) => onChange(text.replace(/[^0-9]/g, '').slice(0, 4))}
+        keyboardType="number-pad"
+        maxLength={7}
+        placeholder="- - - -"
+        placeholderTextColor="#D1D5DB"
+      />
     </View>
   )
 }
@@ -235,6 +217,31 @@ export default function Settings({ navigation }) {
     navigation.navigate('SetPin')
   }
 
+  const handleToggleNotifications = async (val) => {
+    setNotifications(val)
+    if (val) {
+      const ok = await scheduleDailyStudyReminder()
+      if (ok) {
+        Alert.alert('Notifications Enabled', 'Daily CSE study reminders are now scheduled for 8:00 PM!')
+      } else {
+        Alert.alert('Permission Required', 'Please enable notification permissions in your device settings.')
+        setNotifications(false)
+      }
+    } else {
+      await cancelDailyStudyReminder()
+      Alert.alert('Notifications Disabled', 'Daily study reminders have been turned off.')
+    }
+  }
+
+  const handleTestNotification = async () => {
+    const success = await sendInstantTestNotification()
+    if (success) {
+      Alert.alert('Test Sent! 🔔', 'A test local notification has been triggered.')
+    } else {
+      Alert.alert('Notification Error', 'Could not send test notification. Please check permissions.')
+    }
+  }
+
   return (
     <View style={styles.screen}>
       <StatusBar barStyle="dark-content" backgroundColor="#fff" />
@@ -258,7 +265,13 @@ export default function Settings({ navigation }) {
           <ToggleRow
             label="Notification"
             value={notifications}
-            onValueChange={setNotifications}
+            onValueChange={handleToggleNotifications}
+          />
+          <View style={styles.divider} />
+          <ArrowRow
+            label="Test Notification"
+            subtitle="Send an instant test notification"
+            onPress={handleTestNotification}
           />
           <View style={styles.divider} />
           <ToggleRow
@@ -433,7 +446,7 @@ export default function Settings({ navigation }) {
                 <Text style={styles.pinEmailText} numberOfLines={1}>{pinAuthEmail}</Text>
               </View>
               <TouchableOpacity
-                style={[styles.pwBtn, pinAuthLoading && { opacity: 0.7 }]}
+                style={[styles.pwBtn, { alignSelf: 'stretch' }, pinAuthLoading && { opacity: 0.7 }]}
                 onPress={handleSendPinOtp}
                 disabled={pinAuthLoading}
                 activeOpacity={0.85}
@@ -458,7 +471,7 @@ export default function Settings({ navigation }) {
               <OtpInput value={pinAuthOtp} onChange={setPinAuthOtp} />
 
               <TouchableOpacity
-                style={[styles.pwBtn, { marginTop: 20 }]}
+                style={[styles.pwBtn, { marginTop: 20, alignSelf: 'stretch' }]}
                 onPress={handleVerifyPinOtp}
                 activeOpacity={0.85}
               >

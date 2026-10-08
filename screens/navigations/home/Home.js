@@ -25,41 +25,6 @@ const FALLBACK_QUOTES = [
   { content: 'You don\'t have to be great to start, but you have to start to be great.', author: 'Zig Ziglar' },
 ]
 
-// ─── Sample notifications ────────────────────────────────────────
-const INITIAL_NOTIFICATIONS = [
-  {
-    id: 1,
-    icon: 'clipboard-text',
-    title: 'New Mock Exam Available',
-    body: 'A new Civil Service mock exam has been added. Test yourself now!',
-    time: '2h ago',
-    read: false,
-  },
-  {
-    id: 2,
-    icon: 'fire',
-    title: 'Study Streak! 🔥',
-    body: "You're on a 3-day study streak. Keep it up — consistency is key!",
-    time: '1d ago',
-    read: false,
-  },
-  {
-    id: 3,
-    icon: 'calendar-clock',
-    title: 'CSE Exam Reminder',
-    body: 'The next CSE exam is in 45 days. Stay on track with your study plan.',
-    time: '2d ago',
-    read: true,
-  },
-  {
-    id: 4,
-    icon: 'book-open-variant',
-    title: 'New Reading Material',
-    body: 'Vocabulary Chapter 3 has been added to the Library.',
-    time: '3d ago',
-    read: true,
-  },
-]
 
 const NAVY = '#0f2747'
 const ACCENT = '#d85e67'
@@ -84,7 +49,7 @@ export default function Home({ session, navigation }) {
   const firstName = displayName.split(' ')[0] || 'Learner'
 
   // ─── State ─────────────────────────────────────────────────────
-  const [notifications, setNotifications] = useState(INITIAL_NOTIFICATIONS)
+  const [notifications, setNotifications] = useState([])
   const [notifVisible, setNotifVisible] = useState(false)
   const [quote, setQuote] = useState(null)
   const [quoteLoading, setQuoteLoading] = useState(false)
@@ -98,10 +63,7 @@ export default function Home({ session, navigation }) {
   const [rankingTimeframe, setRankingTimeframe] = useState('all_time')
   const [profileName, setProfileName] = useState('Learner')
   const [streakDays, setStreakDays] = useState(0)
-  const [subjects, setSubjectProgress] = useState(() => {
-    const cached = getCache('home_subject_progress')
-    return cached || DEFAULT_SUBJECTS
-  })
+  const [subjects, setSubjectProgress] = useState(DEFAULT_SUBJECTS)
 
   const quoteTimer = useRef(null)
   const quoteOpacity = useRef(new Animated.Value(1)).current
@@ -118,6 +80,108 @@ export default function Home({ session, navigation }) {
       notifSlideAnim.setValue(300)
     }
   }, [notifVisible])
+
+  // ─── Generate & Fetch Dynamic Notifications ──────────────────────────────
+  useEffect(() => {
+    async function updateDynamicNotifications() {
+      const generated = []
+
+      if (streakDays > 0) {
+        generated.push({
+          id: 'streak',
+          icon: 'fire',
+          title: 'Study Streak! 🔥',
+          body: `You're on a ${streakDays}-day study streak. Consistency is key!`,
+          time: 'Just now',
+          read: false,
+        })
+      }
+
+      if (cseSchedule && cseSchedule.daysLeft !== null && cseSchedule.daysLeft >= 0) {
+        generated.push({
+          id: 'exam',
+          icon: 'calendar-clock',
+          title: 'CSE Exam Reminder',
+          body: `The next CSE exam is in ${cseSchedule.daysLeft} days. Stay focused!`,
+          time: 'Just now',
+          read: false,
+        })
+      }
+
+      if (readiness > 0) {
+        generated.push({
+          id: 'readiness',
+          icon: 'chart-bar',
+          title: 'Exam Readiness Update',
+          body: `Your current estimated readiness is ${readiness}%. Keep taking practice tests!`,
+          time: 'Just now',
+          read: false,
+        })
+      }
+
+      let supabaseNotifs = []
+      if (user) {
+        try {
+          const { data, error } = await supabase
+            .from('notifications')
+            .select('*')
+            .order('created_at', { ascending: false })
+            .limit(20);
+
+          if (!error && data) {
+            const relevant = data.filter(n => {
+              if (n.target_audience === 'Specific User (Direct Notification)...' && n.user_id !== user.id) return false;
+              return true;
+            });
+            
+            supabaseNotifs = relevant.map(notif => {
+              let iconName = 'bell';
+              if (notif.type === 'Study Reminder') iconName = 'book-clock';
+              else if (notif.type === 'Exam Update') iconName = 'calendar-clock';
+              
+              return {
+                id: notif.id,
+                icon: iconName,
+                title: notif.title,
+                body: notif.message,
+                time: new Date(notif.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }),
+                read: false // Will be updated by cache below
+              };
+            });
+          }
+        } catch (err) {
+          console.warn('Failed to fetch Supabase notifications:', err);
+        }
+      }
+
+      // Combine both sources
+      const allNotifs = [...generated, ...supabaseNotifs];
+
+      // Load read state from cache
+      const readStates = await getCache('notifications_read_state') || {}
+      
+      const merged = allNotifs.map(notif => ({
+        ...notif,
+        read: readStates[notif.id] === true
+      }))
+
+      setNotifications(merged)
+    }
+    
+    updateDynamicNotifications()
+  }, [streakDays, cseSchedule, readiness, user])
+
+  const markAllNotifsRead = async () => {
+    const updated = notifications.map((n) => ({ ...n, read: true }))
+    setNotifications(updated)
+
+    const readStates = {}
+    updated.forEach(n => {
+      readStates[n.id] = true
+    })
+    await setCache('notifications_read_state', readStates)
+  }
+
 
   const unreadCount = notifications.filter((n) => !n.read).length
 
@@ -167,7 +231,7 @@ export default function Home({ session, navigation }) {
 
   // ─── Fetch CSE Schedule ────────────────────────────────────────
   const fetchCSESchedule = useCallback(async () => {
-    const cached = getCache('home_cse_schedule')
+    const cached = await getCache('home_cse_schedule')
     if (cached) {
       setCseSchedule(cached)
       setCseLoading(false)
@@ -189,7 +253,7 @@ export default function Home({ session, navigation }) {
           const label = next.toLocaleDateString('en-PH', { month: 'long', day: 'numeric', year: 'numeric' })
           const payload = { date: next, label, daysLeft: diffDays, appPeriod: null, source: 'live' }
           setCseSchedule(payload)
-          setCache('home_cse_schedule', payload)
+          await setCache('home_cse_schedule', payload)
           setCseLoading(false)
           return
         }
@@ -209,12 +273,12 @@ export default function Home({ session, navigation }) {
       source: 'official',
     }
     setCseSchedule(payload)
-    setCache('home_cse_schedule', payload)
+    await setCache('home_cse_schedule', payload)
     setCseLoading(false)
   }, [])
 
   const fetchReadiness = useCallback(async () => {
-    const cached = getCache('home_readiness')
+    const cached = await getCache('home_readiness')
     if (cached !== null) {
       setReadiness(cached)
       setReadinessLoading(false)
@@ -245,7 +309,7 @@ export default function Home({ session, navigation }) {
         score = Math.round(totalPct / attempts.length)
       }
       setReadiness(score)
-      setCache('home_readiness', score)
+      await setCache('home_readiness', score)
     } catch (err) {
       console.warn('Error fetching readiness:', err)
       setReadiness(0)
@@ -256,7 +320,7 @@ export default function Home({ session, navigation }) {
 
   const fetchRankings = useCallback(async (selectedTimeframe = rankingTimeframe) => {
     const cacheKey = `home_rankings_${selectedTimeframe}`
-    const cached = getCache(cacheKey) || getCache('home_rankings')
+    const cached = (await getCache(cacheKey)) || (await getCache('home_rankings'))
     if (cached) {
       setRankings(cached)
       setRankingsLoading(false)
@@ -435,7 +499,7 @@ export default function Home({ session, navigation }) {
       const topRankings = finalized.slice(0, 5)
 
       setRankings(topRankings)
-      setCache(cacheKey, topRankings)
+      await setCache(cacheKey, topRankings)
     } catch (err) {
       console.warn('Error fetching rankings:', err)
     } finally {
@@ -488,9 +552,9 @@ export default function Home({ session, navigation }) {
   }, [fetchQuote])
 
   const fetchHomeData = useCallback(async () => {
-    const cachedName = getCache('home_profile_name')
-    const cachedStreak = getCache('home_streak_days')
-    const cachedSubjects = getCache('home_subject_progress')
+    const cachedName = await getCache('home_profile_name')
+    const cachedStreak = await getCache('home_streak_days')
+    const cachedSubjects = await getCache('home_subject_progress')
     if (cachedName !== null && cachedStreak !== null && cachedSubjects) {
       setProfileName(cachedName)
       setStreakDays(cachedStreak)
@@ -515,7 +579,7 @@ export default function Home({ session, navigation }) {
         resolvedName = session.user.user_metadata?.full_name || session.user.user_metadata?.fullName || session.user.email || 'Learner'
       }
       setProfileName(resolvedName)
-      setCache('home_profile_name', resolvedName)
+      await setCache('home_profile_name', resolvedName)
 
       // 2. Fetch activity streak
       const { data: sessions } = await supabase
@@ -555,7 +619,7 @@ export default function Home({ session, navigation }) {
         }
       }
       setStreakDays(streak)
-      setCache('home_streak_days', streak)
+      await setCache('home_streak_days', streak)
 
       // 3. Fetch MCQ + TF results to calculate subject progress
       const { data: mcqPerformance } = await supabase
@@ -600,7 +664,7 @@ export default function Home({ session, navigation }) {
       })
 
       setSubjectProgress(updatedSubjects)
-      setCache('home_subject_progress', updatedSubjects)
+      await setCache('home_subject_progress', updatedSubjects)
     } catch (err) {
       console.warn('Error fetching home data:', err)
     }
@@ -626,12 +690,12 @@ export default function Home({ session, navigation }) {
   const onRefresh = useCallback(async () => {
     setRefreshing(true)
     // Clear cache first on pull-to-refresh to ensure loading live data
-    clearCache('home_cse_schedule')
-    clearCache('home_readiness')
-    clearCache('home_rankings')
-    clearCache('home_profile_name')
-    clearCache('home_streak_days')
-    clearCache('home_subject_progress')
+    await clearCache('home_cse_schedule')
+    await clearCache('home_readiness')
+    await clearCache('home_rankings')
+    await clearCache('home_profile_name')
+    await clearCache('home_streak_days')
+    await clearCache('home_subject_progress')
     await Promise.all([
       fetchQuote(),
       fetchCSESchedule(),
@@ -691,10 +755,14 @@ export default function Home({ session, navigation }) {
 
         <View style={styles.topRight}>
           {/* Streak badge */}
-          <View style={styles.streakBadge}>
+          <TouchableOpacity 
+            style={styles.streakBadge}
+            onPress={() => navigation.navigate('ActivityCalendar', { streakDays, cseSchedule, profileName })}
+            activeOpacity={0.7}
+          >
             <Feather name="zap" size={15} color={NAVY} />
             <Text style={styles.streakText}>{streakDays}</Text>
-          </View>
+          </TouchableOpacity>
 
           {/* Notification bell */}
           <TouchableOpacity

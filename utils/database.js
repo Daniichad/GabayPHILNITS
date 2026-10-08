@@ -37,6 +37,12 @@ export const getDb = async () => {
                         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                         is_synced BOOLEAN DEFAULT 0
                     );
+
+                    CREATE TABLE IF NOT EXISTS generic_cache (
+                        cache_key TEXT PRIMARY KEY,
+                        cache_value TEXT NOT NULL,
+                        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                    );
                 `)
                 return instance
             } catch (e) {
@@ -61,7 +67,7 @@ export const initDb = async () => {
 export const enqueueSync = async (tableName, action, payloadObj) => {
     const db = await getDb()
     if (!db) return null
-    
+
     try {
         const payloadString = JSON.stringify(payloadObj)
         const result = await db.runAsync(
@@ -78,7 +84,7 @@ export const enqueueSync = async (tableName, action, payloadObj) => {
 export const getPendingSyncItems = async () => {
     const db = await getDb()
     if (!db) return []
-    
+
     try {
         const result = await db.getAllAsync('SELECT * FROM sync_queue WHERE status = "PENDING" ORDER BY id ASC')
         return result
@@ -185,5 +191,39 @@ export const markPointsSynced = async (ids) => {
         await db.runAsync(`UPDATE points_ledger_local SET is_synced = 1 WHERE id IN (${placeholders})`, ids)
     } catch (e) {
         console.error("Failed to mark points synced:", e)
+    }
+}
+
+// ── Generic Cache for Offline Mode ──
+export const setGenericCache = async (key, valueObj) => {
+    const db = await getDb()
+    if (!db) return
+    try {
+        const valueString = JSON.stringify(valueObj)
+        await db.runAsync(
+            `INSERT INTO generic_cache (cache_key, cache_value, updated_at) 
+             VALUES (?, ?, CURRENT_TIMESTAMP)
+             ON CONFLICT(cache_key) DO UPDATE SET 
+             cache_value = excluded.cache_value, 
+             updated_at = CURRENT_TIMESTAMP`,
+            [key, valueString]
+        )
+    } catch (e) {
+        console.error(`Failed to set generic cache for key ${key}:`, e)
+    }
+}
+
+export const getGenericCache = async (key) => {
+    const db = await getDb()
+    if (!db) return null
+    try {
+        const result = await db.getFirstAsync('SELECT cache_value FROM generic_cache WHERE cache_key = ?', [key])
+        if (result && result.cache_value) {
+            return JSON.parse(result.cache_value)
+        }
+        return null
+    } catch (e) {
+        console.error(`Failed to get generic cache for key ${key}:`, e)
+        return null
     }
 }

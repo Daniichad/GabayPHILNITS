@@ -8,11 +8,13 @@ import {
   TouchableOpacity,
   View,
   ActivityIndicator,
+  Image,
 } from 'react-native'
 import { Feather } from '@expo/vector-icons'
 import { supabase } from '../../utils/supabase'
 
-const NAVY = '#0f2747'
+const NAVY = '#0f1e35'
+const BLUE = '#3B82B8'
 const PIN_LENGTH = 4
 const MAX_ATTEMPTS = 5
 
@@ -59,7 +61,7 @@ function Numpad({ onPress, onDelete }) {
               onPress={onDelete}
               activeOpacity={0.6}
             >
-              <Feather name="delete" size={22} color={NAVY} />
+              <Feather name="delete" size={24} color={NAVY} />
             </TouchableOpacity>
           )
         }
@@ -172,31 +174,34 @@ export default function PinAuth({ navigation }) {
   if (loading) {
     return (
       <View style={styles.centered}>
-        <ActivityIndicator size="large" color={NAVY} />
+        <ActivityIndicator size="large" color="#fff" />
       </View>
     )
   }
 
   return (
     <View style={styles.screen}>
-      <StatusBar barStyle="dark-content" backgroundColor="#fff" />
+      <StatusBar barStyle="light-content" backgroundColor={NAVY} />
 
-      {/* Top safe area spacer */}
-      <View style={{ height: Platform.OS === 'android' ? StatusBar.currentHeight : 54 }} />
-
-      {/* Body */}
-      <View style={styles.body}>
-        <View style={styles.iconWrap}>
-          <Feather name={locked ? 'lock' : 'shield'} size={32} color="#fff" />
+      <View style={styles.topSection}>
+        <View style={styles.logoContainer}>
+          <Image 
+            source={require('../../assets/loading.png')} 
+            style={styles.logoImage} 
+            resizeMode="contain"
+          />
         </View>
+        <Text style={styles.appName}>Gabay PHILCSE</Text>
+      </View>
 
+      <View style={styles.formContainer}>
         <Text style={styles.title}>
           {locked ? 'Account Locked' : 'Enter your PIN'}
         </Text>
         <Text style={styles.subtitle}>
           {locked
             ? 'You have exceeded the maximum attempts.\nPlease sign in again.'
-            : `Welcome back!\n${userEmail}`}
+            : 'Welcome back!'}
         </Text>
 
         {!locked && <PinDots pin={pin} shakeAnim={shakeAnim} />}
@@ -204,25 +209,23 @@ export default function PinAuth({ navigation }) {
         {error !== '' && (
           <Text style={styles.errorText}>{error}</Text>
         )}
-      </View>
 
-      {/* Numpad or locked actions */}
-      {locked ? (
-        <View style={styles.lockedActions}>
-          <TouchableOpacity
-            style={styles.signOutBtn}
-            onPress={handleSignOut}
-            activeOpacity={0.85}
-          >
-            <Text style={styles.signOutBtnText}>Sign Out & Re-login</Text>
-          </TouchableOpacity>
+        <View style={styles.numpadContainer}>
+          {locked ? (
+            <View style={styles.lockedActions}>
+              <TouchableOpacity
+                style={styles.signOutBtn}
+                onPress={handleSignOut}
+                activeOpacity={0.85}
+              >
+                <Text style={styles.signOutBtnText}>Sign Out & Re-login</Text>
+              </TouchableOpacity>
+            </View>
+          ) : (
+            <Numpad onPress={handlePress} onDelete={handleDelete} />
+          )}
         </View>
-      ) : (
-        <Numpad onPress={handlePress} onDelete={handleDelete} />
-      )}
-
-      {/* Bottom spacer */}
-      <View style={{ height: Platform.OS === 'ios' ? 34 : 20 }} />
+      </View>
     </View>
   )
 }
@@ -230,115 +233,133 @@ export default function PinAuth({ navigation }) {
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: NAVY,
+    justifyContent: 'flex-end',
   },
   centered: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#fff',
+    backgroundColor: NAVY,
+  },
+  topSection: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    flex: 1,
+  },
+  logoContainer: {
+    width: 80,
+    height: 80,
+    marginBottom: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  logoImage: {
+    width: '100%',
+    height: '100%',
+  },
+  appName: {
+    fontSize: 24,
+    fontWeight: '700',
+    color: '#fff',
+    letterSpacing: 1,
   },
 
-  // Body
-  body: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
+  // Form Container
+  formContainer: {
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 32,
+    borderTopRightRadius: 32,
+    paddingTop: 36,
     paddingHorizontal: 24,
-  },
-  iconWrap: {
-    width: 72,
-    height: 72,
-    borderRadius: 22,
-    backgroundColor: NAVY,
+    paddingBottom: Platform.OS === 'ios' ? 40 : 24,
     alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 24,
-    shadowColor: NAVY,
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.25,
-    shadowRadius: 16,
-    elevation: 8,
+    minHeight: '60%',
   },
   title: {
     fontSize: 22,
-    fontWeight: '800',
-    color: NAVY,
+    fontWeight: '700',
+    color: '#1a1a1a',
     marginBottom: 8,
   },
   subtitle: {
-    fontSize: 14,
+    fontSize: 15,
     color: '#64748b',
     textAlign: 'center',
-    marginBottom: 36,
-    lineHeight: 20,
+    marginBottom: 32,
   },
 
   // Dots
   dotsRow: {
     flexDirection: 'row',
-    gap: 20,
-    marginBottom: 8,
+    gap: 16,
+    marginBottom: 12,
   },
   dot: {
-    width: 18,
-    height: 18,
-    borderRadius: 9,
+    width: 16,
+    height: 16,
+    borderRadius: 8,
   },
   dotEmpty: {
-    backgroundColor: '#e2e8f0',
-    borderWidth: 2,
+    backgroundColor: '#f1f5f9',
+    borderWidth: 1.5,
     borderColor: '#cbd5e1',
   },
   dotFilled: {
-    backgroundColor: NAVY,
+    backgroundColor: BLUE,
   },
 
   // Error
   errorText: {
     color: '#ef4444',
-    fontSize: 13,
+    fontSize: 14,
     fontWeight: '500',
-    marginTop: 10,
+    marginTop: 12,
     textAlign: 'center',
+    minHeight: 20,
   },
 
   // Locked state
   lockedActions: {
-    paddingHorizontal: 40,
-    paddingBottom: 20,
+    width: '100%',
+    marginTop: 20,
   },
   signOutBtn: {
     backgroundColor: '#ef4444',
-    borderRadius: 30,
-    paddingVertical: 15,
+    borderRadius: 14,
+    paddingVertical: 16,
     alignItems: 'center',
   },
   signOutBtnText: {
     color: '#fff',
     fontWeight: '700',
-    fontSize: 15,
+    fontSize: 16,
   },
 
   // Numpad
+  numpadContainer: {
+    width: '100%',
+    marginTop: 16,
+    flex: 1,
+    justifyContent: 'flex-end',
+  },
   numpad: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     justifyContent: 'center',
-    paddingHorizontal: 24,
     gap: 0,
-    rowGap: 4,
+    rowGap: 8,
   },
   numKey: {
     width: '33.33%',
-    height: 72,
+    height: 64,
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: 16,
+    borderRadius: 32,
   },
   numKeyText: {
-    fontSize: 26,
-    fontWeight: '600',
-    color: NAVY,
+    fontSize: 28,
+    fontWeight: '500',
+    color: '#1a1a1a',
   },
 })

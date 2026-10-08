@@ -88,7 +88,7 @@ export default function ReadingMaterial({ navigation, route }) {
       }
       try {
         const cacheKey = `chapters_${materialId}`
-        const cached = getCache(cacheKey)
+        const cached = await getCache(cacheKey)
         if (cached && cached.length > 0) {
           setChapters(cached)
           setSelectedChapter(`Chapter ${cached[0].chapter_number}`)
@@ -107,7 +107,7 @@ export default function ReadingMaterial({ navigation, route }) {
         } else if (data && data.length > 0) {
           setChapters(data)
           setSelectedChapter(`Chapter ${data[0].chapter_number}`)
-          setCache(cacheKey, data)
+          await setCache(cacheKey, data)
         }
       } catch (err) {
         console.error('Error in fetchChapters:', err)

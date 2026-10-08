@@ -22,12 +22,8 @@ const UPCOMING_EXAM = {
   daysLeft: "-",
 };
 
-const LATEST_RESULT = {
-  examName: 'Subprofessional Exam',
-  correct: 23,
-  incorrect: 27,
-  totalScore: 150,
-};
+// Change this to null to test hiding the result when no exam is taken yet
+const LATEST_RESULT = null;
 
 const LEVELS = [
   {
@@ -176,35 +172,7 @@ export default function MockExamHome({ navigation, route }) {
           <Text style={styles.bannerDays}>{daysLeft} days left</Text>
         </View>
 
-        {/* Latest exam result */}
-        <Text style={styles.sectionTitle}>Latest exam result</Text>
-        <View style={styles.resultCard}>
-          <View style={styles.resultLeft}>
-            <Text style={styles.resultExamName}>{LATEST_RESULT.examName}</Text>
 
-            <View style={styles.statPill}>
-              <Text style={[styles.statPillValue, styles.statPillValueNavy]}>
-                {LATEST_RESULT.correct}
-              </Text>
-              <Text style={styles.statPillLabel}>Correct</Text>
-            </View>
-
-            <View style={styles.statPill}>
-              <Text style={[styles.statPillValue, styles.statPillValueRed]}>
-                {LATEST_RESULT.incorrect}
-              </Text>
-              <Text style={styles.statPillLabel}>Incorrect</Text>
-            </View>
-          </View>
-
-          <View style={styles.resultRight}>
-            <ScoreGauge
-              correct={LATEST_RESULT.correct}
-              incorrect={LATEST_RESULT.incorrect}
-              score={LATEST_RESULT.totalScore}
-            />
-          </View>
-        </View>
 
         {/* Level cards */}
         {LEVELS.map((level) => (
@@ -223,6 +191,40 @@ export default function MockExamHome({ navigation, route }) {
             </TouchableOpacity>
           </View>
         ))}
+
+        {/* Latest exam result */}
+        {LATEST_RESULT && (
+          <View>
+            <Text style={styles.sectionTitle}>Latest exam result</Text>
+            <View style={styles.resultCard}>
+              <View style={styles.resultLeft}>
+                <Text style={styles.resultExamName}>{LATEST_RESULT.examName}</Text>
+
+                <View style={styles.statPill}>
+                  <Text style={[styles.statPillValue, styles.statPillValueNavy]}>
+                    {LATEST_RESULT.correct}
+                  </Text>
+                  <Text style={styles.statPillLabel}>Correct</Text>
+                </View>
+
+                <View style={styles.statPill}>
+                  <Text style={[styles.statPillValue, styles.statPillValueRed]}>
+                    {LATEST_RESULT.incorrect}
+                  </Text>
+                  <Text style={styles.statPillLabel}>Incorrect</Text>
+                </View>
+              </View>
+
+              <View style={styles.resultRight}>
+                <ScoreGauge
+                  correct={LATEST_RESULT.correct}
+                  incorrect={LATEST_RESULT.incorrect}
+                  score={LATEST_RESULT.totalScore}
+                />
+              </View>
+            </View>
+          </View>
+        )}
       </ScrollView>
     </SafeAreaView>
   );

@@ -8,11 +8,13 @@ import {
   TouchableOpacity,
   View,
   ActivityIndicator,
+  Image,
 } from 'react-native'
 import { Feather } from '@expo/vector-icons'
 import { supabase } from '../../utils/supabase'
 
-const NAVY = '#0f2747'
+const NAVY = '#0f1e35'
+const BLUE = '#3B82B8'
 const PIN_LENGTH = 4
 
 // Very lightweight deterministic hash (not cryptographic, good enough for a UX pin lock)
@@ -63,7 +65,7 @@ function Numpad({ onPress, onDelete }) {
               onPress={onDelete}
               activeOpacity={0.6}
             >
-              <Feather name="delete" size={22} color={NAVY} />
+              <Feather name="delete" size={24} color={NAVY} />
             </TouchableOpacity>
           )
         }
@@ -185,13 +187,13 @@ export default function SetPin({ navigation, route }) {
 
   return (
     <View style={styles.screen}>
-      <StatusBar barStyle="dark-content" backgroundColor="#fff" />
+      <StatusBar barStyle="light-content" backgroundColor={NAVY} />
 
       {/* Header — hide back button in prompt mode on step 'set' */}
       <View style={styles.header}>
         {(step === 'confirm' || mode !== 'prompt') ? (
           <TouchableOpacity style={styles.backBtn} onPress={handleBack} activeOpacity={0.6}>
-            <Feather name="chevron-left" size={26} color={NAVY} />
+            <Feather name="chevron-left" size={26} color="#fff" />
           </TouchableOpacity>
         ) : (
           <View style={styles.backBtn} />
@@ -202,13 +204,19 @@ export default function SetPin({ navigation, route }) {
         <View style={styles.backBtn} />
       </View>
 
-      {/* Body */}
-      <View style={styles.body}>
-        {/* Icon */}
-        <View style={styles.iconWrap}>
-          <Feather name="lock" size={32} color="#fff" />
+      <View style={styles.topSection}>
+        <View style={styles.logoContainer}>
+          <Image 
+            source={require('../../assets/loading.png')} 
+            style={styles.logoImage} 
+            resizeMode="contain"
+          />
         </View>
+        <Text style={styles.appName}>Gabay PHILCSE</Text>
+      </View>
 
+      {/* Body */}
+      <View style={styles.formContainer}>
         <Text style={styles.title}>
           {step === 'set' ? 'Create your PIN' : 'Confirm your PIN'}
         </Text>
@@ -226,24 +234,23 @@ export default function SetPin({ navigation, route }) {
         {saving && (
           <ActivityIndicator size="small" color={NAVY} style={{ marginTop: 12 }} />
         )}
+
+        <View style={styles.numpadContainer}>
+          {/* Numpad */}
+          {!saving && <Numpad onPress={handlePress} onDelete={handleDelete} />}
+
+          {/* Skip option — only in prompt mode */}
+          {mode === 'prompt' && !saving && (
+            <TouchableOpacity
+              style={styles.skipBtn}
+              onPress={() => navigation.replace('Home')}
+              activeOpacity={0.6}
+            >
+              <Text style={styles.skipText}>Skip for now</Text>
+            </TouchableOpacity>
+          )}
+        </View>
       </View>
-
-      {/* Numpad */}
-      {!saving && <Numpad onPress={handlePress} onDelete={handleDelete} />}
-
-      {/* Skip option — only in prompt mode */}
-      {mode === 'prompt' && !saving && (
-        <TouchableOpacity
-          style={styles.skipBtn}
-          onPress={() => navigation.replace('Home')}
-          activeOpacity={0.6}
-        >
-          <Text style={styles.skipText}>Skip for now</Text>
-        </TouchableOpacity>
-      )}
-
-      {/* Spacer */}
-      <View style={{ height: Platform.OS === 'ios' ? 34 : 20 }} />
     </View>
   )
 }
@@ -251,8 +258,9 @@ export default function SetPin({ navigation, route }) {
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: NAVY,
     paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight : 54,
+    justifyContent: 'flex-end',
   },
 
   // Header
@@ -271,63 +279,75 @@ const styles = StyleSheet.create({
   headerTitle: {
     fontSize: 18,
     fontWeight: '800',
-    color: NAVY,
+    color: '#fff',
   },
 
-  // Body
-  body: {
+  topSection: {
+    alignItems: 'center',
+    justifyContent: 'center',
     flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 24,
   },
-  iconWrap: {
-    width: 72,
-    height: 72,
-    borderRadius: 22,
-    backgroundColor: NAVY,
-    alignItems: 'center',
+  logoContainer: {
+    width: 80,
+    height: 80,
+    marginBottom: 16,
     justifyContent: 'center',
-    marginBottom: 24,
-    shadowColor: NAVY,
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.25,
-    shadowRadius: 16,
-    elevation: 8,
+    alignItems: 'center',
+  },
+  logoImage: {
+    width: '100%',
+    height: '100%',
+  },
+  appName: {
+    fontSize: 24,
+    fontWeight: '700',
+    color: '#fff',
+    letterSpacing: 1,
+  },
+
+  // Form Container
+  formContainer: {
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 32,
+    borderTopRightRadius: 32,
+    paddingTop: 36,
+    paddingHorizontal: 24,
+    paddingBottom: Platform.OS === 'ios' ? 40 : 24,
+    alignItems: 'center',
+    minHeight: '60%',
   },
   title: {
     fontSize: 22,
-    fontWeight: '800',
-    color: NAVY,
+    fontWeight: '700',
+    color: '#1a1a1a',
     marginBottom: 8,
   },
   subtitle: {
-    fontSize: 14,
+    fontSize: 15,
     color: '#64748b',
     textAlign: 'center',
-    marginBottom: 36,
-    lineHeight: 20,
+    marginBottom: 32,
     maxWidth: 260,
   },
 
   // Dots
   dotsRow: {
     flexDirection: 'row',
-    gap: 20,
-    marginBottom: 20,
+    gap: 16,
+    marginBottom: 16,
   },
   dot: {
-    width: 18,
-    height: 18,
-    borderRadius: 9,
+    width: 16,
+    height: 16,
+    borderRadius: 8,
   },
   dotEmpty: {
-    backgroundColor: '#e2e8f0',
-    borderWidth: 2,
+    backgroundColor: '#f1f5f9',
+    borderWidth: 1.5,
     borderColor: '#cbd5e1',
   },
   dotFilled: {
-    backgroundColor: NAVY,
+    backgroundColor: BLUE,
   },
 
   // Step indicator
@@ -347,33 +367,38 @@ const styles = StyleSheet.create({
   },
 
   // Numpad
+  numpadContainer: {
+    width: '100%',
+    marginTop: 16,
+    flex: 1,
+    justifyContent: 'flex-end',
+  },
   numpad: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     justifyContent: 'center',
-    paddingHorizontal: 24,
     gap: 0,
-    rowGap: 4,
+    rowGap: 8,
   },
   numKey: {
     width: '33.33%',
-    height: 72,
+    height: 64,
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: 16,
+    borderRadius: 32,
   },
   numKeyText: {
-    fontSize: 26,
-    fontWeight: '600',
-    color: NAVY,
+    fontSize: 28,
+    fontWeight: '500',
+    color: '#1a1a1a',
   },
   skipBtn: {
     alignItems: 'center',
-    paddingVertical: 12,
-    paddingBottom: 4,
+    paddingVertical: 16,
+    marginTop: 8,
   },
   skipText: {
-    fontSize: 14,
+    fontSize: 15,
     color: '#94a3b8',
     textDecorationLine: 'underline',
   },

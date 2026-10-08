@@ -37,11 +37,14 @@ import RateApp from './screens/navigations/profile/RateApp'
 import AboutApp from './screens/navigations/profile/AboutApp'
 import CseGuide from './screens/navigations/profile/CseGuide'
 import CseSitesNearMe from './screens/navigations/profile/CseSitesNearMe'
+import ActivityCalendar from './screens/navigations/home/ActivityCalendar'
 import BottomNav from './components/BottomNav'
+import EdgeHandleAI from './components/EdgeHandleAI'
 import { supabase } from './utils/supabase'
 import NetInfo from '@react-native-community/netinfo'
 import { initDb, getUserCache, saveUserCache } from './utils/database'
 import { processSyncQueue } from './utils/syncManager'
+import { scheduleDailyStudyReminder } from './utils/notificationManager'
 
 const Stack = createNativeStackNavigator()
 
@@ -56,6 +59,10 @@ const navTheme = {
 const NAV_SCREENS = new Set([
 	'Home', 'Library', 'StudyPlan',
 	'PracticeLibrary', 'PracticeScreen', 'Performance', 'Profile', 'AccountInformation', 'Settings', 'HelpCenter', 'Report', 'TermsConditions', 'RateApp', 'AboutApp', 'PracticeOverview', 'CseGuide', 'CseSitesNearMe',
+])
+
+const MAIN_TAB_SCREENS = new Set([
+	'Home', 'Library', 'PracticeLibrary', 'PracticeScreen', 'Performance', 'Profile',
 ])
 
 export default function App() {
@@ -142,6 +149,7 @@ export default function App() {
 	useEffect(() => {
 		const init = async () => {
 			await initDb()
+			scheduleDailyStudyReminder().catch(() => {})
 			const route = await determineInitialRoute()
 			setInitialRoute(route)
 			setCurrentRoute(route)
@@ -194,7 +202,9 @@ export default function App() {
 	}, [])
 
 	const activeRoute = navigationRef.isReady() ? navigationRef.getCurrentRoute() : null
-	const showNav = NAV_SCREENS.has(currentRoute) && !(activeRoute?.params?.hideNav)
+	const activeRouteName = activeRoute?.name || currentRoute
+	const showNav = NAV_SCREENS.has(activeRouteName) && !(activeRoute?.params?.hideNav)
+	const showEdgeHandle = MAIN_TAB_SCREENS.has(activeRouteName) && !(activeRoute?.params?.hideNav)
 
 	if (loading) {
 		return (
@@ -214,6 +224,10 @@ export default function App() {
 				<NavigationContainer
 					ref={navigationRef}
 					theme={navTheme}
+					onReady={() => {
+						const name = navigationRef.getCurrentRoute()?.name
+						if (name) setCurrentRoute(name)
+					}}
 					onStateChange={() => {
 						const name = navigationRef.getCurrentRoute()?.name
 						if (name) setCurrentRoute(name)
@@ -259,8 +273,12 @@ export default function App() {
 						<Stack.Screen name="AboutApp" component={AboutApp} />
 						<Stack.Screen name="CseGuide" component={CseGuide} />
 						<Stack.Screen name="CseSitesNearMe" component={CseSitesNearMe} />
+						<Stack.Screen name="ActivityCalendar" component={ActivityCalendar} />
 					</Stack.Navigator>
 				</NavigationContainer>
+
+				{/* Floating Edge Handle for GABAY AI Assistant */}
+				{showEdgeHandle && <EdgeHandleAI side="right" />}
 
 				{/* BottomNav lives OUTSIDE the navigator so it is never animated by screen transitions */}
 				{showNav && (

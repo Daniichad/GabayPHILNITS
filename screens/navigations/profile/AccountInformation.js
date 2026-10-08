@@ -568,16 +568,10 @@ export default function AccountInformation({ session: initialSession, navigation
         {/* ── Branding ── */}
         <View style={styles.brandingWrap}>
           <Image
-            source={require('../../../assets/loading.png')}
-            style={styles.brandingLogo}
+            source={require('../../../assets/img_onboarding.png')}
+            style={styles.brandingLogoFull}
             resizeMode="contain"
           />
-          <View>
-            <Text style={styles.brandingText}>
-              <Text style={styles.brandingAccent}>G</Text>ABAY
-            </Text>
-            <Text style={styles.brandingSub}>Phil. Civil Service Exam</Text>
-          </View>
         </View>
       </ScrollView>
     </View>
@@ -799,24 +793,8 @@ const styles = StyleSheet.create({
     gap: 10,
     marginTop: 8,
   },
-  brandingLogo: {
-    width: 36,
-    height: 36,
-  },
-  brandingText: {
-    fontSize: 22,
-    fontWeight: '800',
-    color: NAVY,
-    letterSpacing: 2,
-  },
-  brandingAccent: {
-    color: ACCENT,
-    fontWeight: '900',
-  },
-  brandingSub: {
-    fontSize: 11,
-    color: '#94a3b8',
-    textAlign: 'center',
-    letterSpacing: 0.3,
+  brandingLogoFull: {
+    width: 220,
+    height: 60,
   },
 })

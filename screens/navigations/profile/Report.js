@@ -5,10 +5,14 @@ import {
 } from 'react-native'
 import { Feather, Ionicons } from '@expo/vector-icons'
 
+import { supabase } from '../../../utils/supabase'
+
 const NAVY = '#0f2747'
 
 export default function Report({ navigation }) {
   const [messages, setMessages] = useState([])
+  const [userId, setUserId] = useState(null)
+  const [loading, setLoading] = useState(true)
 
   const [input, setInput] = useState('')
   const [keyboardVisible, setKeyboardVisible] = useState(false)
@@ -29,50 +33,79 @@ export default function Report({ navigation }) {
     }
   }, [])
 
-  const handleSend = () => {
-    if (!input.trim()) return
-
-    const now = new Date()
-    const timeStr = now.toLocaleTimeString('en-US', {
-      hour: 'numeric',
-      minute: '2-digit',
-      hour12: false,
-    })
-
-    const newMsg = {
-      id: messages.length + 1,
-      sender: 'user',
-      text: input.trim(),
-      time: timeStr,
+  React.useEffect(() => {
+    const fetchUserAndMessages = async () => {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (user) {
+        setUserId(user.id)
+        
+        // Fetch existing messages
+        const { data, error } = await supabase
+          .from('report_messages')
+          .select('*')
+          .eq('user_id', user.id)
+          .order('created_at', { ascending: true })
+          
+        if (!error && data) {
+          setMessages(data)
+          setTimeout(() => {
+            scrollViewRef.current?.scrollToEnd({ animated: false })
+          }, 100)
+        }
+      }
+      setLoading(false)
     }
 
-    setMessages((prev) => [...prev, newMsg])
+    fetchUserAndMessages()
+  }, [])
+
+  // Real-time subscription
+  React.useEffect(() => {
+    if (!userId) return
+
+    const channel = supabase
+      .channel('public:report_messages')
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'report_messages',
+          filter: `user_id=eq.${userId}`,
+        },
+        (payload) => {
+          setMessages((prev) => [...prev, payload.new])
+          setTimeout(() => {
+            scrollViewRef.current?.scrollToEnd({ animated: true })
+          }, 100)
+        }
+      )
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(channel)
+    }
+  }, [userId])
+
+  const handleSend = async () => {
+    if (!input.trim() || !userId) return
+
+    const textToSend = input.trim()
     setInput('')
 
-    // Auto scroll to bottom
-    setTimeout(() => {
-      scrollViewRef.current?.scrollToEnd({ animated: true })
-    }, 100)
+    const newMsg = {
+      user_id: userId,
+      is_admin: false,
+      text: textToSend,
+    }
 
-    // Simulate an automatic simple answer back after 1.5 seconds
-    setTimeout(() => {
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: Date.now(),
-          sender: 'support',
-          text: 'Thank you for reaching out! A support representative will review your message shortly.',
-          time: new Date().toLocaleTimeString('en-US', {
-            hour: 'numeric',
-            minute: '2-digit',
-            hour12: false,
-          }),
-        },
-      ])
-      setTimeout(() => {
-        scrollViewRef.current?.scrollToEnd({ animated: true })
-      }, 100)
-    }, 1500)
+    const { error } = await supabase
+      .from('report_messages')
+      .insert(newMsg)
+
+    if (error) {
+      console.error('Error sending message:', error.message)
+    }
   }
 
   return (
@@ -102,7 +135,16 @@ export default function Report({ navigation }) {
         <Text style={styles.dateSeparator}>Today</Text>
 
         {messages.map((msg) => {
-          const isUser = msg.sender === 'user'
+          const isUser = !msg.is_admin
+          
+          // format timestamp
+          const date = new Date(msg.created_at)
+          const timeStr = date.toLocaleTimeString('en-US', {
+            hour: 'numeric',
+            minute: '2-digit',
+            hour12: false,
+          })
+
           return (
             <View
               key={msg.id}
@@ -121,7 +163,7 @@ export default function Report({ navigation }) {
                   {msg.text}
                 </Text>
                 <Text style={[styles.timeText, isUser ? styles.timeUser : styles.timeSupport]}>
-                  {msg.time}
+                  {timeStr}
                 </Text>
               </View>
             </View>

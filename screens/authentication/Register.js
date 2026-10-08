@@ -24,12 +24,22 @@ export default function Register({ navigation }) {
   const [alertTitle, setAlertTitle] = useState('')
   const [alertMessage, setAlertMessage] = useState('')
   const [alertType, setAlertType] = useState('error')
+  const [onAlertClose, setOnAlertClose] = useState(null)
 
-  const showCustomAlert = (title, message, type = 'error') => {
+  const showCustomAlert = (title, message, type = 'error', onClose = null) => {
     setAlertTitle(title)
     setAlertMessage(message)
     setAlertType(type)
+    setOnAlertClose(() => onClose)
     setAlertVisible(true)
+  }
+
+  const closeAlert = () => {
+    setAlertVisible(false)
+    if (onAlertClose) {
+      onAlertClose()
+      setOnAlertClose(null)
+    }
   }
 
   const [fullName, setFullName] = useState('')
@@ -76,51 +86,8 @@ export default function Register({ navigation }) {
   }
 
   // 4-digit OTP state
-  const [otp, setOtp] = useState(['', '', '', ''])
-  const inputRefs = useRef([])
-
-  // ─── OTP helpers ───────────────────────────────────────────────
-  const handleOtpChange = (text, index) => {
-    const digit = text.replace(/[^0-9]/g, '').slice(-1)
-    const newOtp = [...otp]
-    newOtp[index] = digit
-    setOtp(newOtp)
-
-    // Auto-advance to next box
-    if (digit && index < 3) {
-      inputRefs.current[index + 1]?.focus()
-    }
-  }
-
-  const handleOtpKeyPress = (e, index) => {
-    if (e.nativeEvent.key === 'Backspace') {
-      if (otp[index] === '' && index > 0) {
-        const newOtp = [...otp]
-        newOtp[index - 1] = ''
-        setOtp(newOtp)
-        inputRefs.current[index - 1]?.focus()
-      } else {
-        const newOtp = [...otp]
-        newOtp[index] = ''
-        setOtp(newOtp)
-      }
-    }
-  }
-
-  const handleOtpPaste = (text, index) => {
-    const digits = text.replace(/[^0-9]/g, '').slice(0, 4)
-    if (digits.length > 0) {
-      const newOtp = ['', '', '', '']
-      digits.split('').forEach((d, i) => {
-        newOtp[i] = d
-      })
-      setOtp(newOtp)
-      const nextIndex = Math.min(digits.length, 3)
-      inputRefs.current[nextIndex]?.focus()
-    }
-  }
-
-  const getOtpString = () => otp.join('')
+  const [otp, setOtp] = useState('')
+  const getOtpString = () => otp
 
   const startResendCooldown = () => {
     setResendCooldown(60)
@@ -160,7 +127,7 @@ export default function Register({ navigation }) {
     if (!passwordRegex.test(password)) {
       showCustomAlert(
         'Weak Password',
-        'Password must be at least 8 characters long and include at least one uppercase letter, one lowercase letter, one number, and one special character (e.g., @$!%*?&#).'
+        'Password does not meet complexity requirements.'
       )
       return
     }
@@ -189,7 +156,7 @@ export default function Register({ navigation }) {
       }
 
       if (existingUser) {
-        showCustomAlert('Registration Error', 'This email is already registered. Please log in or use a different email address.')
+        showCustomAlert('Registration Error', 'Email already in use. Please log in.')
         setLoading(false)
         return
       }
@@ -202,11 +169,11 @@ export default function Register({ navigation }) {
       await sendEmailJsOtp(trimmedEmail, code, trimmedName)
 
       // 3. Open Verification Modal
-      setOtp(['', '', '', ''])
+      setOtp('')
       setVerifyVisible(true)
       startResendCooldown()
     } catch (err) {
-      showCustomAlert('Email Error', err.message || 'Could not send verification email. Please verify your EmailJS configuration.')
+      showCustomAlert('Error', 'Could not send verification email.')
     } finally {
       setLoading(false)
     }
@@ -239,7 +206,7 @@ export default function Register({ navigation }) {
       })
 
       if (error) {
-        showCustomAlert('Registration Error', error.message || 'Could not create account')
+        showCustomAlert('Error', 'Could not create account.')
         return
       }
 
@@ -257,7 +224,7 @@ export default function Register({ navigation }) {
       )
 
       if (profileError) {
-        showCustomAlert('Database Profile Error', profileError.message || 'Could not save profile record.')
+        showCustomAlert('Error', 'Could not create profile.')
         return
       }
 
@@ -265,10 +232,15 @@ export default function Register({ navigation }) {
       await supabase.auth.signOut()
 
       setVerifyVisible(false)
-      setOtp(['', '', '', ''])
-      navigation?.replace('Login')
+      setOtp('')
+      showCustomAlert(
+        'Success',
+        'Your account has been created successfully! You can now log in.',
+        'success',
+        () => navigation?.replace('Login')
+      )
     } catch (err) {
-      showCustomAlert('Verification Error', err.message || String(err))
+      showCustomAlert('Error', 'Verification failed. Please try again.')
     } finally {
       setVerifying(false)
     }
@@ -285,15 +257,23 @@ export default function Register({ navigation }) {
 
       await sendEmailJsOtp(email.trim(), code, fullName.trim() || 'Student')
 
-      setOtp(['', '', '', ''])
+      setOtp('')
       startResendCooldown()
-      showCustomAlert('Code Sent', `A new 4-digit verification code has been sent to ${email}`, 'success')
+      showCustomAlert('Code Sent', 'Verification code has been sent.', 'success')
     } catch (err) {
-      showCustomAlert('Error', err.message || 'Could not resend verification email.')
+      showCustomAlert('Error', 'Could not resend verification email.')
     } finally {
       setResending(false)
     }
   }
+
+  const isRegisterFormValid =
+    fullName.trim().length >= 2 &&
+    email.trim() !== '' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()) &&
+    password !== '' && /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&#])[A-Za-z\d@$!%*?&#]{8,}$/.test(password) &&
+    password === confirmPassword &&
+    agreeTerms;
+  const isRegisterDisabled = loading || !isRegisterFormValid;
 
   return (
     <KeyboardAvoidingView
@@ -542,9 +522,9 @@ export default function Register({ navigation }) {
 
           {/* Create Account Button */}
           <TouchableOpacity
-            style={[styles.createButton, loading && styles.createButtonDisabled]}
+            style={[styles.createButton, { backgroundColor: isRegisterDisabled ? '#f1999d' : '#c14954' }]}
             onPress={handleRegister}
-            disabled={loading}
+            disabled={isRegisterDisabled}
           >
             {loading ? (
               <ActivityIndicator color="#fff" />
@@ -575,6 +555,12 @@ export default function Register({ navigation }) {
       >
         <View style={styles.modalOverlay}>
           <View style={styles.modalCard}>
+            <TouchableOpacity
+              style={{ position: 'absolute', top: 16, left: 16, zIndex: 10 }}
+              onPress={() => setTermsVisible(false)}
+            >
+              <Feather name="chevron-left" size={28} color="#4B5563" />
+            </TouchableOpacity>
             <Text style={styles.modalTitle}>Terms & Conditions</Text>
             <ScrollView
               style={styles.modalBody}
@@ -595,12 +581,6 @@ export default function Register({ navigation }) {
                   "12. Governing Law\nThese Terms and Conditions shall be governed by the laws of the Republic of the Philippines."}
               </Text>
             </ScrollView>
-            <TouchableOpacity
-              style={styles.modalButton}
-              onPress={() => setTermsVisible(false)}
-            >
-              <Text style={styles.modalButtonText}>Close</Text>
-            </TouchableOpacity>
           </View>
         </View>
       </Modal>
@@ -618,6 +598,12 @@ export default function Register({ navigation }) {
         >
           <View style={styles.modalOverlay}>
             <View style={styles.verifyCard}>
+              <TouchableOpacity
+                style={{ position: 'absolute', top: 16, left: 16, zIndex: 10 }}
+                onPress={() => setVerifyVisible(false)}
+              >
+                <Feather name="chevron-left" size={28} color="#4B5563" />
+              </TouchableOpacity>
               {/* Header */}
               <View style={styles.verifyIconContainer}>
                 <Text style={styles.verifyIcon}>✉️</Text>
@@ -628,34 +614,17 @@ export default function Register({ navigation }) {
               </Text>
               <Text style={styles.verifyEmail}>{email}</Text>
 
-              {/* 4-Digit OTP Boxes */}
+              {/* OTP Input */}
               <View style={styles.otpContainer}>
-                {otp.map((digit, index) => (
-                  <TextInput
-                    key={index}
-                    ref={(ref) => (inputRefs.current[index] = ref)}
-                    style={[
-                      styles.otpBox,
-                      digit !== '' && styles.otpBoxFilled,
-                    ]}
-                    value={digit}
-                    onChangeText={(text) => {
-                      // Handle paste (text length > 1)
-                      if (text.length > 1) {
-                        handleOtpPaste(text, index)
-                      } else {
-                        handleOtpChange(text, index)
-                      }
-                    }}
-                    onKeyPress={(e) => handleOtpKeyPress(e, index)}
-                    keyboardType="number-pad"
-                    maxLength={1}
-                    textAlign="center"
-                    selectionColor="#D9989E"
-                    placeholderTextColor="#D1D5DB"
-                    placeholder="·"
-                  />
-                ))}
+                <TextInput
+                  style={[styles.modalInput, { textAlign: 'center', letterSpacing: 8, fontSize: 24 }]}
+                  value={otp.split('').join(' ')}
+                  onChangeText={(text) => setOtp(text.replace(/[^0-9]/g, '').slice(0, 4))}
+                  keyboardType="number-pad"
+                  maxLength={7}
+                  placeholder="- - - -"
+                  placeholderTextColor="#D1D5DB"
+                />
               </View>
 
               {/* Verify Button */}
@@ -696,13 +665,6 @@ export default function Register({ navigation }) {
                 </TouchableOpacity>
               </View>
 
-              {/* Cancel */}
-              <TouchableOpacity
-                style={styles.cancelButton}
-                onPress={() => setVerifyVisible(false)}
-              >
-                <Text style={styles.cancelText}>Cancel</Text>
-              </TouchableOpacity>
             </View>
           </View>
         </KeyboardAvoidingView>
@@ -713,7 +675,7 @@ export default function Register({ navigation }) {
         transparent
         visible={alertVisible}
         animationType="fade"
-        onRequestClose={() => setAlertVisible(false)}
+        onRequestClose={closeAlert}
       >
         <View style={styles.modalOverlay}>
           <View style={[styles.modalCard, { alignItems: 'center', padding: 24 }]}>
@@ -735,7 +697,7 @@ export default function Register({ navigation }) {
                 styles.modalButton,
                 { width: '100%', backgroundColor: alertType === 'success' ? '#10B981' : '#EF4444' }
               ]}
-              onPress={() => setAlertVisible(false)}
+              onPress={closeAlert}
             >
               <Text style={styles.modalButtonText}>Okay</Text>
             </TouchableOpacity>

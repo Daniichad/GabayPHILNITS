@@ -89,46 +89,16 @@ export default function Login({ navigation }) {
   const [forgotVisible, setForgotVisible] = useState(false)
   const [forgotStep, setForgotStep] = useState('request')
   const [forgotEmail, setForgotEmail] = useState('')
-  const [forgotOtp, setForgotOtp] = useState(['', '', '', ''])
+  const [forgotOtp, setForgotOtp] = useState('')
   const [forgotNewPassword, setForgotNewPassword] = useState('')
   const [forgotConfirmPassword, setForgotConfirmPassword] = useState('')
+  const [passwordUpdatedVisible, setPasswordUpdatedVisible] = useState(false)
   const [showResetPassword, setShowResetPassword] = useState(false)
   const [forgotLoading, setForgotLoading] = useState(false)
   const [resetCooldown, setResetCooldown] = useState(0)
   const [generatedForgotOtp, setGeneratedForgotOtp] = useState(null)
-
-  const forgotInputRefs = useRef([])
-
-  const handleForgotOtpChange = (text, index) => {
-    const newOtp = [...forgotOtp]
-    newOtp[index] = text
-    setForgotOtp(newOtp)
-
-    if (text !== '' && index < 3) {
-      forgotInputRefs.current[index + 1].focus()
-    }
-  }
-
-  const handleForgotOtpKeyPress = (e, index) => {
-    if (e.nativeEvent.key === 'Backspace' && forgotOtp[index] === '' && index > 0) {
-      forgotInputRefs.current[index - 1].focus()
-    }
-  }
-
-  const handleForgotOtpPaste = (text, index) => {
-    const digits = text.split('').slice(0, 4)
-    const newOtp = [...forgotOtp]
-    for (let i = 0; i < digits.length; i++) {
-      if (index + i < 4) {
-        newOtp[index + i] = digits[i]
-      }
-    }
-    setForgotOtp(newOtp)
-    const focusIndex = Math.min(index + digits.length, 3)
-    forgotInputRefs.current[focusIndex].focus()
-  }
-
-  const getForgotOtpString = () => forgotOtp.join('')
+  
+  const getForgotOtpString = () => forgotOtp
 
   // Floating placeholder animations
   const emailAnim = useState(new Animated.Value(email ? 1 : 0))[0]
@@ -241,19 +211,14 @@ export default function Login({ navigation }) {
         password,
       })
 
-      if (error) {
-        showCustomAlert('Login Error', `${error.message} (Email: "${trimmedEmail}", Password Length: ${password ? password.length : 0})`)
-        return
-      }
-
-      if (!data.session) {
-        showCustomAlert('Login Error', 'Invalid credentials (no session)')
+      if (error || !data.session) {
+        showCustomAlert('Login Error', 'Invalid credentials. Please try again.')
         return
       }
 
       await checkUserRedirects(data.session.user.id)
     } catch (err) {
-      showCustomAlert('Login Error', err.message || String(err))
+      showCustomAlert('Login Error', 'An unexpected error occurred. Please try again.')
     } finally {
       setLoading(false)
     }
@@ -292,10 +257,10 @@ export default function Login({ navigation }) {
       await sendEmailJsOtp(forgotEmail.trim(), code, 'Student')
 
       setForgotStep('verify')
-      setForgotOtp(['', '', '', ''])
+      setForgotOtp('')
       setResetCooldown(60)
     } catch (err) {
-      showCustomAlert('Reset Error', err.message || String(err))
+      showCustomAlert('Error', 'An unexpected error occurred.')
     } finally {
       setForgotLoading(false)
     }
@@ -332,7 +297,7 @@ export default function Login({ navigation }) {
     if (!passwordRegex.test(forgotNewPassword)) {
       showCustomAlert(
         'Weak Password',
-        'Password must be at least 8 characters long and include at least one uppercase letter, one lowercase letter, one number, and one special character (e.g., @$!%*?&#).'
+        'Password does not meet complexity requirements.'
       )
       return
     }
@@ -346,22 +311,33 @@ export default function Login({ navigation }) {
         .eq('email', forgotEmail.trim())
 
       if (error) {
-        showCustomAlert('Reset Error', error.message || 'Could not update password')
+        showCustomAlert('Error', 'Could not update password.')
         return
       }
 
-      showCustomAlert('Success', 'Your password has been updated successfully. Please log in.', 'success')
       setForgotVisible(false)
+      setPasswordUpdatedVisible(true)
+      
       setForgotStep('request')
       setForgotEmail('')
       setForgotOtp('')
       setForgotNewPassword('')
     } catch (err) {
-      showCustomAlert('Reset Error', err.message || String(err))
+      showCustomAlert('Error', 'An unexpected error occurred.')
     } finally {
       setForgotLoading(false)
     }
   }
+  const isLoginFormValid = email.trim() !== '' && password.trim() !== '' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
+  const isLoginDisabled = loading || !isLoginFormValid;
+
+  const isForgotEmailValid = forgotEmail.trim() !== '' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(forgotEmail.trim());
+  const isSendOtpDisabled = forgotLoading || resetCooldown > 0 || !isForgotEmailValid;
+
+  const isVerifyOtpDisabled = forgotLoading || getForgotOtpString().length < 4;
+
+  const isResetPasswordValid = forgotNewPassword !== '' && /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&#])[A-Za-z\d@$!%*?&#]{8,}$/.test(forgotNewPassword) && forgotNewPassword === forgotConfirmPassword;
+  const isResetPasswordDisabled = forgotLoading || !isResetPasswordValid;
 
   return (
     <View style={styles.container}>
@@ -504,9 +480,9 @@ export default function Login({ navigation }) {
 
           {/* Login Button */}
           <TouchableOpacity 
-            style={styles.loginButton}
+            style={[styles.loginButton, { backgroundColor: isLoginDisabled ? '#f1999d' : '#c14954' }]}
             onPress={handleLogin}
-            disabled={loading}
+            disabled={isLoginDisabled}
           >
             <Text style={styles.loginButtonText}>{loading ? 'Signing in...' : 'Login'}</Text>
           </TouchableOpacity>
@@ -539,6 +515,23 @@ export default function Login({ navigation }) {
         >
           <View style={styles.modalOverlay}>
             <View style={forgotStep === 'verify' ? styles.verifyCard : styles.modalCard}>
+              <TouchableOpacity
+                style={{ position: 'absolute', top: 16, left: 16, zIndex: 10 }}
+                onPress={() => {
+                  if (forgotStep === 'verify') {
+                    setForgotStep('request')
+                  } else {
+                    setForgotVisible(false)
+                    setForgotStep('request')
+                    setForgotNewPassword('')
+                    setForgotConfirmPassword('')
+                    setShowResetPassword(false)
+                  }
+                }}
+              >
+                <Feather name="chevron-left" size={28} color="#4B5563" />
+              </TouchableOpacity>
+
               {forgotStep === 'request' && (
                 <>
                   <Text style={styles.modalTitle}>Reset Your Password</Text>
@@ -553,9 +546,9 @@ export default function Login({ navigation }) {
                     placeholderTextColor="#9CA3AF"
                   />
                   <TouchableOpacity
-                    style={[styles.modalButton, (forgotLoading || resetCooldown > 0) && styles.modalButtonDisabled]}
+                    style={[styles.modalButton, { backgroundColor: isSendOtpDisabled ? '#f1999d' : '#c14954' }]}
                     onPress={handleSendResetCode}
-                    disabled={forgotLoading || resetCooldown > 0}
+                    disabled={isSendOtpDisabled}
                   >
                     <Text style={styles.modalButtonText}>
                       {forgotLoading
@@ -579,43 +572,27 @@ export default function Login({ navigation }) {
                   </Text>
                   <Text style={styles.verifyEmail}>{forgotEmail}</Text>
 
-                  {/* 4-Digit OTP Boxes */}
+                  {/* OTP Input */}
                   <View style={styles.otpContainer}>
-                    {forgotOtp.map((digit, index) => (
-                      <TextInput
-                        key={index}
-                        ref={(ref) => (forgotInputRefs.current[index] = ref)}
-                        style={[
-                          styles.otpBox,
-                          digit !== '' && styles.otpBoxFilled,
-                        ]}
-                        value={digit}
-                        onChangeText={(text) => {
-                          if (text.length > 1) {
-                            handleForgotOtpPaste(text, index)
-                          } else {
-                            handleForgotOtpChange(text, index)
-                          }
-                        }}
-                        onKeyPress={(e) => handleForgotOtpKeyPress(e, index)}
-                        keyboardType="number-pad"
-                        maxLength={1}
-                        textAlign="center"
-                        selectionColor="#D9989E"
-                        placeholderTextColor="#D1D5DB"
-                        placeholder="·"
-                      />
-                    ))}
+                    <TextInput
+                      style={[styles.modalInput, { textAlign: 'center', letterSpacing: 8, fontSize: 24 }]}
+                      value={forgotOtp.split('').join(' ')}
+                      onChangeText={(text) => setForgotOtp(text.replace(/[^0-9]/g, '').slice(0, 4))}
+                      keyboardType="number-pad"
+                      maxLength={7}
+                      placeholder="- - - -"
+                      placeholderTextColor="#D1D5DB"
+                    />
                   </View>
 
                   {/* Verify Button */}
                   <TouchableOpacity
                     style={[
                       styles.verifyButton,
-                      (forgotLoading || getForgotOtpString().length < 4) && styles.verifyButtonDisabled,
+                      { backgroundColor: isVerifyOtpDisabled ? '#f1999d' : '#c14954' }
                     ]}
                     onPress={handleVerifyResetCode}
-                    disabled={forgotLoading || getForgotOtpString().length < 4}
+                    disabled={isVerifyOtpDisabled}
                   >
                     {forgotLoading ? (
                       <ActivityIndicator color="#fff" />
@@ -641,17 +618,6 @@ export default function Login({ navigation }) {
                       </Text>
                     </TouchableOpacity>
                   </View>
-
-                  {/* Cancel */}
-                  <TouchableOpacity
-                    style={styles.cancelButton}
-                    onPress={() => {
-                      setForgotVisible(false)
-                      setForgotStep('request')
-                    }}
-                  >
-                    <Text style={styles.cancelText}>Cancel</Text>
-                  </TouchableOpacity>
                 </>
               )}
 
@@ -690,24 +656,10 @@ export default function Login({ navigation }) {
                     </TouchableOpacity>
                   </View>
 
-                  <TouchableOpacity style={styles.modalButton} onPress={handleResetPassword} disabled={forgotLoading}>
+                  <TouchableOpacity style={[styles.modalButton, { backgroundColor: isResetPasswordDisabled ? '#f1999d' : '#c14954' }]} onPress={handleResetPassword} disabled={isResetPasswordDisabled}>
                     <Text style={styles.modalButtonText}>{forgotLoading ? 'Saving...' : 'Save Password'}</Text>
                   </TouchableOpacity>
                 </>
-              )}
-
-              {forgotStep !== 'verify' && (
-                <TouchableOpacity
-                  onPress={() => {
-                    setForgotVisible(false)
-                    setForgotStep('request')
-                    setForgotNewPassword('')
-                    setForgotConfirmPassword('')
-                    setShowResetPassword(false)
-                  }}
-                >
-                  <Text style={styles.modalLink}>Close</Text>
-                </TouchableOpacity>
               )}
             </View>
           </View>
@@ -748,6 +700,56 @@ export default function Login({ navigation }) {
           </View>
         </View>
       </Modal>
+
+      {/* Password Updated Modal */}
+      <Modal
+        transparent
+        visible={passwordUpdatedVisible}
+        animationType="fade"
+        onRequestClose={() => setPasswordUpdatedVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalCard, { alignItems: 'center', padding: 32 }]}>
+            {/* Icon Graphic */}
+            <View style={{ marginBottom: 24, position: 'relative', width: 100, height: 100, alignItems: 'center', justifyContent: 'center' }}>
+              <View style={{ width: 80, height: 80, borderRadius: 40, backgroundColor: '#CBD5E1', alignItems: 'center', justifyContent: 'center' }}>
+                <View style={{ width: 64, height: 64, borderRadius: 32, backgroundColor: '#0f1e35', alignItems: 'center', justifyContent: 'center' }}>
+                  <Feather name="key" size={28} color="#fff" />
+                </View>
+              </View>
+              {/* Decorative dots */}
+              <View style={{ position: 'absolute', top: 10, left: 10, width: 6, height: 6, borderRadius: 3, backgroundColor: '#94A3B8' }} />
+              <View style={{ position: 'absolute', top: 20, right: 0, width: 12, height: 12, borderRadius: 6, backgroundColor: '#94A3B8' }} />
+              <View style={{ position: 'absolute', bottom: 10, left: 20, width: 8, height: 8, borderRadius: 4, backgroundColor: '#94A3B8' }} />
+            </View>
+
+            <Text style={{ fontSize: 20, fontWeight: '700', color: '#0f1e35', marginBottom: 12 }}>
+              Password Updated
+            </Text>
+            
+            <Text style={{ fontSize: 13, color: '#64748B', textAlign: 'center', lineHeight: 20, marginBottom: 24 }}>
+              Your password has been changed successfully. {'\n'}
+              Please use your new password the next time you log in
+            </Text>
+
+            <TouchableOpacity
+              style={{
+                width: '100%',
+                height: 48,
+                borderRadius: 24,
+                borderWidth: 1,
+                borderColor: '#0f1e35',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+              onPress={() => setPasswordUpdatedVisible(false)}
+            >
+              <Text style={{ color: '#0f1e35', fontSize: 16, fontWeight: '600' }}>Close</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
     </View>
   )
 }

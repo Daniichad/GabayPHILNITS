@@ -27,19 +27,13 @@ export default function AboutApp({ navigation }) {
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-        {/* Branding Logo & Text Header */}
+        {/* Branding Logo */}
         <View style={styles.brandingHeader}>
           <Image
-            source={require('../../../assets/loading.png')}
-            style={styles.logoImage}
+            source={require('../../../assets/img_onboarding.png')}
+            style={styles.logoImageFull}
             resizeMode="contain"
           />
-          <View style={styles.brandingTextCol}>
-            <Text style={styles.brandingLogoText}>
-              <Text style={styles.brandingAccent}>G</Text>ABAY
-            </Text>
-            <Text style={styles.brandingSub}>Phil. Civil Service Exam</Text>
-          </View>
         </View>
 
         {/* Content Paragraphs */}
@@ -107,29 +101,9 @@ const styles = StyleSheet.create({
     marginBottom: 32,
     gap: 12,
   },
-  logoImage: {
-    width: 52,
-    height: 52,
-  },
-  brandingTextCol: {
-    justifyContent: 'center',
-  },
-  brandingLogoText: {
-    fontSize: 28,
-    fontWeight: '800',
-    color: NAVY,
-    letterSpacing: 2,
-    lineHeight: 32,
-  },
-  brandingAccent: {
-    color: ACCENT,
-    fontWeight: '900',
-  },
-  brandingSub: {
-    fontSize: 12,
-    color: '#64748b',
-    letterSpacing: 0.3,
-    marginTop: 2,
+  logoImageFull: {
+    width: 260,
+    height: 75,
   },
 
   // ── Body Text ──

@@ -96,8 +96,8 @@ export default function Library({ navigation }) {
       setError(null)
 
       if (!forceRefresh) {
-        const cachedMaterials = getCache('library_materials')
-        const cachedVideos = getCache('library_videos')
+        const cachedMaterials = await getCache('library_materials')
+        const cachedVideos = await getCache('library_videos')
         if (cachedMaterials && cachedVideos) {
           setMaterials(cachedMaterials)
           setVideos(cachedVideos)
@@ -159,8 +159,8 @@ export default function Library({ navigation }) {
       })
 
       setMaterials(materialsWithProgress)
-      setCache('library_materials', materialsWithProgress)
-      setCache('library_videos', videoData ?? [])
+      await setCache('library_materials', materialsWithProgress)
+      await setCache('library_videos', videoData ?? [])
     } catch (e) {
       console.error('Library load error:', e)
       setError('Failed to load materials.')
