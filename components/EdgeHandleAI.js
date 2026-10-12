@@ -328,7 +328,7 @@ export default function EdgeHandleAI({ side = 'right' }) {
                     >
                       {isAi && (
                         <View style={styles.msgAvatar}>
-                          <MaterialCommunityIcons name="sparkles" size={16} color="#fff" />
+                          <Ionicons name="sparkles" size={16} color="#fff" />
                         </View>
                       )}
                       <View style={[styles.msgBubble, isAi ? styles.msgBubbleAi : styles.msgBubbleUser]}>
@@ -346,7 +346,7 @@ export default function EdgeHandleAI({ side = 'right' }) {
                 {isTyping && (
                   <View style={[styles.msgRow, styles.msgRowAi]}>
                     <View style={styles.msgAvatar}>
-                      <MaterialCommunityIcons name="sparkles" size={16} color="#fff" />
+                      <Ionicons name="sparkles" size={16} color="#fff" />
                     </View>
                     <View style={[styles.msgBubble, styles.msgBubbleAi, { paddingVertical: 10 }]}>
                       <Text style={{ fontSize: 12, color: '#64748b', fontStyle: 'italic' }}>

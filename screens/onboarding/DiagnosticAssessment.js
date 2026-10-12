@@ -6,6 +6,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context'
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons'
 import { supabase } from '../../supabase'
+import { setCache } from '../../utils/cache'
 
 const SUB_PRO_CATEGORIES = [
   'General Information',
@@ -498,28 +499,30 @@ export default function DiagnosticAssessment({ navigation, route }) {
       // Attempt to load from Supabase for target categories
       const { data: dbData, error } = await supabase
         .from('diagnostic_questions')
-        .select('id, category, question, options, correct_answer, sort_order')
+        .select('id, category, question, options, correct_answer')
         .eq('is_active', true)
         .in('category', categories)
         .order('category')
-        .order('sort_order')
 
       let assembled = []
 
-      // Assembly: Ensure exactly 10 questions per category (40 total)
+      // Assembly: Randomly pick 10 questions per category (40 total)
       categories.forEach((cat) => {
         const dbCatQuestions = (dbData || []).filter((q) => q.category === cat)
         const fallbackCatQuestions = FALLBACK_QUESTIONS.filter((q) => q.category === cat)
 
-        // Combine DB questions first, fill remaining with fallback
+        // Combine DB questions first, fill remaining with fallback if needed
         let combined = [...dbCatQuestions]
         if (combined.length < 10) {
           const needed = 10 - combined.length
           const existingIds = new Set(combined.map((q) => q.id))
-          const fillers = fallbackCatQuestions.filter((q) => !existingIds.has(q.id)).slice(0, needed)
+          const fillers = fallbackCatQuestions.filter((q) => !existingIds.has(q.id))
           combined = [...combined, ...fillers]
         }
-        assembled.push(...combined.slice(0, 10))
+
+        // Randomly shuffle all questions in this category and pick 10
+        const shuffled = [...combined].sort(() => Math.random() - 0.5)
+        assembled.push(...shuffled.slice(0, 10))
       })
 
       if (assembled.length === 0) {
@@ -559,6 +562,18 @@ export default function DiagnosticAssessment({ navigation, route }) {
       }
     })
 
+    let weakestCategory = targetCategories[0] || 'Numerical Ability'
+    let lowestPct = 101
+
+    Object.entries(categoryScores).forEach(([cat, bucket]) => {
+      const pctVal = bucket.total > 0 ? Math.round((bucket.correct / bucket.total) * 100) : 0
+      bucket.percentage = pctVal
+      if (pctVal < lowestPct) {
+        lowestPct = pctVal
+        weakestCategory = cat
+      }
+    })
+
     const totalQuestions = questions.length || 40
     const scorePercent = Math.round((correctCount / totalQuestions) * 100)
     
@@ -587,6 +602,8 @@ export default function DiagnosticAssessment({ navigation, route }) {
       scorePercent, 
       level, 
       categoryScores, 
+      weakestCategory,
+      lowestPct: lowestPct === 101 ? 0 : lowestPct,
       answerMap,
       calculatedSpeed 
     }
@@ -613,7 +630,20 @@ export default function DiagnosticAssessment({ navigation, route }) {
     })
     if (attemptError) throw new Error(attemptError.message)
 
-    // 2. Automatically update user's review_speed preference in `users` table
+    // 2. Cache weekly study focus for the Study Plan
+    try {
+      await setCache(`user_study_plan_focus_${userId}`, {
+        primaryFocus: summary.weakestCategory,
+        lowestPct: summary.lowestPct,
+        categoryScores: summary.categoryScores,
+        scorePercent: summary.scorePercent,
+        completedAt: new Date().toISOString(),
+      }, 7 * 24 * 60 * 60 * 1000)
+    } catch (cErr) {
+      console.warn('Study plan cache warning:', cErr)
+    }
+
+    // 3. Automatically update user's review_speed preference in `users` table
     if (userEmail) {
       const formattedSpeed = summary.calculatedSpeed.charAt(0).toUpperCase() + summary.calculatedSpeed.slice(1).toLowerCase()
       await supabase
@@ -702,7 +732,7 @@ export default function DiagnosticAssessment({ navigation, route }) {
 
     const speedLabel = result.calculatedSpeed.toUpperCase()
     const speedDescription = 
-      result.calculatedSpeed === 'slow' ? 'Detailed explanations & step-by-step guidance'
+      result.calculatedSpeed === 'slow' ? 'Comprehensive step-by-step guidance'
       : result.calculatedSpeed === 'fast' ? 'Concise & fast-paced practice content'
       : 'Standard balanced study plan'
 
@@ -762,7 +792,17 @@ export default function DiagnosticAssessment({ navigation, route }) {
                   : <Text style={styles.insightItem}>• Keep practicing to build stronger areas.</Text>}
               </View>
 
-              <TouchableOpacity style={styles.finalButton} activeOpacity={0.85} onPress={() => navigation?.replace('SetPin', { mode: 'prompt' })}>
+              <TouchableOpacity
+                style={styles.finalButton}
+                activeOpacity={0.85}
+                onPress={() => {
+                  if (navigation?.reset) {
+                    navigation.reset({ index: 0, routes: [{ name: 'Home' }] })
+                  } else {
+                    navigation?.replace('Home')
+                  }
+                }}
+              >
                 <Text style={styles.finalButtonText}>{saving ? 'SAVING...' : "LET'S START YOUR JOURNEY"}</Text>
               </TouchableOpacity>
             </View>

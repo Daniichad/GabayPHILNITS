@@ -12,6 +12,7 @@ import Home from './screens/navigations/home/Home'
 import StudyPlan from './screens/navigations/study/StudyPlan'
 import Library from './screens/navigations/study/Library'
 import ReadingMaterial from './screens/navigations/study/ReadingMaterial'
+import VideoLectureDetail from './screens/navigations/study/VideoLectureDetail'
 import Register from './screens/authentication/Register'
 import SetPin from './screens/authentication/SetPin'
 import PinAuth from './screens/authentication/PinAuth'
@@ -44,7 +45,6 @@ import { supabase } from './utils/supabase'
 import NetInfo from '@react-native-community/netinfo'
 import { initDb, getUserCache, saveUserCache } from './utils/database'
 import { processSyncQueue } from './utils/syncManager'
-import { scheduleDailyStudyReminder } from './utils/notificationManager'
 
 const Stack = createNativeStackNavigator()
 
@@ -58,6 +58,7 @@ const navTheme = {
 
 const NAV_SCREENS = new Set([
 	'Home', 'Library', 'StudyPlan',
+	'ReadingMaterial', 'VideoLectureDetail',
 	'PracticeLibrary', 'PracticeScreen', 'Performance', 'Profile', 'AccountInformation', 'Settings', 'HelpCenter', 'Report', 'TermsConditions', 'RateApp', 'AboutApp', 'PracticeOverview', 'CseGuide', 'CseSitesNearMe',
 ])
 
@@ -91,7 +92,8 @@ export default function App() {
 					if (cachedData) {
 						if (!cachedData.personal_info_completed) return 'PersonalInfo'
 						if (!cachedData.diagnostic_completed) return 'DiagnosticAssessment'
-						return cachedData.pin_hash ? 'PinAuth' : 'Home'
+						const hasCachedPin = Boolean(cachedData.pin_hash && String(cachedData.pin_hash).trim().length > 0)
+						return hasCachedPin ? 'PinAuth' : 'Home'
 					}
 					// If no cache, assume they finished onboarding but might be unstable
 					return 'Home'
@@ -123,14 +125,16 @@ export default function App() {
 				}
 
 				// Check if user has a PIN — if so, gate with PinAuth
+				const userEmail = session.user.email
 				const { data: userData } = await supabase
 					.from('users')
 					.select('pin_hash')
-					.eq('email', session.user.email)
+					.ilike('email', userEmail)
 					.maybeSingle()
 
-				await saveUserCache(userId, userData?.pin_hash, true, true)
-				return userData?.pin_hash ? 'PinAuth' : 'Home'
+				const hasPin = Boolean(userData?.pin_hash && String(userData.pin_hash).trim().length > 0)
+				await saveUserCache(userId, hasPin ? userData.pin_hash : null, true, true)
+				return hasPin ? 'PinAuth' : 'Home'
 			}
 
 			// 2. If not logged in, check onboarding
@@ -149,7 +153,6 @@ export default function App() {
 	useEffect(() => {
 		const init = async () => {
 			await initDb()
-			scheduleDailyStudyReminder().catch(() => {})
 			const route = await determineInitialRoute()
 			setInitialRoute(route)
 			setCurrentRoute(route)
@@ -250,6 +253,7 @@ export default function App() {
 						<Stack.Screen name="StudyPlan" component={StudyPlan} />
 						<Stack.Screen name="Library" component={Library} />
 						<Stack.Screen name="ReadingMaterial" component={ReadingMaterial} />
+						<Stack.Screen name="VideoLectureDetail" component={VideoLectureDetail} />
 						<Stack.Screen name="Home" component={Home} />
 						<Stack.Screen name="PracticeLibrary" component={PracticeLibraryScreen} />
 						<Stack.Screen name="PracticeScreen" component={PracticeScreen} />

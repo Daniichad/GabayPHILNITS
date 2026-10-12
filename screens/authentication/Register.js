@@ -127,7 +127,7 @@ export default function Register({ navigation }) {
     if (!passwordRegex.test(password)) {
       showCustomAlert(
         'Weak Password',
-        'Password does not meet complexity requirements.'
+        'Password must be at least 8 characters long and include at least one uppercase letter, one lowercase letter, one number, and one special character (e.g., @$!%*?&).'
       )
       return
     }
@@ -173,7 +173,7 @@ export default function Register({ navigation }) {
       setVerifyVisible(true)
       startResendCooldown()
     } catch (err) {
-      showCustomAlert('Error', 'Could not send verification email.')
+      showCustomAlert('Registration Error', 'Could not send verification email. Please try again.')
     } finally {
       setLoading(false)
     }
@@ -183,12 +183,12 @@ export default function Register({ navigation }) {
   const handleVerifyEmail = async () => {
     const code = getOtpString()
     if (code.length < 4) {
-      showCustomAlert('Error', 'Please enter the complete 4-digit code')
+      showCustomAlert('Validation Error', 'Please enter the complete 4-digit code.')
       return
     }
 
     if (code !== generatedOtp) {
-      showCustomAlert('Verification Failed', 'Invalid verification code. Please try again.')
+      showCustomAlert('Verification Error', 'Invalid verification code. Please try again.')
       return
     }
 
@@ -206,7 +206,7 @@ export default function Register({ navigation }) {
       })
 
       if (error) {
-        showCustomAlert('Error', 'Could not create account.')
+        showCustomAlert('Registration Error', 'Could not create account. Please try again.')
         return
       }
 
@@ -224,7 +224,7 @@ export default function Register({ navigation }) {
       )
 
       if (profileError) {
-        showCustomAlert('Error', 'Could not create profile.')
+        showCustomAlert('Registration Error', 'Could not create profile. Please try again.')
         return
       }
 
@@ -240,7 +240,7 @@ export default function Register({ navigation }) {
         () => navigation?.replace('Login')
       )
     } catch (err) {
-      showCustomAlert('Error', 'Verification failed. Please try again.')
+      showCustomAlert('Registration Error', 'Verification failed. Please try again.')
     } finally {
       setVerifying(false)
     }
@@ -261,7 +261,7 @@ export default function Register({ navigation }) {
       startResendCooldown()
       showCustomAlert('Code Sent', 'Verification code has been sent.', 'success')
     } catch (err) {
-      showCustomAlert('Error', 'Could not resend verification email.')
+      showCustomAlert('Registration Error', 'Could not resend verification email. Please try again.')
     } finally {
       setResending(false)
     }
@@ -677,29 +677,32 @@ export default function Register({ navigation }) {
         animationType="fade"
         onRequestClose={closeAlert}
       >
-        <View style={styles.modalOverlay}>
-          <View style={[styles.modalCard, { alignItems: 'center', padding: 24 }]}>
+        <View style={styles.alertOverlay}>
+          <View style={styles.alertCard}>
             {alertType === 'success' ? (
-              <View style={{ backgroundColor: '#D1FAE5', padding: 12, borderRadius: 32, marginBottom: 16 }}>
-                <Ionicons name="checkmark-circle" size={32} color="#10B981" />
+              <View style={[styles.alertIconCircle, { backgroundColor: '#10B981' }]}>
+                <Ionicons name="checkmark" size={38} color="#fff" />
               </View>
             ) : (
-              <View style={{ backgroundColor: '#FEE2E2', padding: 12, borderRadius: 32, marginBottom: 16 }}>
-                <Ionicons name="warning" size={32} color="#EF4444" />
+              <View style={styles.alertIconCircle}>
+                <Text style={styles.alertExclamation}>!</Text>
               </View>
             )}
-            <Text style={[styles.modalTitle, { fontSize: 18, marginBottom: 8 }]}>{alertTitle}</Text>
-            <Text style={{ color: '#4B5563', fontSize: 14, textAlign: 'center', lineHeight: 20, marginBottom: 20 }}>
+            <Text style={[styles.alertTitle, alertType === 'success' && { color: '#10B981' }]}>
+              {alertTitle}
+            </Text>
+            <Text style={styles.alertMessage}>
               {alertMessage}
             </Text>
             <TouchableOpacity
               style={[
-                styles.modalButton,
-                { width: '100%', backgroundColor: alertType === 'success' ? '#10B981' : '#EF4444' }
+                styles.alertButton,
+                alertType === 'success' && { backgroundColor: '#10B981' },
               ]}
+              activeOpacity={0.85}
               onPress={closeAlert}
             >
-              <Text style={styles.modalButtonText}>Okay</Text>
+              <Text style={styles.alertButtonText}>Okay</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -1023,5 +1026,73 @@ const styles = StyleSheet.create({
     color: '#9CA3AF',
     fontSize: 14,
     fontWeight: '500',
+  },
+  // ── Alert Popup Styles ──
+  alertOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.62)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  alertCard: {
+    width: '100%',
+    maxWidth: 320,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 28,
+    paddingHorizontal: 24,
+    paddingTop: 32,
+    paddingBottom: 24,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.25,
+    shadowRadius: 20,
+    elevation: 10,
+  },
+  alertIconCircle: {
+    width: 68,
+    height: 68,
+    borderRadius: 34,
+    backgroundColor: '#B84754',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  alertExclamation: {
+    color: '#FFFFFF',
+    fontSize: 38,
+    fontWeight: '800',
+    lineHeight: 44,
+    textAlign: 'center',
+    includeFontPadding: false,
+  },
+  alertTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#B84754',
+    textAlign: 'center',
+    marginBottom: 10,
+  },
+  alertMessage: {
+    fontSize: 13.5,
+    color: '#4B5563',
+    textAlign: 'center',
+    lineHeight: 20,
+    marginBottom: 24,
+    paddingHorizontal: 6,
+  },
+  alertButton: {
+    width: '100%',
+    backgroundColor: '#B84754',
+    borderRadius: 24,
+    paddingVertical: 13,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  alertButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '700',
   },
 })

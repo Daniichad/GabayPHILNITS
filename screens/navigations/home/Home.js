@@ -251,7 +251,13 @@ export default function Home({ session, navigation }) {
           const now = new Date()
           const diffDays = Math.ceil((next - now) / (1000 * 60 * 60 * 24))
           const label = next.toLocaleDateString('en-PH', { month: 'long', day: 'numeric', year: 'numeric' })
-          const payload = { date: next, label, daysLeft: diffDays, appPeriod: null, source: 'live' }
+          const payload = {
+            date: next instanceof Date ? next.toISOString() : next,
+            label,
+            daysLeft: diffDays,
+            appPeriod: null,
+            source: 'live',
+          }
           setCseSchedule(payload)
           await setCache('home_cse_schedule', payload)
           setCseLoading(false)
@@ -265,7 +271,7 @@ export default function Home({ session, navigation }) {
     const now = new Date()
     const diffDays = Math.ceil((next.date - now) / (1000 * 60 * 60 * 24))
     const payload = {
-      date: next.date,
+      date: next.date instanceof Date ? next.date.toISOString() : next.date,
       label: next.label,
       daysLeft: diffDays > 0 ? diffDays : 0,
       appPeriod: next.appPeriod,
@@ -757,7 +763,13 @@ export default function Home({ session, navigation }) {
           {/* Streak badge */}
           <TouchableOpacity 
             style={styles.streakBadge}
-            onPress={() => navigation.navigate('ActivityCalendar', { streakDays, cseSchedule, profileName })}
+            onPress={() => {
+              const serializableSchedule = cseSchedule ? {
+                ...cseSchedule,
+                date: cseSchedule.date instanceof Date ? cseSchedule.date.toISOString() : cseSchedule.date,
+              } : null
+              navigation.navigate('ActivityCalendar', { streakDays, cseSchedule: serializableSchedule, profileName })
+            }}
             activeOpacity={0.7}
           >
             <Feather name="zap" size={15} color={NAVY} />

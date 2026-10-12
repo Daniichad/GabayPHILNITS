@@ -5,6 +5,7 @@ import * as WebBrowser from 'expo-web-browser'
 import * as QueryParams from 'expo-auth-session'
 import { supabase } from '../../supabase'
 import { sendEmailJsOtp } from '../../utils/emailjs'
+import { saveUserCache } from '../../utils/database'
 
 WebBrowser.maybeCompleteAuthSession()
 
@@ -21,21 +22,22 @@ export default function Login({ navigation }) {
     setAlertType(type)
     setAlertVisible(true)
   }
-  const checkUserRedirects = async (userId) => {
+  const checkUserRedirects = async (userId, userEmail) => {
     // Ensure user profile exists in public.users
+    const effectiveEmail = userEmail || (await supabase.auth.getUser()).data.user?.email
     try {
-      const { data: { user: authUser } } = await supabase.auth.getUser()
-      if (authUser) {
+      if (effectiveEmail) {
         const { data: existingUser } = await supabase
           .from('users')
           .select('email')
-          .eq('email', authUser.email)
+          .ilike('email', effectiveEmail)
           .maybeSingle()
 
         if (!existingUser) {
+          const { data: { user: authUser } } = await supabase.auth.getUser()
           await supabase.from('users').upsert({
-            fullname: authUser.user_metadata?.full_name || authUser.user_metadata?.fullName || 'Student',
-            email: authUser.email,
+            fullname: authUser?.user_metadata?.full_name || authUser?.user_metadata?.fullName || 'Student',
+            email: effectiveEmail,
             role: 'user',
           }, { onConflict: 'email' })
         }
@@ -73,10 +75,15 @@ export default function Login({ navigation }) {
     const { data: pinData } = await supabase
       .from('users')
       .select('pin_hash')
-      .eq('email', (await supabase.auth.getUser()).data.user?.email)
+      .ilike('email', effectiveEmail)
       .maybeSingle()
 
-    if (pinData?.pin_hash) {
+    const hasPin = Boolean(pinData?.pin_hash && String(pinData.pin_hash).trim().length > 0)
+
+    // Sync to local cache
+    await saveUserCache(userId, hasPin ? pinData.pin_hash : null, true, true)
+
+    if (hasPin) {
       navigation?.replace('PinAuth')
     } else {
       navigation?.replace('Home')
@@ -153,7 +160,7 @@ export default function Login({ navigation }) {
       })
 
       if (error) {
-        showCustomAlert('Google Sign-in Error', error.message)
+        showCustomAlert('Login Error', 'Google sign-in could not be completed. Please try again.')
         return
       }
 
@@ -173,19 +180,19 @@ export default function Login({ navigation }) {
             })
 
             if (sessionError) {
-              showCustomAlert('Session Error', sessionError.message)
+              showCustomAlert('Login Error', 'Failed to authenticate session. Please try again.')
               return
             }
 
             const activeUser = sessionData?.user || sessionData?.session?.user
             if (activeUser) {
-              await checkUserRedirects(activeUser.id)
+              await checkUserRedirects(activeUser.id, activeUser.email)
             }
           }
         }
       }
     } catch (err) {
-      showCustomAlert('Google Sign-in Error', err.message || String(err))
+      showCustomAlert('Login Error', 'Google sign-in could not be completed. Please try again.')
     } finally {
       setLoading(false)
     }
@@ -212,13 +219,13 @@ export default function Login({ navigation }) {
       })
 
       if (error || !data.session) {
-        showCustomAlert('Login Error', 'Invalid credentials. Please try again.')
+        showCustomAlert('Login Error', 'Invalid login credentials.')
         return
       }
 
-      await checkUserRedirects(data.session.user.id)
+      await checkUserRedirects(data.session.user.id, data.session.user.email)
     } catch (err) {
-      showCustomAlert('Login Error', 'An unexpected error occurred. Please try again.')
+      showCustomAlert('Login Error', 'Invalid login credentials.')
     } finally {
       setLoading(false)
     }
@@ -226,7 +233,7 @@ export default function Login({ navigation }) {
 
   const handleSendResetCode = async () => {
     if (!forgotEmail.trim()) {
-      showCustomAlert('Error', 'Please enter your email address')
+      showCustomAlert('Validation Error', 'Please enter your email address.')
       return
     }
 
@@ -260,7 +267,7 @@ export default function Login({ navigation }) {
       setForgotOtp('')
       setResetCooldown(60)
     } catch (err) {
-      showCustomAlert('Error', 'An unexpected error occurred.')
+      showCustomAlert('Reset Error', 'Could not send verification code. Please try again.')
     } finally {
       setForgotLoading(false)
     }
@@ -269,7 +276,7 @@ export default function Login({ navigation }) {
   const handleVerifyResetCode = async () => {
     const code = getForgotOtpString()
     if (code.length < 4) {
-      showCustomAlert('Error', 'Please enter the complete 4-digit code')
+      showCustomAlert('Validation Error', 'Please enter the complete 4-digit code.')
       return
     }
 
@@ -283,12 +290,12 @@ export default function Login({ navigation }) {
 
   const handleResetPassword = async () => {
     if (!forgotNewPassword.trim()) {
-      showCustomAlert('Error', 'Please enter a new password')
+      showCustomAlert('Validation Error', 'Please enter a new password.')
       return
     }
 
     if (forgotNewPassword !== forgotConfirmPassword) {
-      showCustomAlert('Error', 'Passwords do not match')
+      showCustomAlert('Validation Error', 'Passwords do not match.')
       return
     }
 
@@ -297,7 +304,7 @@ export default function Login({ navigation }) {
     if (!passwordRegex.test(forgotNewPassword)) {
       showCustomAlert(
         'Weak Password',
-        'Password does not meet complexity requirements.'
+        'Password must be at least 8 characters long and include at least one uppercase letter, one lowercase letter, one number, and one special character (e.g., @$!%*?&).'
       )
       return
     }
@@ -311,7 +318,7 @@ export default function Login({ navigation }) {
         .eq('email', forgotEmail.trim())
 
       if (error) {
-        showCustomAlert('Error', 'Could not update password.')
+        showCustomAlert('Reset Error', 'Could not update password. Please try again.')
         return
       }
 
@@ -323,7 +330,7 @@ export default function Login({ navigation }) {
       setForgotOtp('')
       setForgotNewPassword('')
     } catch (err) {
-      showCustomAlert('Error', 'An unexpected error occurred.')
+      showCustomAlert('Reset Error', 'An unexpected error occurred. Please try again.')
     } finally {
       setForgotLoading(false)
     }
@@ -673,29 +680,32 @@ export default function Login({ navigation }) {
         animationType="fade"
         onRequestClose={() => setAlertVisible(false)}
       >
-        <View style={styles.modalOverlay}>
-          <View style={[styles.modalCard, { alignItems: 'center', padding: 24 }]}>
+        <View style={styles.alertOverlay}>
+          <View style={styles.alertCard}>
             {alertType === 'success' ? (
-              <View style={{ backgroundColor: '#D1FAE5', padding: 12, borderRadius: 32, marginBottom: 16 }}>
-                <Ionicons name="checkmark-circle" size={32} color="#10B981" />
+              <View style={[styles.alertIconCircle, { backgroundColor: '#10B981' }]}>
+                <Ionicons name="checkmark" size={38} color="#fff" />
               </View>
             ) : (
-              <View style={{ backgroundColor: '#FEE2E2', padding: 12, borderRadius: 32, marginBottom: 16 }}>
-                <Ionicons name="warning" size={32} color="#EF4444" />
+              <View style={styles.alertIconCircle}>
+                <Text style={styles.alertExclamation}>!</Text>
               </View>
             )}
-            <Text style={[styles.modalTitle, { fontSize: 18, marginBottom: 8 }]}>{alertTitle}</Text>
-            <Text style={{ color: '#4B5563', fontSize: 14, textAlign: 'center', lineHeight: 20, marginBottom: 20 }}>
+            <Text style={[styles.alertTitle, alertType === 'success' && { color: '#10B981' }]}>
+              {alertTitle}
+            </Text>
+            <Text style={styles.alertMessage}>
               {alertMessage}
             </Text>
             <TouchableOpacity
               style={[
-                styles.modalButton,
-                { width: '100%', backgroundColor: alertType === 'success' ? '#10B981' : '#EF4444' }
+                styles.alertButton,
+                alertType === 'success' && { backgroundColor: '#10B981' },
               ]}
+              activeOpacity={0.85}
               onPress={() => setAlertVisible(false)}
             >
-              <Text style={styles.modalButtonText}>Okay</Text>
+              <Text style={styles.alertButtonText}>Okay</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -1083,5 +1093,73 @@ const styles = StyleSheet.create({
   },
   modalEyeButton: {
     padding: 4,
+  },
+  // ── Alert Popup Styles ──
+  alertOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.62)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  alertCard: {
+    width: '100%',
+    maxWidth: 320,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 28,
+    paddingHorizontal: 24,
+    paddingTop: 32,
+    paddingBottom: 24,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.25,
+    shadowRadius: 20,
+    elevation: 10,
+  },
+  alertIconCircle: {
+    width: 68,
+    height: 68,
+    borderRadius: 34,
+    backgroundColor: '#B84754',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  alertExclamation: {
+    color: '#FFFFFF',
+    fontSize: 38,
+    fontWeight: '800',
+    lineHeight: 44,
+    textAlign: 'center',
+    includeFontPadding: false,
+  },
+  alertTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#B84754',
+    textAlign: 'center',
+    marginBottom: 10,
+  },
+  alertMessage: {
+    fontSize: 13.5,
+    color: '#4B5563',
+    textAlign: 'center',
+    lineHeight: 20,
+    marginBottom: 24,
+    paddingHorizontal: 6,
+  },
+  alertButton: {
+    width: '100%',
+    backgroundColor: '#B84754',
+    borderRadius: 24,
+    paddingVertical: 13,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  alertButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '700',
   },
 })

@@ -31,14 +31,7 @@
     "plugins": [
       "expo-web-browser",
       "expo-sqlite",
-      "expo-status-bar",
-      [
-        "expo-notifications",
-        {
-          "icon": "./assets/app_logo.png",
-          "color": "#0f2747"
-        }
-      ]
+      "expo-status-bar"
     ],
     "extra": {
       "eas": {

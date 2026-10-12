@@ -6,11 +6,6 @@ import {
 import { Feather } from '@expo/vector-icons'
 import { supabase } from '../../../utils/supabase'
 import { sendEmailJsOtp } from '../../../utils/emailjs'
-import {
-  scheduleDailyStudyReminder,
-  cancelDailyStudyReminder,
-  sendInstantTestNotification,
-} from '../../../utils/notificationManager'
 
 const NAVY = '#0f2747'
 const LANGUAGES = ['English', 'Filipino (Tagalog)']
@@ -217,31 +212,6 @@ export default function Settings({ navigation }) {
     navigation.navigate('SetPin')
   }
 
-  const handleToggleNotifications = async (val) => {
-    setNotifications(val)
-    if (val) {
-      const ok = await scheduleDailyStudyReminder()
-      if (ok) {
-        Alert.alert('Notifications Enabled', 'Daily CSE study reminders are now scheduled for 8:00 PM!')
-      } else {
-        Alert.alert('Permission Required', 'Please enable notification permissions in your device settings.')
-        setNotifications(false)
-      }
-    } else {
-      await cancelDailyStudyReminder()
-      Alert.alert('Notifications Disabled', 'Daily study reminders have been turned off.')
-    }
-  }
-
-  const handleTestNotification = async () => {
-    const success = await sendInstantTestNotification()
-    if (success) {
-      Alert.alert('Test Sent! 🔔', 'A test local notification has been triggered.')
-    } else {
-      Alert.alert('Notification Error', 'Could not send test notification. Please check permissions.')
-    }
-  }
-
   return (
     <View style={styles.screen}>
       <StatusBar barStyle="dark-content" backgroundColor="#fff" />
@@ -265,13 +235,7 @@ export default function Settings({ navigation }) {
           <ToggleRow
             label="Notification"
             value={notifications}
-            onValueChange={handleToggleNotifications}
-          />
-          <View style={styles.divider} />
-          <ArrowRow
-            label="Test Notification"
-            subtitle="Send an instant test notification"
-            onPress={handleTestNotification}
+            onValueChange={setNotifications}
           />
           <View style={styles.divider} />
           <ToggleRow

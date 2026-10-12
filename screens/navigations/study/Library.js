@@ -25,29 +25,41 @@ const VIDEO_LECTURES = [
   {
     id: 'vid-1',
     title: 'Basic Arithmetic Review',
+    subject: 'Numerical Ability',
     duration: '12 minutes',
-    durationMinutes: 12,
+    duration_minutes: 12,
     progressMinutes: 5,
     url: 'https://www.youtube.com/watch?v=sI9pP3s63c8',
-    thumbnail: 'https://images.unsplash.com/photo-1434030216411-0b793f4b4173?w=400&q=80',
+    thumbnail_url: 'https://images.unsplash.com/photo-1434030216411-0b793f4b4173?w=400&q=80',
+    author: 'Team Lyqa',
+    author_url: 'https://www.youtube.com/@TeamLyqa',
+    description: 'Comprehensive review of fundamental arithmetic operations, PEMDAS order of operations, and shortcut techniques for Civil Service Exam numerical questions.',
   },
   {
     id: 'vid-2',
     title: 'Percentages & Decimals',
+    subject: 'Numerical Ability',
     duration: '5 minutes',
-    durationMinutes: 5,
+    duration_minutes: 5,
     progressMinutes: 1,
     url: 'https://www.youtube.com/watch?v=FqE2wPif_9E',
-    thumbnail: 'https://images.unsplash.com/photo-1454165804606-c3d57bc86b40?w=400&q=80',
+    thumbnail_url: 'https://images.unsplash.com/photo-1454165804606-c3d57bc86b40?w=400&q=80',
+    author: 'Team Lyqa',
+    author_url: 'https://www.youtube.com/@TeamLyqa',
+    description: 'Master quick calculations for percentage problems, conversions between decimals and fractions, and real-world word problems.',
   },
   {
     id: 'vid-3',
     title: 'Word Analogy reviewer',
+    subject: 'Verbal Ability',
     duration: '15 minutes',
-    durationMinutes: 15,
+    duration_minutes: 15,
     progressMinutes: 8,
     url: 'https://www.youtube.com/watch?v=F388d0xG7m0',
-    thumbnail: 'https://images.unsplash.com/photo-1546410531-bb4caa6b424d?w=400&q=80',
+    thumbnail_url: 'https://images.unsplash.com/photo-1546410531-bb4caa6b424d?w=400&q=80',
+    author: 'Team Lyqa',
+    author_url: 'https://www.youtube.com/@TeamLyqa',
+    description: 'Detailed reviewer for word analogy questions, common relationships, and logical word associations found in CSE verbal ability.',
   },
 ]
 
@@ -114,7 +126,8 @@ export default function Library({ navigation }) {
         .select('*')
         .order('created_at', { ascending: false })
       if (videoErr) throw videoErr
-      setVideos(videoData ?? [])
+      const finalVideos = (videoData && videoData.length > 0) ? videoData : VIDEO_LECTURES
+      setVideos(finalVideos)
 
       // Fetch reading materials
       const { data: readData, error: readErr } = await supabase
@@ -327,7 +340,7 @@ export default function Library({ navigation }) {
                     key={video.id}
                     style={styles.videoCard}
                     activeOpacity={0.85}
-                    onPress={() => Linking.openURL(video.url)}
+                    onPress={() => navigation?.navigate('VideoLectureDetail', { video })}
                   >
                     <Image source={{ uri: thumb }} style={styles.videoThumbnail} />
                     <View style={styles.videoBody}>
