@@ -22,7 +22,8 @@ import { supabase } from '../utils/supabase'
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window')
 const NAVY = '#0f2747'
 const ACCENT = '#d85e67'
-const HANDLE_SIZE = 60
+const HANDLE_SIZE = 54
+const EDGE_MARGIN = 6
 
 const QUICK_PROMPTS = [
   '💡 What should I study today?',
@@ -33,15 +34,20 @@ const QUICK_PROMPTS = [
 
 export default function EdgeHandleAI({ side = 'right' }) {
   const insets = useSafeAreaInsets()
-  const isRight = side === 'right'
 
-  // Min and Max Y clamping bounds
-  const minY = Math.max(insets.top + 60, 80)
-  const maxY = SCREEN_HEIGHT - Math.max(insets.bottom + 80, 100) - HANDLE_SIZE
+  // Min and Max bounds
+  const minX = EDGE_MARGIN
+  const maxX = SCREEN_WIDTH - HANDLE_SIZE - EDGE_MARGIN
+  const minY = Math.max(insets.top + 40, 60)
+  const maxY = SCREEN_HEIGHT - Math.max(insets.bottom + 60, 80) - HANDLE_SIZE
   const defaultY = Math.round(SCREEN_HEIGHT * 0.45)
+  const initialX = side === 'left' ? minX : maxX
 
+  const panX = useRef(new Animated.Value(initialX)).current
   const panY = useRef(new Animated.Value(defaultY)).current
+  const currentX = useRef(initialX)
   const currentY = useRef(defaultY)
+  const currentSide = useRef(side)
 
   const opacityAnim = useRef(new Animated.Value(1)).current
   const inactivityTimer = useRef(null)
@@ -66,7 +72,21 @@ export default function EdgeHandleAI({ side = 'right' }) {
   useEffect(() => {
     const restorePos = async () => {
       try {
+        const savedSide = await AsyncStorage.getItem('edgeHandleSide')
         const savedY = await AsyncStorage.getItem('edgeHandleY')
+
+        let targetX = maxX
+        if (savedSide === 'left') {
+          targetX = minX
+          currentSide.current = 'left'
+        } else {
+          targetX = maxX
+          currentSide.current = 'right'
+        }
+
+        currentX.current = targetX
+        panX.setValue(targetX)
+
         if (savedY !== null) {
           const parsedY = parseFloat(savedY)
           const clamped = Math.min(Math.max(parsedY, minY), maxY)
@@ -74,7 +94,7 @@ export default function EdgeHandleAI({ side = 'right' }) {
           panY.setValue(clamped)
         }
       } catch (e) {
-        /* fallback to defaultY */
+        /* fallback to defaults */
       }
     }
     restorePos()
@@ -85,7 +105,7 @@ export default function EdgeHandleAI({ side = 'right' }) {
     }
   }, [])
 
-  // ── Inactivity Opacity Fade (3s) ───────────────────────────
+  // ── Inactivity Opacity Fade (4s) ───────────────────────────
   const resetInactivityTimer = () => {
     Animated.timing(opacityAnim, {
       toValue: 1,
@@ -97,49 +117,73 @@ export default function EdgeHandleAI({ side = 'right' }) {
 
     inactivityTimer.current = setTimeout(() => {
       Animated.timing(opacityAnim, {
-        toValue: 0.4,
-        duration: 600,
+        toValue: 0.65,
+        duration: 500,
         useNativeDriver: false,
       }).start()
-    }, 3000)
+    }, 4000)
   }
 
-  // ── PanResponder for Vertical Dragging ─────────────────────
-  const dragStartOffset = useRef(defaultY)
-  const dragDistance = useRef({ dx: 0, dy: 0 })
+  // ── PanResponder for 2D Dragging & Snapping to Side ──────────
+  const dragStartOffset = useRef({ x: initialX, y: defaultY })
 
   const panResponder = useRef(
     PanResponder.create({
       onStartShouldSetPanResponder: () => true,
       onMoveShouldSetPanResponder: (_, gestureState) => {
-        return Math.abs(gestureState.dy) > 4 || Math.abs(gestureState.dx) > 4
+        return Math.abs(gestureState.dy) > 3 || Math.abs(gestureState.dx) > 3
       },
 
       onPanResponderGrant: () => {
         resetInactivityTimer()
-        dragStartOffset.current = currentY.current
-        dragDistance.current = { dx: 0, dy: 0 }
+        dragStartOffset.current = { x: currentX.current, y: currentY.current }
       },
 
       onPanResponderMove: (_, gestureState) => {
         resetInactivityTimer()
-        dragDistance.current = { dx: gestureState.dx, dy: gestureState.dy }
-        const newY = dragStartOffset.current + gestureState.dy
+        const newX = dragStartOffset.current.x + gestureState.dx
+        const newY = dragStartOffset.current.y + gestureState.dy
+
+        const clampedX = Math.min(Math.max(newX, minX), maxX)
         const clampedY = Math.min(Math.max(newY, minY), maxY)
+
+        currentX.current = clampedX
         currentY.current = clampedY
+        panX.setValue(clampedX)
         panY.setValue(clampedY)
       },
 
       onPanResponderRelease: (_, gestureState) => {
         resetInactivityTimer()
         const totalDist = Math.hypot(gestureState.dx, gestureState.dy)
+
         if (totalDist < 6) {
-          // Tap detected — toggle AI panel
+          // Tap detected — open AI panel
           openPanel()
-        } else {
-          // Drag finished — persist Y coordinate
-          AsyncStorage.setItem('edgeHandleY', currentY.current.toString()).catch(() => {})
+          return
         }
+
+        // Drag finished — decide which side to stick to
+        const middleX = (minX + maxX) / 2
+        const shouldSnapLeft = gestureState.vx < -0.3 || (gestureState.vx <= 0.3 && currentX.current < middleX)
+
+        const finalX = shouldSnapLeft ? minX : maxX
+        const finalSide = shouldSnapLeft ? 'left' : 'right'
+
+        currentSide.current = finalSide
+        currentX.current = finalX
+
+        // Spring snap to the edge
+        Animated.spring(panX, {
+          toValue: finalX,
+          useNativeDriver: false,
+          tension: 75,
+          friction: 9,
+        }).start()
+
+        // Persist side & vertical coordinate
+        AsyncStorage.setItem('edgeHandleSide', finalSide).catch(() => {})
+        AsyncStorage.setItem('edgeHandleY', currentY.current.toString()).catch(() => {})
       },
     })
   ).current
@@ -220,8 +264,8 @@ export default function EdgeHandleAI({ side = 'right' }) {
         {...panResponder.panHandlers}
         style={[
           styles.handleContainer,
-          isRight ? { right: -HANDLE_SIZE / 2 } : { left: -HANDLE_SIZE / 2 },
           {
+            left: panX,
             top: panY,
             opacity: opacityAnim,
           },
@@ -230,7 +274,7 @@ export default function EdgeHandleAI({ side = 'right' }) {
         <TouchableOpacity
           activeOpacity={0.85}
           onPress={openPanel}
-          style={[styles.handleCircle, isRight ? styles.handleRight : styles.handleLeft]}
+          style={styles.handleCircle}
         >
           {/* Glowing App / G Logo */}
           <View style={styles.iconInner}>
@@ -406,16 +450,10 @@ const styles = StyleSheet.create({
     // Shadow for iOS
     shadowColor: '#000',
     shadowOpacity: 0.35,
-    shadowRadius: 8,
-    shadowOffset: { width: -2, height: 2 },
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 3 },
     // Elevation for Android
     elevation: 12,
-  },
-  handleRight: {
-    paddingRight: 24, // Keeps icon centered in the visible half
-  },
-  handleLeft: {
-    paddingLeft: 24,
   },
   iconInner: {
     width: 32,
@@ -426,8 +464,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   logoImage: {
-    width: 24,
-    height: 24,
+    width: 22,
+    height: 22,
   },
 
   // Modal Overlay
