@@ -57,8 +57,8 @@ const navTheme = {
 }
 
 const NAV_SCREENS = new Set([
-	'Home', 'Library', 'StudyPlan',
-	'ReadingMaterial', 'VideoLectureDetail',
+	'Home', 'Library',
+	'VideoLectureDetail',
 	'PracticeLibrary', 'PracticeScreen', 'Performance', 'Profile', 'AccountInformation', 'Settings', 'HelpCenter', 'Report', 'TermsConditions', 'RateApp', 'AboutApp', 'PracticeOverview', 'CseGuide', 'CseSitesNearMe',
 ])
 

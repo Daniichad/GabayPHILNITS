@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   ScrollView,
   View,
@@ -10,41 +10,46 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import { supabase } from '../../../supabase';
 
 // ---------------------------------------------------------------------------
-// STATIC DATA
+// PHILNITS STATIC METADATA & CONFIG
 // ---------------------------------------------------------------------------
 const SCREEN_TITLE = 'Mock Exam';
-const SCREEN_SUBTITLE = '1 HP - P Mock Exam';
 
 const UPCOMING_EXAM = {
-  label: 'Upcoming CSE Exam',
-  daysLeft: "-",
+  label: 'Upcoming PhilNITS Exam Cycle',
+  daysLeft: '-',
 };
-
-// Change this to null to test hiding the result when no exam is taken yet
-const LATEST_RESULT = null;
 
 const LEVELS = [
   {
-    id: 'professional',
-    title: 'Professional Level',
-    questions: 170,
-    duration: '3 hours, 10 minutes',
+    id: 'ip',
+    title: 'Information Technology Passport (IP)',
+    levelBadge: 'Level 1',
+    questions: 100,
+    duration: '2 hours (120 minutes)',
+    coverage: 'Technology: 40% | Strategy: 35% | Management: 25%',
   },
   {
-    id: 'sub-professional',
-    title: 'Sub-Professional Level',
-    questions: 165,
-    duration: '2 hours, 40 minutes',
+    id: 'fe_a',
+    title: 'FE Subject A: IT Fundamentals & Theory',
+    levelBadge: 'Level 2',
+    questions: 60,
+    duration: '1 hour, 30 minutes (90 minutes)',
+    coverage: 'Computer architecture, networks, data structures, & security',
+  },
+  {
+    id: 'fe_b',
+    title: 'FE Subject B: Algorithms & Logic',
+    levelBadge: 'Level 2',
+    questions: 20,
+    duration: '1 hour, 40 minutes (100 minutes)',
+    coverage: 'Program tracing, algorithmic reasoning, & security scenarios',
   },
 ];
 
-// ---------------------------------------------------------------------------
-// Simple score gauge built with plain Views only — no extra native
-// dependency required. Shows the total score with a two-color bar beneath
-// it (navy = correct share, coral = incorrect share).
-// ---------------------------------------------------------------------------
+// Simple score gauge built with plain Views only
 function ScoreGauge({ correct, incorrect, score, width = 120 }) {
   const total = correct + incorrect;
   const correctFraction = total > 0 ? correct / total : 0;
@@ -63,89 +68,90 @@ function ScoreGauge({ correct, incorrect, score, width = 120 }) {
   );
 }
 
-// ─── Known official 2026 CSE dates (verified from csc.gov.ph) ──
-const KNOWN_CSE_DATES_2026 = [
-  { date: new Date('2026-03-08'), label: 'March 8, 2026', appPeriod: 'Nov 3 – Dec 28, 2025', cycle: '1st Cycle' },
-  { date: new Date('2026-08-09'), label: 'August 9, 2026', appPeriod: 'May 14 – Jun 10, 2026', cycle: '2nd Cycle' },
-]
+// Dynamic computation of next PhilNITS exam cycle (April / October semi-annual cycles)
+function getNextPhilnitsExamDate() {
+  const now = new Date();
+  const currentYear = now.getFullYear();
+  const candidateYears = [currentYear, currentYear + 1];
+  const candidates = [];
 
-// Returns the nearest upcoming date from a list
-const getNextDate = (dates) => {
-  const now = new Date()
-  const future = dates.filter((d) => d.date > now).sort((a, b) => a.date - b.date)
-  return future[0] || dates[dates.length - 1]
-}
+  candidateYears.forEach((y) => {
+    // April cycle: 4th Sunday of April
+    candidates.push({ date: new Date(y, 3, 26), label: `April ${y} Cycle` });
+    // October cycle: 4th Sunday of October
+    candidates.push({ date: new Date(y, 9, 25), label: `October ${y} Cycle` });
+  });
 
-// Tries to parse CSE exam dates from the CSC RSS feed XML text
-const parseCseDatesFromRSS = (xml) => {
-  const datePattern = /(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{1,2}),?\s+(2026|2027)/gi
-  const cseKeywords = /career service exam|cse-ppt|cse ppt|civil service exam/i
-  const items = xml.split(/<item>|<\/item>/i)
-  const found = []
-
-  for (const item of items) {
-    if (!cseKeywords.test(item)) continue
-    let m
-    while ((m = datePattern.exec(item)) !== null) {
-      const parsed = new Date(`${m[1]} ${m[2]}, ${m[3]}`)
-      if (!isNaN(parsed.getTime())) found.push(parsed)
-    }
-    datePattern.lastIndex = 0
-  }
-
-  const now = new Date()
-  const unique = [...new Set(found.map((d) => d.toDateString()))]
-    .map((s) => new Date(s))
-    .filter((d) => d > now)
-    .sort((a, b) => a - b)
-
-  return unique
+  const future = candidates.filter((c) => c.date > now).sort((a, b) => a.date - b.date);
+  return future[0] || candidates[0];
 }
 
 export default function MockExamHome({ navigation, route }) {
-  const from = route?.params?.from
-  const [daysLeft, setDaysLeft] = React.useState('-')
+  const from = route?.params?.from;
+  const [daysLeft, setDaysLeft] = useState('-');
+  const [examCycleLabel, setExamCycleLabel] = useState(UPCOMING_EXAM.label);
+  const [latestResult, setLatestResult] = useState(null);
 
-  React.useEffect(() => {
-    let active = true
+  useEffect(() => {
+    let active = true;
 
-    const fetchCSESchedule = async () => {
+    const computeSchedule = async () => {
       try {
-        const res = await fetch('https://www.csc.gov.ph/?format=feed&type=rss', {
-          headers: { 'User-Agent': 'GabayPHILCSE/1.0' },
-        })
-        if (res.ok && active) {
-          const xml = await res.text()
-          const parsedDates = parseCseDatesFromRSS(xml)
-          if (parsedDates.length > 0) {
-            const next = parsedDates[0]
-            const now = new Date()
-            const diffDays = Math.ceil((next - now) / (1000 * 60 * 60 * 24))
-            setDaysLeft(diffDays > 0 ? diffDays : 0)
-            return
-          }
+        const nextCycle = getNextPhilnitsExamDate();
+        const now = new Date();
+        const diffDays = Math.ceil((nextCycle.date - now) / (1000 * 60 * 60 * 24));
+        if (active) {
+          setDaysLeft(diffDays > 0 ? diffDays : 0);
+          setExamCycleLabel(`Upcoming PhilNITS Exam (${nextCycle.label})`);
         }
-      } catch { /* silently fall through */ }
-
-      // Fallback
-      if (active) {
-        const next = getNextDate(KNOWN_CSE_DATES_2026)
-        const now = new Date()
-        const diffDays = Math.ceil((next.date - now) / (1000 * 60 * 60 * 24))
-        setDaysLeft(diffDays > 0 ? diffDays : 0)
+      } catch (e) {
+        console.warn('Schedule calculation error:', e);
       }
-    }
+    };
 
-    fetchCSESchedule()
+    computeSchedule();
     return () => {
-      active = false
-    }
-  }, [])
+      active = false;
+    };
+  }, []);
+
+  // Fetch live latest mock exam result
+  useEffect(() => {
+    const fetchLatestAttempt = async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session?.user?.id) return;
+
+        const { data } = await supabase
+          .from('mock_exam_attempts')
+          .select('score, total_questions, correct_count, incorrect_count, mock_exam_configs(title, level_key)')
+          .eq('user_id', session.user.id)
+          .eq('status', 'completed')
+          .order('completed_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (data) {
+          setLatestResult({
+            examName: data.mock_exam_configs?.title || 'PhilNITS Mock Exam',
+            correct: data.correct_count ?? 0,
+            incorrect: data.incorrect_count ?? 0,
+            totalScore: data.score ?? 0,
+          });
+        }
+      } catch (err) {
+        console.warn('Error loading latest attempt:', err);
+      }
+    };
+
+    fetchLatestAttempt();
+  }, []);
 
   const handleBack = () => {
-    if (from === 'Home') navigation.navigate('Home')
-    else navigation.navigate('PracticeLibrary')
-  }
+    if (from === 'Home') navigation.navigate('Home');
+    else navigation.navigate('PracticeLibrary');
+  };
+
   return (
     <SafeAreaView style={styles.safeArea}>
       <StatusBar barStyle="dark-content" />
@@ -168,20 +174,21 @@ export default function MockExamHome({ navigation, route }) {
       >
         {/* Upcoming exam banner */}
         <View style={styles.banner}>
-          <Text style={styles.bannerLabel}>{UPCOMING_EXAM.label}</Text>
+          <Text style={styles.bannerLabel}>{examCycleLabel}</Text>
           <Text style={styles.bannerDays}>{daysLeft} days left</Text>
         </View>
-
-
 
         {/* Level cards */}
         {LEVELS.map((level) => (
           <View key={level.id} style={styles.levelCard}>
+            <View style={styles.levelBadgeContainer}>
+              <Text style={styles.levelBadgeText}>{level.levelBadge}</Text>
+            </View>
             <Text style={styles.levelTitle}>{level.title}</Text>
             <Text style={styles.levelMeta}>
-              {level.questions} Questions
+              {level.questions} Questions · {level.duration}
             </Text>
-            <Text style={styles.levelMeta}>{level.duration}</Text>
+            <Text style={styles.levelCoverage}>{level.coverage}</Text>
 
             <TouchableOpacity
               style={styles.startButton}
@@ -193,23 +200,23 @@ export default function MockExamHome({ navigation, route }) {
         ))}
 
         {/* Latest exam result */}
-        {LATEST_RESULT && (
+        {latestResult && (
           <View>
             <Text style={styles.sectionTitle}>Latest exam result</Text>
             <View style={styles.resultCard}>
               <View style={styles.resultLeft}>
-                <Text style={styles.resultExamName}>{LATEST_RESULT.examName}</Text>
+                <Text style={styles.resultExamName}>{latestResult.examName}</Text>
 
                 <View style={styles.statPill}>
                   <Text style={[styles.statPillValue, styles.statPillValueNavy]}>
-                    {LATEST_RESULT.correct}
+                    {latestResult.correct}
                   </Text>
                   <Text style={styles.statPillLabel}>Correct</Text>
                 </View>
 
                 <View style={styles.statPill}>
                   <Text style={[styles.statPillValue, styles.statPillValueRed]}>
-                    {LATEST_RESULT.incorrect}
+                    {latestResult.incorrect}
                   </Text>
                   <Text style={styles.statPillLabel}>Incorrect</Text>
                 </View>
@@ -217,9 +224,9 @@ export default function MockExamHome({ navigation, route }) {
 
               <View style={styles.resultRight}>
                 <ScoreGauge
-                  correct={LATEST_RESULT.correct}
-                  incorrect={LATEST_RESULT.incorrect}
-                  score={LATEST_RESULT.totalScore}
+                  correct={latestResult.correct}
+                  incorrect={latestResult.incorrect}
+                  score={latestResult.totalScore}
                 />
               </View>
             </View>
@@ -384,16 +391,36 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     alignItems: 'center',
   },
+  levelBadgeContainer: {
+    backgroundColor: '#EBF3FE',
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    marginBottom: 8,
+  },
+  levelBadgeText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#2563EB',
+    textTransform: 'uppercase',
+  },
   levelTitle: {
     fontSize: 16,
     fontWeight: '700',
     color: NAVY,
-    marginBottom: 6,
+    marginBottom: 4,
+    textAlign: 'center',
   },
   levelMeta: {
     fontSize: 13,
     color: '#6B7684',
-    marginBottom: 2,
+    marginBottom: 4,
+  },
+  levelCoverage: {
+    fontSize: 12,
+    color: '#9AA5B1',
+    textAlign: 'center',
+    marginBottom: 6,
   },
   startButton: {
     marginTop: 16,

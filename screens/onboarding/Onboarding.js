@@ -24,8 +24,8 @@ export default function Onboarding({ navigation }) {
   const onboardingData = [
     {
       id: 1,
-      title: 'Welcome to GABAY PHILCSE',
-      subtitle: 'A Data Analytics-Driven Mobile Learning System for Civil Service Examination Preparation',
+      title: 'Welcome to GABAY PhilNITS',
+      subtitle: 'A Mobile Learning System for PhilNITS IP and FE Certification Examination Preparation',
       backgroundColor: '#ffffff',
       buttonColor: '#09203c',
       textColor: '#09203c',
@@ -42,9 +42,9 @@ export default function Onboarding({ navigation }) {
       subtitleColor: '#4B5563',
       icon: 'book',
       bullets: [
-        'Access Reviewers',
-        'Video lectures',
-        'Study guides for all exam categories',
+        'Access Reviewers & Guides',
+        'Video lectures for IT domains',
+        'Study guides for IP & FE tracks',
       ],
     },
     {
@@ -79,7 +79,7 @@ export default function Onboarding({ navigation }) {
     {
       id: 6,
       title: 'What You\'ll Get',
-      subtitle: 'Everything you need to ace your\nCivil Service Exam',
+      subtitle: 'Everything you need to ace your\nPhilNITS IP & FE Exams',
       backgroundColor: '#ffffff',
       buttonColor: '#09203c',
       textColor: '#09203c',
@@ -141,7 +141,7 @@ export default function Onboarding({ navigation }) {
               resizeMode="contain"
             />
             <Text style={styles.recapSubtitle}>
-              A Data Analytics-Driven Mobile Learning System for Civil Service Examination Preparation
+              A Data Analytics-Driven Mobile Learning System for PhilNITS IP & FE Examination Preparation
             </Text>
             <Text style={styles.recapHeading}>What You'll Get:</Text>
             {RECAP_CARDS.map((card, index) => (

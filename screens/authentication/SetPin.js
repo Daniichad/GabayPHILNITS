@@ -9,9 +9,11 @@ import {
   View,
   ActivityIndicator,
   Image,
+  Alert,
 } from 'react-native'
 import { Feather } from '@expo/vector-icons'
 import { supabase } from '../../utils/supabase'
+import { saveUserCache } from '../../utils/database'
 
 const NAVY = '#0f1e35'
 const BLUE = '#3B82B8'
@@ -138,12 +140,32 @@ export default function SetPin({ navigation, route }) {
       if (!user) throw new Error('No authenticated user')
 
       const hash = simpleHash(rawPin)
-      const { error } = await supabase
+      const emailToMatch = (user.email || '').trim()
+
+      // 1. Update in public.users table using case-insensitive email match
+      const { data: updatedRows, error: updateError } = await supabase
         .from('users')
         .update({ pin_hash: hash })
-        .eq('email', user.email)
+        .ilike('email', emailToMatch)
+        .select('pin_hash')
 
-      if (error) throw error
+      if (updateError) throw updateError
+
+      // 2. If no rows were updated (e.g. user row didn't exist yet in public.users), upsert it
+      if (!updatedRows || updatedRows.length === 0) {
+        const { error: upsertErr } = await supabase
+          .from('users')
+          .upsert({
+            email: emailToMatch,
+            pin_hash: hash,
+            fullname: user.user_metadata?.full_name || user.user_metadata?.fullName || 'Student',
+            role: 'user',
+          }, { onConflict: 'email' })
+        if (upsertErr) throw upsertErr
+      }
+
+      // 3. Sync to local SQLite cache for offline availability
+      await saveUserCache(user.id, hash, true, true)
 
       if (mode === 'prompt') {
         navigation.replace('Home')
@@ -156,6 +178,7 @@ export default function SetPin({ navigation, route }) {
       setPin('')
       setStep('set')
       setFirstPin('')
+      Alert.alert('Error', err.message || 'Failed to save PIN. Please try again.')
     } finally {
       setSaving(false)
     }
@@ -212,7 +235,7 @@ export default function SetPin({ navigation, route }) {
             resizeMode="contain"
           />
         </View>
-        <Text style={styles.appName}>Gabay PHILCSE</Text>
+        <Text style={styles.appName}>Gabay PhilNITS</Text>
       </View>
 
       {/* Body */}

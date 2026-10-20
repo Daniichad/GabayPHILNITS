@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
-  ScrollView, View, Text, StyleSheet,
+  ScrollView, View, Text, StyleSheet, Image,
   TouchableOpacity, StatusBar, Platform, ActivityIndicator,
   AppState, Alert, BackHandler, Modal, Animated, PanResponder
 } from 'react-native';
@@ -17,6 +17,50 @@ import { calculateMockExamPoints, recordPointsEntry } from '../../../utils/point
 
 const NAVY = '#0B2540';
 
+const DEFAULT_CONFIGS = {
+  ip: {
+    id: '7bdd87ad-6eec-46dc-be5e-e0a3a88a11e1',
+    level_key: 'ip',
+    title: 'Information Technology Passport (IP) Mock Examination',
+    subtitle: 'Official PhilNITS Level 1 Examination covering Technology (40%), Strategy (35%), and Management (25%).',
+    tag: 'PHILNITS-IP',
+    total_questions: 100,
+    time_limit_seconds: 7200,
+    sections: [
+      { name: 'Technology', description: 'Hardware, software, networks, security, data structures (40%)' },
+      { name: 'Strategy', description: 'Corporate activities, legal affairs, business strategy (35%)' },
+      { name: 'Management', description: 'Project management, service management, system audit (25%)' },
+    ],
+  },
+  fe_a: {
+    id: 'c182958b-2ee1-4bf5-b3c4-b97a6d01e112',
+    level_key: 'fe_a',
+    title: 'Fundamental IT Engineer (FE) Subject A Mock Exam',
+    subtitle: 'PhilNITS Level 2 Examination covering IT fundamentals, architecture, data structures, networks, and systems.',
+    tag: 'PHILNITS-FE-A',
+    total_questions: 60,
+    time_limit_seconds: 5400,
+    sections: [
+      { name: 'Computer Systems & Architecture', description: 'Processors, memory, I/O devices, and OS' },
+      { name: 'Algorithms & Data Structures', description: 'Basic data structures, sorting, and search algorithms' },
+      { name: 'Networks & Security', description: 'Network protocols, encryption, and cybersecurity' },
+    ],
+  },
+  fe_b: {
+    id: '37407a4c-1229-46c5-95cc-b3feb889dbdc',
+    level_key: 'fe_b',
+    title: 'Fundamental IT Engineer (FE) Subject B Mock Exam',
+    subtitle: 'PhilNITS Level 2 Examination covering algorithms, pseudocode tracing, programming logic, and security scenarios.',
+    tag: 'PHILNITS-FE-B',
+    total_questions: 20,
+    time_limit_seconds: 6000,
+    sections: [
+      { name: 'Algorithmic Problem-Solving', description: 'Pseudocode tracing and algorithmic design (80%)' },
+      { name: 'Information Security Scenarios', description: 'Case-based security analysis and countermeasures (20%)' },
+    ],
+  },
+};
+
 function formatTime(totalSeconds) {
   const hrs  = Math.floor(totalSeconds / 3600);
   const mins = Math.floor((totalSeconds % 3600) / 60);
@@ -26,8 +70,10 @@ function formatTime(totalSeconds) {
 }
 
 export default function MockExamTake({ navigation, route }) {
-  const incomingLevel = route?.params?.level ?? 'sub-professional';
-  const initialKey    = incomingLevel === 'professional' ? 'professional' : 'sub_professional';
+  const incomingLevel = route?.params?.level ?? 'ip';
+  const initialKey    = (incomingLevel === 'fe_a' || incomingLevel === 'fe_b' || incomingLevel === 'ip')
+    ? incomingLevel
+    : (incomingLevel === 'professional' ? 'fe_a' : 'ip');
 
   // ── UI state ──────────────────────────────────────────────────
   const [levelKey,       setLevelKey]       = useState(initialKey);
@@ -216,11 +262,21 @@ export default function MockExamTake({ navigation, route }) {
         .eq('level_key', levelKey)
         .eq('is_published', true)
         .maybeSingle();
-      if (error) throw error;
-      setConfig(data ?? null);
+
+      if (!error && data) {
+        setConfig(data);
+      } else if (DEFAULT_CONFIGS[levelKey]) {
+        setConfig(DEFAULT_CONFIGS[levelKey]);
+      } else {
+        throw error || new Error('Exam configuration not found.');
+      }
     } catch (err) {
-      console.error('Config load error:', err);
-      setConfigError('Failed to load exam configuration.');
+      console.warn('Config load error, using default PhilNITS config:', err);
+      if (DEFAULT_CONFIGS[levelKey]) {
+        setConfig(DEFAULT_CONFIGS[levelKey]);
+      } else {
+        setConfigError('Failed to load exam configuration.');
+      }
     } finally {
       setLoadingConfig(false);
     }
@@ -240,28 +296,84 @@ export default function MockExamTake({ navigation, route }) {
 
   // ── Start exam ────────────────────────────────────────────────
   const startExam = async () => {
-    if (!config) return;
+    const currentConfig = config || DEFAULT_CONFIGS[levelKey];
+    if (!currentConfig) return;
     try {
       setLoadingQuestions(true);
-      const { data: qs, error } = await supabase
-        .from('mock_exam_questions')
-        .select('*')
-        .eq('config_id', config.id)
-        .eq('is_published', true)
-        .order('sort_order');
-      if (error) throw error;
+      let examQuestions = [];
 
-      let examQuestions = qs ?? [];
-      if (examQuestions.length > 0) {
-        const targetCount = levelKey === 'professional' ? 170 : 165;
-        const originalQuestions = [...examQuestions];
-        while (examQuestions.length < targetCount) {
-          const cloned = originalQuestions.map((q, idx) => ({
-            ...q,
-            id: `${q.id}_cloned_${examQuestions.length}_${idx}`
-          }));
-          examQuestions = examQuestions.concat(cloned);
+      // 1. Determine table name based on levelKey
+      let tableName = null;
+      if (levelKey === 'ip') tableName = 'Philnits_IP_mock_exam';
+      else if (levelKey === 'fe_a') tableName = 'Philnits_FE_subject_A';
+      else if (levelKey === 'fe_b') tableName = 'Philnits_FE_subject_B';
+
+      if (tableName) {
+        const { data: rawRows, error: tableErr } = await supabase
+          .from(tableName)
+          .select('*')
+          .eq('is_active', true)
+          .order('question_number', { ascending: true });
+
+        if (!tableErr && rawRows && rawRows.length > 0) {
+          const answerToIndex = { A: 0, B: 1, C: 2, D: 3, a: 0, b: 1, c: 2, d: 3 };
+          examQuestions = rawRows.map((r) => {
+            const cAns = (r.correct_answer || '').trim().toUpperCase();
+            const cIdx = answerToIndex[cAns] ?? 0;
+            const rawOpts = [r.option_a, r.option_b, r.option_c, r.option_d];
+            const opts = rawOpts.filter((o) => o !== null && o !== undefined && String(o).trim() !== '');
+
+            return {
+              id: r.id,
+              question_number: r.question_number,
+              prompt: r.question_text,
+              question_text: r.question_text,
+              options: opts.length > 0 ? opts : ['Option A', 'Option B', 'Option C', 'Option D'],
+              correct_answer: cAns,
+              correct_index: cIdx,
+              explanation: r.explanation,
+              section_name: r.category || r.section_name || r.topic || 'General',
+              category: r.category || r.section_name || r.topic || 'General',
+              topic: r.topic,
+              subtopic: r.subtopic,
+              code_snippet: r.code_snippet,
+              code_language: r.code_language,
+              image_url: r.image_url || r.reference_image_url,
+              image_description: r.image_description,
+              reference_material: r.reference_material,
+              question_type: r.question_type,
+              difficulty: r.difficulty,
+            };
+          });
+        } else if (tableErr) {
+          console.warn(`Error querying ${tableName}:`, tableErr);
         }
+      }
+
+      // 2. Fallback to mock_exam_questions if PhilNITS table returned nothing
+      if (examQuestions.length === 0 && currentConfig.id) {
+        const { data: qs, error: qsErr } = await supabase
+          .from('mock_exam_questions')
+          .select('*')
+          .eq('config_id', currentConfig.id)
+          .eq('is_published', true)
+          .order('sort_order');
+        if (!qsErr && qs && qs.length > 0) {
+          examQuestions = qs;
+        }
+      }
+
+      if (examQuestions.length === 0) {
+        Alert.alert(
+          'No Questions Available',
+          'There are no questions currently loaded for this exam level. Please check back shortly.',
+          [{ text: 'OK' }]
+        );
+        return;
+      }
+
+      const targetCount = currentConfig.total_questions || (levelKey === 'ip' ? 100 : levelKey === 'fe_a' ? 60 : 20);
+      if (examQuestions.length > targetCount) {
         examQuestions = examQuestions.slice(0, targetCount);
       }
 
@@ -269,27 +381,32 @@ export default function MockExamTake({ navigation, route }) {
       setQuestionIndex(0);
       setSelectedOption(null);
       setAnswers([]);
-      const targetTimeLimit = levelKey === 'professional' ? 11400 : 9600;
+      const targetTimeLimit = currentConfig.time_limit_seconds || (levelKey === 'ip' ? 7200 : levelKey === 'fe_a' ? 5400 : 6000);
       setSecondsLeft(targetTimeLimit);
 
       // Create attempt record
-      if (userId) {
-        const { data: attempt } = await supabase
-          .from('mock_exam_attempts')
-          .insert({
-            user_id:            userId,
-            config_id:          config.id,
-            total_questions:    examQuestions.length,
-            time_limit_seconds: targetTimeLimit,
-            status:             'in_progress',
-          })
-          .select().single();
-        if (attempt) setAttemptId(attempt.id);
+      if (userId && currentConfig.id) {
+        try {
+          const { data: attempt } = await supabase
+            .from('mock_exam_attempts')
+            .insert({
+              user_id:            userId,
+              config_id:          currentConfig.id,
+              total_questions:    examQuestions.length,
+              time_limit_seconds: targetTimeLimit,
+              status:             'in_progress',
+            })
+            .select().single();
+          if (attempt) setAttemptId(attempt.id);
+        } catch (attemptErr) {
+          console.warn('Attempt create error (non-fatal):', attemptErr);
+        }
       }
 
       setStage('quiz');
     } catch (err) {
       console.error('Start exam error:', err);
+      Alert.alert('Error', 'An error occurred while preparing your exam.');
     } finally {
       setLoadingQuestions(false);
     }
@@ -301,16 +418,20 @@ export default function MockExamTake({ navigation, route }) {
     const updatedAnswers = [...answers, selectedOption];
     setAnswers(updatedAnswers);
 
-    // Log individual answer
+    // Log individual answer safely
     if (userId && attemptId && question) {
-      await supabase.from('mock_exam_answer_logs').insert({
-        attempt_id:     attemptId,
-        user_id:        userId,
-        question_id:    question.id,
-        selected_index: selectedOption,
-        correct_index:  question.correct_index,
-        is_correct:     selectedOption === question.correct_index,
-      });
+      try {
+        await supabase.from('mock_exam_answer_logs').insert({
+          attempt_id:     attemptId,
+          user_id:        userId,
+          question_id:    question.id,
+          selected_index: selectedOption,
+          correct_index:  question.correct_index,
+          is_correct:     selectedOption === question.correct_index,
+        });
+      } catch (logErr) {
+        console.warn('Answer log error (non-fatal):', logErr);
+      }
     }
 
     if (questionIndex === questions.length - 1) {
@@ -329,7 +450,8 @@ export default function MockExamTake({ navigation, route }) {
     const incorrect = finalAnswers.filter((a) => a !== null).length - correct;
     const skipped   = finalAnswers.filter((a) => a === null).length;
 
-    const timeSpent = (levelKey === 'professional' ? 11400 : 9600) - secondsLeftRef.current;
+    const targetDuration = config?.time_limit_seconds || (levelKey === 'ip' ? 7200 : levelKey === 'fe_a' ? 5400 : 6000);
+    const timeSpent = Math.max(targetDuration - (secondsLeftRef.current || 0), 0);
 
     if (attemptId && userId) {
       await supabase.from('mock_exam_attempts').update({
@@ -359,10 +481,14 @@ export default function MockExamTake({ navigation, route }) {
       score: correct,
       total: questions.length,
       level: levelKey,
+      levelTitle: config?.title || (levelKey === 'ip' ? 'Information Technology Passport (IP)' : levelKey === 'fe_a' ? 'FE Subject A' : 'FE Subject B'),
       timeSpent,
       correct,
       incorrect,
-      skipped
+      skipped,
+      questions,
+      answers: finalAnswers,
+      sections: config?.sections || []
     });
   };
 
@@ -435,7 +561,7 @@ export default function MockExamTake({ navigation, route }) {
     }
 
     const sections = config.sections ?? [];
-    const targetTimeLimit = levelKey === 'professional' ? 11400 : 9600;
+    const targetTimeLimit = config.time_limit_seconds || (levelKey === 'ip' ? 7200 : levelKey === 'fe_a' ? 5400 : 6000);
     const hours    = Math.floor(targetTimeLimit / 3600);
     const mins     = Math.floor((targetTimeLimit % 3600) / 60);
 
@@ -464,11 +590,11 @@ export default function MockExamTake({ navigation, route }) {
             <View style={styles.introMetaRow}>
               <View style={styles.introMetaItem}>
                 <Ionicons name="document-text-outline" size={14} color="#6B7684" />
-                <Text style={styles.introMetaText}>{levelKey === 'professional' ? 170 : 165} Items</Text>
+                <Text style={styles.introMetaText}>{config.total_questions || (levelKey === 'ip' ? 100 : levelKey === 'fe_a' ? 60 : 20)} Items</Text>
               </View>
               <View style={styles.introMetaItem}>
                 <Ionicons name="time-outline" size={14} color="#6B7684" />
-                <Text style={styles.introMetaText}>{hours}h {mins}m</Text>
+                <Text style={styles.introMetaText}>{hours > 0 ? `${hours}h ` : ''}{mins > 0 ? `${mins}m` : ''}</Text>
               </View>
             </View>
             <Text style={styles.coverageTitle}>{"What's covered"}</Text>
@@ -560,22 +686,72 @@ export default function MockExamTake({ navigation, route }) {
         </View>
 
         <View style={styles.quizBody}>
-          <Text style={styles.questionCounter}>Question {questionIndex + 1} of {questions.length}</Text>
-          <Text style={styles.questionPrompt}>{question.prompt}</Text>
-          <View style={styles.optionsList}>
-            {(question.options ?? []).map((option, optIdx) => {
-              const isSelected = selectedOption === optIdx;
-              return (
-                <TouchableOpacity
-                  key={optIdx} style={styles.optionRow} onPress={() => setSelectedOption(optIdx)}>
-                  <Text style={styles.optionText}>{option}</Text>
-                  <View style={[styles.radioOuter, isSelected && styles.radioOuterActive]}>
-                    {isSelected && <View style={styles.radioInner} />}
+          <ScrollView
+            style={styles.quizScroll}
+            contentContainerStyle={styles.quizScrollContent}
+            showsVerticalScrollIndicator={false}
+          >
+            <View style={styles.questionHeaderRow}>
+              <Text style={styles.questionCounter}>Question {questionIndex + 1} of {questions.length}</Text>
+              {(question.section_name || question.category) && (
+                <View style={styles.categoryBadge}>
+                  <Text style={styles.categoryBadgeText}>
+                    {question.section_name || question.category}
+                  </Text>
+                </View>
+              )}
+            </View>
+
+            <Text style={styles.questionPrompt}>{question.prompt}</Text>
+
+            {question.code_snippet ? (
+              <View style={styles.codeSnippetBox}>
+                {question.code_language ? (
+                  <View style={styles.codeLanguageHeader}>
+                    <Text style={styles.codeLanguageText}>{question.code_language.toUpperCase()}</Text>
                   </View>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
+                ) : null}
+                <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                  <Text style={styles.codeSnippetText}>{question.code_snippet}</Text>
+                </ScrollView>
+              </View>
+            ) : null}
+
+            {question.image_url ? (
+              <View style={styles.questionImageContainer}>
+                <Image
+                  source={{ uri: question.image_url }}
+                  style={styles.questionImage}
+                  resizeMode="contain"
+                />
+              </View>
+            ) : null}
+
+            <View style={styles.optionsList}>
+              {(question.options ?? []).map((option, optIdx) => {
+                const isSelected = selectedOption === optIdx;
+                const letter = ['A', 'B', 'C', 'D'][optIdx] ?? String(optIdx + 1);
+                return (
+                  <TouchableOpacity
+                    key={optIdx}
+                    style={[styles.optionRow, isSelected && styles.optionRowActive]}
+                    onPress={() => setSelectedOption(optIdx)}
+                    activeOpacity={0.8}
+                  >
+                    <View style={[styles.optionLetterWrap, isSelected && styles.optionLetterWrapActive]}>
+                      <Text style={[styles.optionLetter, isSelected && styles.optionLetterActive]}>
+                        {letter}
+                      </Text>
+                    </View>
+                    <Text style={[styles.optionText, isSelected && styles.optionTextActive]}>{option}</Text>
+                    <View style={[styles.radioOuter, isSelected && styles.radioOuterActive]}>
+                      {isSelected && <View style={styles.radioInner} />}
+                    </View>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          </ScrollView>
         </View>
 
         <View style={styles.quizFooter}>
@@ -695,11 +871,28 @@ const styles = StyleSheet.create({
   timerPill:             { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 6, marginRight: 8 },
   timerText:             { fontSize: 12, fontWeight: '700', color: NAVY },
   quizBody:              { flex: 1, paddingHorizontal: 20, paddingTop: 16 },
-  questionCounter:       { fontSize: 12, color: '#9AA5B1', fontWeight: '600', marginBottom: 10 },
-  questionPrompt:        { fontSize: 17, fontWeight: '700', color: NAVY, marginBottom: 20 },
+  quizScroll:            { flex: 1 },
+  quizScrollContent:     { paddingBottom: 24 },
+  questionHeaderRow:     { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 },
+  questionCounter:       { fontSize: 13, color: '#9AA5B1', fontWeight: '700' },
+  categoryBadge:         { backgroundColor: '#EDF2FA', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12 },
+  categoryBadgeText:     { fontSize: 11, fontWeight: '700', color: NAVY },
+  questionPrompt:        { fontSize: 16, lineHeight: 24, fontWeight: '700', color: NAVY, marginBottom: 18 },
+  codeSnippetBox:        { backgroundColor: '#0F172A', borderRadius: 14, padding: 14, marginBottom: 18 },
+  codeLanguageHeader:    { alignSelf: 'flex-start', backgroundColor: '#1E293B', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6, marginBottom: 8 },
+  codeLanguageText:      { color: '#94A3B8', fontSize: 10, fontWeight: '700' },
+  codeSnippetText:       { color: '#F8FAFC', fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace', fontSize: 13, lineHeight: 19 },
+  questionImageContainer:{ marginVertical: 12, alignItems: 'center', backgroundColor: '#F8FAFC', borderRadius: 14, padding: 8, borderWidth: 1, borderColor: '#E2E8F0' },
+  questionImage:         { width: '100%', height: 200 },
   optionsList:           { gap: 12 },
   optionRow:             { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderWidth: 1.5, borderColor: '#D7DEE8', borderRadius: 14, paddingVertical: 14, paddingHorizontal: 16 },
+  optionRowActive:       { borderColor: NAVY, backgroundColor: '#F0F5FA' },
+  optionLetterWrap:      { width: 26, height: 26, borderRadius: 13, backgroundColor: '#EDF1F7', alignItems: 'center', justifyContent: 'center', marginRight: 10 },
+  optionLetterWrapActive:{ backgroundColor: NAVY },
+  optionLetter:          { fontSize: 12, fontWeight: '800', color: NAVY },
+  optionLetterActive:    { color: '#FFFFFF' },
   optionText:            { fontSize: 13, color: NAVY, fontWeight: '600', flex: 1, marginRight: 12 },
+  optionTextActive:      { color: NAVY, fontWeight: '700' },
   radioOuter:            { width: 18, height: 18, borderRadius: 9, borderWidth: 1.5, borderColor: '#D7DEE8', alignItems: 'center', justifyContent: 'center' },
   radioOuterActive:      { borderColor: NAVY },
   radioInner:            { width: 10, height: 10, borderRadius: 5, backgroundColor: NAVY },

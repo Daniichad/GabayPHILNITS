@@ -27,17 +27,17 @@ export default function TermsConditions({ navigation }) {
         showsVerticalScrollIndicator={false}
       >
         <Text style={styles.appTitle}>
-          GABAY PhilCSE (Guided Adaptive-Based Application for Your CSE)
+          GABAY PhilNITS (Guided Adaptive-Based Application for Your PhilNITS Preparation)
         </Text>
 
         <Text style={styles.sectionHeader}>1. Acceptance of Terms</Text>
         <Text style={styles.bodyText}>
-          By accessing and using GABAY CSE, you agree to comply with and be bound by these Terms and Conditions. If you do not agree, you must not use the application.
+          By accessing and using GABAY PhilNITS, you agree to comply with and be bound by these Terms and Conditions. If you do not agree, you must not use the application.
         </Text>
 
         <Text style={styles.sectionHeader}>2. Purpose of the Application</Text>
         <Text style={styles.bodyText}>
-          GABAY PhilCSE is a mobile-based reviewer designed to assist users in preparing for the Civil Service Examination. The application provides learning materials, quizzes, analytics, and study recommendations for educational purposes only.
+          GABAY PhilNITS is a mobile learning and reviewer system designed to assist users in preparing for the PhilNITS Information Technology Passport (IP) and Fundamental IT Engineer (FE) Examinations. The application provides learning materials, quizzes, analytics, and study recommendations for educational purposes only.
         </Text>
 
         <Text style={styles.sectionHeader}>3. User Responsibilities</Text>
@@ -66,9 +66,9 @@ export default function TermsConditions({ navigation }) {
 
         <Text style={styles.sectionHeader}>7. System Limitations</Text>
         <View style={styles.bulletList}>
-          <Text style={styles.bulletItem}>• The application does not guarantee passing the Civil Service Examination.</Text>
+          <Text style={styles.bulletItem}>• The application does not guarantee passing the PhilNITS IP or FE Examinations.</Text>
           <Text style={styles.bulletItem}>• Results from analytics and predictions are estimates based on user performance.</Text>
-          <Text style={styles.bulletItem}>• The system is not affiliated with or officially connected to the Civil Service Commission (CSC).</Text>
+          <Text style={styles.bulletItem}>• The system is not affiliated with or officially connected to the PhilNITS Foundation or ITPEC.</Text>
         </View>
 
         <Text style={styles.sectionHeader}>8. Availability of Service</Text>

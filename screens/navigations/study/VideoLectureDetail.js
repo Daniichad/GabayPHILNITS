@@ -26,11 +26,11 @@ export default function VideoLectureDetail({ navigation, route }) {
 
   const title = video.title || 'Video Lecture'
   const url = video.url || 'https://www.youtube.com/watch?v=sI9pP3s63c8'
-  const authorName = video.author || video.author_name || video.channel_title || 'Team Lyqa'
+  const authorName = video.author || video.author_name || video.channel_title || 'CrashCourse Computer Science'
   const authorUrl = video.authorUrl || video.author_url || video.channel_url || `https://www.youtube.com/results?search_query=${encodeURIComponent(authorName)}`
-  const description = video.description || 'Access video lectures and study guides prepared for Civil Service Examination review.'
+  const description = video.description || 'Access video lectures and study guides prepared for PhilNITS IP and FE Examination review.'
   const durationMins = video.duration_minutes || video.durationMinutes || 10
-  const subject = video.subject || 'Civil Service Exam Review'
+  const subject = video.subject || 'PhilNITS Exam Review'
 
   const youtubeId = extractYouTubeId(url)
 
@@ -162,7 +162,7 @@ export default function VideoLectureDetail({ navigation, route }) {
                 <Text style={styles.disclaimerTitle}>Author Reference & Copyright Notice</Text>
                 <Text style={styles.disclaimerText}>
                   This video lecture was authored and published by <Text style={{ fontWeight: '700' }}>{authorName}</Text>. 
-                  Gabay PHILCSE embeds this content for educational reference under YouTube's Terms of Service and Fair Use. All intellectual property and rights belong entirely to the creator.
+                  Gabay PhilNITS embeds this content for educational reference under YouTube's Terms of Service and Fair Use. All intellectual property and rights belong entirely to the creator.
                 </Text>
               </View>
             </View>

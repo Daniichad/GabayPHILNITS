@@ -167,7 +167,7 @@ export default function RateApp({ navigation }) {
                   <View style={styles.scoreRight}>
                     <Text style={styles.scorePromoHeader}>Excellent Job!</Text>
                     <Text style={styles.scorePromoSub}>
-                      Students use GABAY to review daily for the CSE Exam.
+                      Students use GABAY to review daily for the PhilNITS Exam.
                     </Text>
                   </View>
                 </View>
@@ -294,7 +294,7 @@ export default function RateApp({ navigation }) {
               resizeMode="contain"
             />
             <View style={styles.sheetTitleCol}>
-              <Text style={styles.sheetAppTitle}>GABAY CSE</Text>
+              <Text style={styles.sheetAppTitle}>GABAY PhilNITS</Text>
               <Text style={styles.sheetAppSub}>
                 Your review is public and includes your profile name and photo
               </Text>

@@ -14,6 +14,7 @@ import {
 } from 'react-native'
 import { Ionicons } from '@expo/vector-icons'
 import { supabase } from '../../utils/supabase'
+import { saveUserCache } from '../../utils/database'
 
 function Field({ label, placeholder, value, onChangeText, keyboardType = 'default' }) {
   const [isFocused, setIsFocused] = React.useState(false)
@@ -86,8 +87,106 @@ const COUNTRIES = [
   { name: 'India', code: '+91', flag: '🇮🇳' },
 ]
 
+const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
+const ITEM_HEIGHT = 44
+
+function WheelColumn({ items, selectedValue, onValueChange, labelExtractor }) {
+  const scrollRef = React.useRef(null)
+  const isScrollingRef = React.useRef(false)
+  const [activeIdx, setActiveIdx] = React.useState(() => {
+    const idx = items.indexOf(selectedValue)
+    return idx >= 0 ? idx : 0
+  })
+
+  React.useEffect(() => {
+    const idx = items.indexOf(selectedValue)
+    if (idx >= 0 && idx !== activeIdx && !isScrollingRef.current) {
+      setActiveIdx(idx)
+      scrollRef.current?.scrollTo({ y: idx * ITEM_HEIGHT, animated: true })
+    }
+  }, [selectedValue, items])
+
+  React.useEffect(() => {
+    const idx = items.indexOf(selectedValue)
+    const initial = idx >= 0 ? idx : 0
+    const timer = setTimeout(() => {
+      scrollRef.current?.scrollTo({ y: initial * ITEM_HEIGHT, animated: false })
+    }, 80)
+    return () => clearTimeout(timer)
+  }, [])
+
+  const handleScroll = (e) => {
+    const offsetY = e.nativeEvent.contentOffset.y
+    const index = Math.max(0, Math.min(items.length - 1, Math.round(offsetY / ITEM_HEIGHT)))
+    if (index !== activeIdx) {
+      setActiveIdx(index)
+    }
+  }
+
+  const handleScrollEnd = (e) => {
+    isScrollingRef.current = false
+    const offsetY = e.nativeEvent.contentOffset.y
+    const index = Math.max(0, Math.min(items.length - 1, Math.round(offsetY / ITEM_HEIGHT)))
+    setActiveIdx(index)
+    if (items[index] !== undefined && items[index] !== selectedValue) {
+      onValueChange(items[index])
+    }
+  }
+
+  const handleItemPress = (index) => {
+    setActiveIdx(index)
+    scrollRef.current?.scrollTo({ y: index * ITEM_HEIGHT, animated: true })
+    onValueChange(items[index])
+  }
+
+  return (
+    <View style={styles.wheelColumnContainer}>
+      {/* Active Middle Row Indicator */}
+      <View style={styles.wheelMiddleHighlight} pointerEvents="none" />
+
+      <ScrollView
+        ref={scrollRef}
+        showsVerticalScrollIndicator={false}
+        snapToInterval={ITEM_HEIGHT}
+        decelerationRate="fast"
+        bounces={false}
+        scrollEventThrottle={16}
+        onScrollBeginDrag={() => { isScrollingRef.current = true }}
+        onScroll={handleScroll}
+        onMomentumScrollEnd={handleScrollEnd}
+        onScrollEndDrag={handleScrollEnd}
+        contentContainerStyle={{
+          paddingTop: ITEM_HEIGHT,
+          paddingBottom: ITEM_HEIGHT,
+        }}
+      >
+        {items.map((item, index) => {
+          const isActive = index === activeIdx
+          const label = labelExtractor ? labelExtractor(item) : String(item)
+          return (
+            <TouchableOpacity
+              key={String(item)}
+              activeOpacity={0.7}
+              style={styles.wheelItem}
+              onPress={() => handleItemPress(index)}
+            >
+              <Text
+                style={[
+                  styles.wheelItemText,
+                  isActive ? styles.wheelItemTextActive : styles.wheelItemTextInactive,
+                ]}
+              >
+                {label}
+              </Text>
+            </TouchableOpacity>
+          )
+        })}
+      </ScrollView>
+    </View>
+  )
+}
+
 export default function PersonalInfo({ navigation }) {
-  const [age, setAge] = React.useState('')
   const [birthdate, setBirthdate] = React.useState('')
   const [contactNumber, setContactNumber] = React.useState('')
   const [countryCode, setCountryCode] = React.useState('+63')
@@ -158,7 +257,7 @@ export default function PersonalInfo({ navigation }) {
 
         const { data, error } = await supabase
           .from('personal_info')
-          .select('age, birthdate, contact_number, gender, target_exam_level, highest_educational_attainment')
+          .select('birthdate, contact_number, gender, target_exam_level, highest_educational_attainment')
           .eq('user_id', userId)
           .maybeSingle()
 
@@ -168,7 +267,6 @@ export default function PersonalInfo({ navigation }) {
         }
 
         if (data) {
-          setAge(data.age?.toString?.() ?? '')
           
           const rawNum = data.contact_number ?? ''
           const sortedCountries = [...COUNTRIES].sort((a, b) => b.code.length - a.code.length)
@@ -187,7 +285,14 @@ export default function PersonalInfo({ navigation }) {
           }
 
           setGender(data.gender ?? '')
-          setTargetExamLevel(data.target_exam_level ?? '')
+          const rawLevel = data.target_exam_level ?? ''
+          if (rawLevel === 'Professional') {
+            setTargetExamLevel('Fundamental IT Engineer (FE)')
+          } else if (rawLevel === 'Sub-Professional') {
+            setTargetExamLevel('Information Technology Passport (IP)')
+          } else {
+            setTargetExamLevel(rawLevel)
+          }
           setEducation(data.highest_educational_attainment ?? '')
           
           if (data.birthdate) {
@@ -234,7 +339,7 @@ export default function PersonalInfo({ navigation }) {
   const handleNext = async () => {
     const cleanNum = contactNumber.replace(/\D/g, '')
 
-    if (!age || !birthdate || !cleanNum || !gender || !targetExamLevel || !education) {
+    if (!birthdate || !cleanNum || !gender || !targetExamLevel || !education) {
       showCustomAlert('Missing information', 'Please complete all personal information fields')
       return
     }
@@ -265,7 +370,6 @@ export default function PersonalInfo({ navigation }) {
       const { error } = await supabase.from('personal_info').upsert(
         {
           user_id: userId,
-          age: Number(age),
           birthdate,
           contact_number: fullContactNumber,
           gender,
@@ -283,6 +387,12 @@ export default function PersonalInfo({ navigation }) {
         return
       }
 
+      try {
+        await saveUserCache(userId, null, true, false)
+      } catch (cacheErr) {
+        console.warn('Local cache save warning in PersonalInfo:', cacheErr)
+      }
+
       navigation?.replace('DiagnosticAssessment')
     } catch (error) {
       showCustomAlert('Save error', error.message || String(error))
@@ -294,7 +404,7 @@ export default function PersonalInfo({ navigation }) {
   if (loadingProfile) {
     return (
       <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#D9989E" />
+        <ActivityIndicator size="large" color="#C14954" />
       </View>
     )
   }
@@ -323,7 +433,6 @@ export default function PersonalInfo({ navigation }) {
           <Text style={styles.heading}>Personal Information</Text>
           <Text style={styles.subtitle}>Tell us a bit about yourself</Text>
 
-          <Field label="Age" placeholder="Enter age" value={age} onChangeText={setAge} keyboardType="number-pad" />
           <SelectField
             label="Birthdate"
             value={birthdate}
@@ -364,7 +473,13 @@ export default function PersonalInfo({ navigation }) {
             label="Target Exam Level"
             value={targetExamLevel}
             placeholder="Select target exam level"
-            onPress={() => pickOption('Target Exam Level', ['Professional', 'Sub-Professional'], setTargetExamLevel)}
+            onPress={() =>
+              pickOption(
+                'Target Exam Level',
+                ['Information Technology Passport (IP)', 'Fundamental IT Engineer (FE)'],
+                setTargetExamLevel
+              )
+            }
           />
           <SelectField
             label="Highest Educational Attainment"
@@ -441,67 +556,41 @@ export default function PersonalInfo({ navigation }) {
         onRequestClose={() => setDatePickerVisible(false)}
       >
         <View style={styles.modalOverlay}>
-          <View style={[styles.modalCard, { width: '90%', maxWidth: 450 }]}>
+          <View style={[styles.modalCard, { width: '90%', maxWidth: 400, borderRadius: 28 }]}>
             <Text style={styles.modalTitle}>Select Birthdate</Text>
-            <Text style={styles.modalSubtitle}>Choose month, day, and year</Text>
+            <Text style={styles.modalSubtitle}>Swipe or tap to choose month, day, and year</Text>
 
             <View style={styles.datePickerWrapper}>
               <View style={styles.datePickerRow}>
                 {/* Month Column */}
                 <View style={styles.dateColumn}>
                   <Text style={styles.columnHeader}>Month</Text>
-                  <ScrollView style={styles.columnScroll} showsVerticalScrollIndicator={false}>
-                    {['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'].map((m) => {
-                      const isSel = selectedMonth === m
-                      return (
-                        <TouchableOpacity
-                          key={m}
-                          style={[styles.dateItemButton, isSel && styles.dateItemButtonActive]}
-                          onPress={() => setSelectedMonth(m)}
-                        >
-                          <Text style={[styles.dateItemText, isSel && styles.dateItemTextActive]}>{m.slice(0, 3)}</Text>
-                        </TouchableOpacity>
-                      )
-                    })}
-                  </ScrollView>
+                  <WheelColumn
+                    items={MONTHS}
+                    selectedValue={selectedMonth}
+                    onValueChange={setSelectedMonth}
+                    labelExtractor={(m) => m.slice(0, 3)}
+                  />
                 </View>
 
                 {/* Day Column */}
                 <View style={styles.dateColumn}>
                   <Text style={styles.columnHeader}>Day</Text>
-                  <ScrollView style={styles.columnScroll} showsVerticalScrollIndicator={false}>
-                    {Array.from({ length: getDaysInMonth(selectedMonth, selectedYear) }, (_, i) => i + 1).map((d) => {
-                      const isSel = selectedDay === d
-                      return (
-                        <TouchableOpacity
-                          key={d}
-                          style={[styles.dateItemButton, isSel && styles.dateItemButtonActive]}
-                          onPress={() => setSelectedDay(d)}
-                        >
-                          <Text style={[styles.dateItemText, isSel && styles.dateItemTextActive]}>{d}</Text>
-                        </TouchableOpacity>
-                      )
-                    })}
-                  </ScrollView>
+                  <WheelColumn
+                    items={Array.from({ length: getDaysInMonth(selectedMonth, selectedYear) }, (_, i) => i + 1)}
+                    selectedValue={selectedDay}
+                    onValueChange={setSelectedDay}
+                  />
                 </View>
 
                 {/* Year Column */}
                 <View style={styles.dateColumn}>
                   <Text style={styles.columnHeader}>Year</Text>
-                  <ScrollView style={styles.columnScroll} showsVerticalScrollIndicator={false}>
-                    {Array.from({ length: 80 }, (_, i) => new Date().getFullYear() - i).map((y) => {
-                      const isSel = selectedYear === y
-                      return (
-                        <TouchableOpacity
-                          key={y}
-                          style={[styles.dateItemButton, isSel && styles.dateItemButtonActive]}
-                          onPress={() => setSelectedYear(y)}
-                        >
-                          <Text style={[styles.dateItemText, isSel && styles.dateItemTextActive]}>{y}</Text>
-                        </TouchableOpacity>
-                      )
-                    })}
-                  </ScrollView>
+                  <WheelColumn
+                    items={Array.from({ length: 80 }, (_, i) => new Date().getFullYear() - i)}
+                    selectedValue={selectedYear}
+                    onValueChange={setSelectedYear}
+                  />
                 </View>
               </View>
             </View>
@@ -514,7 +603,7 @@ export default function PersonalInfo({ navigation }) {
                 <Text style={styles.modalCancelButtonText}>Cancel</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={[styles.alertButton, { flex: 1, marginLeft: 8 }]}
+                style={[styles.alertButton, { flex: 1, marginLeft: 8, backgroundColor: '#C14954' }]}
                 onPress={handleConfirmDate}
               >
                 <Text style={styles.alertButtonText}>Confirm</Text>
@@ -725,19 +814,19 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   nextButton: {
-    backgroundColor: '#D9989E',
-    borderRadius: 12,
+    backgroundColor: '#C14954',
+    borderRadius: 14,
     paddingVertical: 14,
     alignItems: 'center',
     marginTop: 12,
   },
   nextButtonDisabled: {
-    opacity: 0.7,
+    opacity: 0.6,
   },
   nextButtonText: {
     color: '#fff',
     fontSize: 16,
-    fontWeight: '600',
+    fontWeight: '700',
   },
   modalOverlay: {
     flex: 1,
@@ -800,7 +889,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   alertButton: {
-    backgroundColor: '#D9989E',
+    backgroundColor: '#C14954',
     borderRadius: 12,
     paddingVertical: 13,
     alignItems: 'center',
@@ -808,60 +897,66 @@ const styles = StyleSheet.create({
   alertButtonText: {
     color: '#fff',
     fontSize: 16,
-    fontWeight: '600',
+    fontWeight: '700',
   },
   datePickerWrapper: {
-    position: 'relative',
     width: '100%',
+    marginBottom: 20,
   },
   datePickerRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    height: 240,
-    marginBottom: 24,
+    height: ITEM_HEIGHT * 3 + 28,
   },
   dateColumn: {
     flex: 1,
-    marginHorizontal: 5,
+    marginHorizontal: 4,
     alignItems: 'center',
   },
   columnHeader: {
     fontSize: 12,
     fontWeight: '700',
     color: '#9CA3AF',
-    marginBottom: 10,
+    marginBottom: 8,
     textTransform: 'uppercase',
     letterSpacing: 1,
   },
-  columnScroll: {
+  wheelColumnContainer: {
     width: '100%',
+    height: ITEM_HEIGHT * 3,
+    overflow: 'hidden',
+    position: 'relative',
+    borderRadius: 14,
     backgroundColor: '#F3F4F6',
-    borderRadius: 16,
-    paddingHorizontal: 4,
   },
-  dateItemButton: {
-    paddingVertical: 12,
-    alignItems: 'center',
-    width: '100%',
-    marginVertical: 3,
+  wheelMiddleHighlight: {
+    position: 'absolute',
+    top: ITEM_HEIGHT,
+    left: 4,
+    right: 4,
+    height: ITEM_HEIGHT,
+    backgroundColor: '#C14954',
     borderRadius: 10,
+    zIndex: 0,
   },
-  dateItemButtonActive: {
-    backgroundColor: '#D9989E',
-    shadowColor: '#D9989E',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.25,
-    shadowRadius: 4,
-    elevation: 4,
+  wheelItem: {
+    height: ITEM_HEIGHT,
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 1,
   },
-  dateItemText: {
+  wheelItemText: {
     fontSize: 15,
-    color: '#4B5563',
-    fontWeight: '600',
   },
-  dateItemTextActive: {
+  wheelItemTextActive: {
     color: '#FFFFFF',
     fontWeight: '700',
+    opacity: 1,
+  },
+  wheelItemTextInactive: {
+    color: '#4B5563',
+    fontWeight: '500',
+    opacity: 0.35,
   },
   dateConfirmRow: {
     flexDirection: 'row',

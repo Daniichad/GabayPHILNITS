@@ -10,7 +10,7 @@ const NAVY = '#0f2747'
 const ACCENT = '#d85e67'
 
 const GENDER_OPTIONS = ['Male', 'Female', 'Prefer not to say']
-const EXAM_LEVEL_OPTIONS = ['Professional', 'Sub-professional']
+const EXAM_LEVEL_OPTIONS = ['Information Technology Passport (IP)', 'Fundamental IT Engineer (FE)']
 const EDUCATION_OPTIONS = [
   'Elementary Graduate',
   'High School Graduate',
@@ -112,7 +112,6 @@ export default function AccountInformation({ session: initialSession, navigation
   const [countryCode, setCountryCode] = useState('+63')
   const [isPhoneFocused, setIsPhoneFocused] = useState(false)
   const [countryPickerOpen, setCountryPickerOpen] = useState(false)
-  const [age, setAge] = useState('')
   const [birthdate, setBirthdate] = useState('')
   const [gender, setGender] = useState('')
   const [examLevel, setExamLevel] = useState('')
@@ -127,7 +126,6 @@ export default function AccountInformation({ session: initialSession, navigation
     fullName: '',
     contactNumber: '',
     countryCode: '+63',
-    age: '',
     birthdate: '',
     gender: '',
     examLevel: '',
@@ -138,7 +136,6 @@ export default function AccountInformation({ session: initialSession, navigation
     fullName.trim() !== initialData.fullName.trim() ||
     contactNumber.trim() !== initialData.contactNumber.trim() ||
     countryCode !== initialData.countryCode ||
-    age !== initialData.age ||
     birthdate !== initialData.birthdate ||
     gender !== initialData.gender ||
     examLevel !== initialData.examLevel ||
@@ -180,11 +177,10 @@ export default function AccountInformation({ session: initialSession, navigation
         // 2. Fetch from personal_info
         const { data: pData } = await supabase
           .from('personal_info')
-          .select('age, birthdate, contact_number, gender, target_exam_level, highest_educational_attainment')
+          .select('birthdate, contact_number, gender, target_exam_level, highest_educational_attainment')
           .eq('user_id', currentUser.id)
           .maybeSingle()
 
-        let dbAge = ''
         let dbBirthdate = ''
         let dbGender = ''
         let dbExamLevel = ''
@@ -193,13 +189,17 @@ export default function AccountInformation({ session: initialSession, navigation
         let dbCountry = '+63'
 
         if (pData) {
-          dbAge = pData.age ? String(pData.age) : ''
           dbBirthdate = pData.birthdate || ''
           dbGender = pData.gender || ''
-          dbExamLevel = pData.target_exam_level || ''
+          let rawExamLevel = pData.target_exam_level || ''
+          if (rawExamLevel === 'Professional') {
+            rawExamLevel = 'Fundamental IT Engineer (FE)'
+          } else if (rawExamLevel === 'Sub-Professional' || rawExamLevel === 'Sub-professional') {
+            rawExamLevel = 'Information Technology Passport (IP)'
+          }
+          dbExamLevel = rawExamLevel
           dbEducation = pData.highest_educational_attainment || ''
 
-          setAge(dbAge)
           setBirthdate(dbBirthdate)
           setGender(dbGender)
           setExamLevel(dbExamLevel)
@@ -230,7 +230,6 @@ export default function AccountInformation({ session: initialSession, navigation
           fullName: dbName,
           contactNumber: dbPhone,
           countryCode: dbCountry,
-          age: dbAge,
           birthdate: dbBirthdate,
           gender: dbGender,
           examLevel: dbExamLevel,
@@ -292,7 +291,6 @@ export default function AccountInformation({ session: initialSession, navigation
         .upsert(
           {
             user_id: user.id,
-            age: age ? Number(age) : null,
             birthdate: birthdate || null,
             contact_number: fullContactNumber,
             gender: gender || null,
@@ -492,19 +490,6 @@ export default function AccountInformation({ session: initialSession, navigation
         </View>
       </Modal>
 
-        {/* ── Age ── */}
-        <View style={styles.fieldWrap}>
-          <Text style={styles.fieldLabel}>Age</Text>
-          <TextInput
-            style={styles.input}
-            value={age}
-            onChangeText={(v) => setAge(v.replace(/\D/g, ''))}
-            placeholder="23"
-            placeholderTextColor="#94a3b8"
-            keyboardType="numeric"
-            maxLength={3}
-          />
-        </View>
 
         {/* ── Birthdate ── */}
         <View style={styles.fieldWrap}>

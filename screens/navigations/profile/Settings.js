@@ -6,6 +6,7 @@ import {
 import { Feather } from '@expo/vector-icons'
 import { supabase } from '../../../utils/supabase'
 import { sendEmailJsOtp } from '../../../utils/emailjs'
+import { getUserCache, saveUserCache } from '../../../utils/database'
 
 const NAVY = '#0f2747'
 const LANGUAGES = ['English', 'Filipino (Tagalog)']
@@ -77,7 +78,8 @@ export default function Settings({ navigation }) {
   const [hasPin, setHasPin] = useState(false)
   const [pinLoading, setPinLoading] = useState(true)
   const [pinAuthModalOpen, setPinAuthModalOpen] = useState(false)
-  const [pinAuthStep, setPinAuthStep] = useState('send')  // 'send' | 'verify'
+  const [pinAuthAction, setPinAuthAction] = useState('change') // 'change' | 'remove'
+  const [pinAuthStep, setPinAuthStep] = useState('send') // 'send' | 'verify'
   const [pinAuthEmail, setPinAuthEmail] = useState('')
   const [pinAuthOtp, setPinAuthOtp] = useState('')
   const [pinAuthGeneratedOtp, setPinAuthGeneratedOtp] = useState(null)
@@ -90,14 +92,30 @@ export default function Settings({ navigation }) {
       try {
         const { data: { user } } = await supabase.auth.getUser()
         if (!user) return
-        const { data } = await supabase
-          .from('users')
-          .select('pin_hash')
-          .eq('email', user.email)
-          .maybeSingle()
-        setHasPin(!!data?.pin_hash)
-        // Pre-fill the email for OTP
-        setPinAuthEmail(user.email || '')
+        const emailToMatch = (user.email || '').trim()
+        setPinAuthEmail(emailToMatch)
+
+        let pinFound = false
+        try {
+          const { data } = await supabase
+            .from('users')
+            .select('pin_hash')
+            .ilike('email', emailToMatch)
+            .maybeSingle()
+          if (data?.pin_hash && String(data.pin_hash).trim().length > 0) {
+            pinFound = true
+            await saveUserCache(user.id, String(data.pin_hash).trim(), true, true)
+          }
+        } catch (_) {}
+
+        if (!pinFound) {
+          const cached = await getUserCache(user.id)
+          if (cached?.pin_hash && String(cached.pin_hash).trim().length > 0) {
+            pinFound = true
+          }
+        }
+
+        setHasPin(pinFound)
       } catch (e) {
         console.warn('Error loading pin status:', e)
       } finally {
@@ -113,12 +131,25 @@ export default function Settings({ navigation }) {
       try {
         const { data: { user } } = await supabase.auth.getUser()
         if (!user) return
+        const emailToMatch = (user.email || '').trim()
+
+        let pinFound = false
         const { data } = await supabase
           .from('users')
           .select('pin_hash')
-          .eq('email', user.email)
+          .ilike('email', emailToMatch)
           .maybeSingle()
-        setHasPin(!!data?.pin_hash)
+
+        if (data?.pin_hash && String(data.pin_hash).trim().length > 0) {
+          pinFound = true
+          await saveUserCache(user.id, String(data.pin_hash).trim(), true, true)
+        } else {
+          const cached = await getUserCache(user.id)
+          if (cached?.pin_hash && String(cached.pin_hash).trim().length > 0) {
+            pinFound = true
+          }
+        }
+        setHasPin(pinFound)
       } catch (e) { /* silent */ }
     })
     return unsubscribe
@@ -159,12 +190,36 @@ export default function Settings({ navigation }) {
       // No PIN yet — go straight to SetPin
       navigation.navigate('SetPin')
     } else {
-      // Has PIN — verify email OTP first
-      setPinAuthStep('send')
-      setPinAuthOtp('')
-      setPinAuthGeneratedOtp(null)
-      setPinAuthCooldown(0)
-      setPinAuthModalOpen(true)
+      Alert.alert(
+        'PIN Security',
+        'Choose an option for your 4-digit PIN lock:',
+        [
+          {
+            text: 'Change PIN',
+            onPress: () => {
+              setPinAuthAction('change')
+              setPinAuthStep('send')
+              setPinAuthOtp('')
+              setPinAuthGeneratedOtp(null)
+              setPinAuthCooldown(0)
+              setPinAuthModalOpen(true)
+            },
+          },
+          {
+            text: 'Turn Off PIN',
+            style: 'destructive',
+            onPress: () => {
+              setPinAuthAction('remove')
+              setPinAuthStep('send')
+              setPinAuthOtp('')
+              setPinAuthGeneratedOtp(null)
+              setPinAuthCooldown(0)
+              setPinAuthModalOpen(true)
+            },
+          },
+          { text: 'Cancel', style: 'cancel' },
+        ]
+      )
     }
   }
 
@@ -198,7 +253,7 @@ export default function Settings({ navigation }) {
     }
   }
 
-  const handleVerifyPinOtp = () => {
+  const handleVerifyPinOtp = async () => {
     if (pinAuthOtp.length < 4) {
       Alert.alert('Error', 'Please enter the complete 4-digit code')
       return
@@ -207,9 +262,33 @@ export default function Settings({ navigation }) {
       Alert.alert('Incorrect Code', 'The code you entered is wrong. Please try again.')
       return
     }
-    // Verified — navigate to SetPin
-    closePinAuthModal()
-    navigation.navigate('SetPin')
+
+    if (pinAuthAction === 'remove') {
+      try {
+        setPinAuthLoading(true)
+        const { data: { user } } = await supabase.auth.getUser()
+        if (!user) throw new Error('Not authenticated')
+
+        const { error } = await supabase
+          .from('users')
+          .update({ pin_hash: null })
+          .ilike('email', (user.email || '').trim())
+        if (error) throw error
+
+        await saveUserCache(user.id, null, true, true)
+        setHasPin(false)
+        closePinAuthModal()
+        Alert.alert('PIN Removed', 'PIN lock has been successfully turned off.')
+      } catch (err) {
+        Alert.alert('Error', err.message || 'Failed to remove PIN')
+      } finally {
+        setPinAuthLoading(false)
+      }
+    } else {
+      // 'change' action: navigate to SetPin
+      closePinAuthModal()
+      navigation.navigate('SetPin')
+    }
   }
 
   return (
@@ -388,7 +467,9 @@ export default function Settings({ navigation }) {
                 </TouchableOpacity>
               )}
               <Text style={styles.sheetTitle}>
-                {pinAuthStep === 'send' ? 'Verify Your Identity' : 'Enter Verification Code'}
+                {pinAuthStep === 'send'
+                  ? (pinAuthAction === 'remove' ? 'Turn Off PIN' : 'Change PIN')
+                  : 'Enter Verification Code'}
               </Text>
             </View>
             <TouchableOpacity onPress={closePinAuthModal}>
@@ -403,7 +484,9 @@ export default function Settings({ navigation }) {
                 <Feather name="mail" size={28} color={NAVY} />
               </View>
               <Text style={styles.pinAuthDesc}>
-                To edit your PIN, we'll send a verification code to your registered email address.
+                {pinAuthAction === 'remove'
+                  ? "To turn off your PIN lock, we'll send a verification code to your registered email address."
+                  : "To change your PIN, we'll send a verification code to your registered email address."}
               </Text>
               <View style={styles.pinEmailBox}>
                 <Feather name="at-sign" size={15} color="#64748b" />
@@ -435,11 +518,18 @@ export default function Settings({ navigation }) {
               <OtpInput value={pinAuthOtp} onChange={setPinAuthOtp} />
 
               <TouchableOpacity
-                style={[styles.pwBtn, { marginTop: 20, alignSelf: 'stretch' }]}
+                style={[styles.pwBtn, { marginTop: 20, alignSelf: 'stretch' }, pinAuthLoading && { opacity: 0.7 }]}
                 onPress={handleVerifyPinOtp}
+                disabled={pinAuthLoading}
                 activeOpacity={0.85}
               >
-                <Text style={styles.pwBtnText}>Verify & Edit PIN</Text>
+                {pinAuthLoading ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Text style={styles.pwBtnText}>
+                    {pinAuthAction === 'remove' ? 'Verify & Turn Off PIN' : 'Verify & Change PIN'}
+                  </Text>
+                )}
               </TouchableOpacity>
 
               <TouchableOpacity

@@ -9,9 +9,14 @@ import {
   View,
   ActivityIndicator,
   Image,
+  Alert,
+  Modal,
+  TextInput,
 } from 'react-native'
 import { Feather } from '@expo/vector-icons'
 import { supabase } from '../../utils/supabase'
+import { getUserCache, saveUserCache } from '../../utils/database'
+import { sendEmailJsOtp } from '../../utils/emailjs'
 
 const NAVY = '#0f1e35'
 const BLUE = '#3B82B8'
@@ -87,37 +92,110 @@ export default function PinAuth({ navigation }) {
   const [loading, setLoading] = useState(true)
   const [pinHash, setPinHash] = useState(null)
   const [userEmail, setUserEmail] = useState('')
+  const [userId, setUserId] = useState(null)
   const [error, setError] = useState('')
   const shakeAnim = useRef(new Animated.Value(0)).current
+
+  // Forgot PIN state
+  const [forgotModalVisible, setForgotModalVisible] = useState(false)
+  const [forgotStep, setForgotStep] = useState('send') // 'send' | 'verify'
+  const [forgotOtp, setForgotOtp] = useState('')
+  const [generatedForgotOtp, setGeneratedForgotOtp] = useState(null)
+  const [forgotLoading, setForgotLoading] = useState(false)
+  const [forgotCooldown, setForgotCooldown] = useState(0)
 
   const locked = attempts >= MAX_ATTEMPTS
 
   useEffect(() => {
+    let isMounted = true
+
     const loadPin = async () => {
       try {
-        const { data: { user } } = await supabase.auth.getUser()
-        if (!user) { navigation.replace('Login'); return }
-        setUserEmail(user.email || '')
-        const { data } = await supabase
-          .from('users')
-          .select('pin_hash')
-          .eq('email', user.email)
-          .maybeSingle()
-        if (!data?.pin_hash) {
-          // No PIN set — skip straight to Home
-          navigation.replace('Home')
+        const { data: { session } } = await supabase.auth.getSession()
+        const user = session?.user || (await supabase.auth.getUser()).data?.user
+        if (!user) {
+          if (isMounted) navigation.replace('Login')
           return
         }
-        setPinHash(data.pin_hash)
+
+        const effectiveEmail = (user.email || '').trim()
+        if (isMounted) {
+          setUserEmail(effectiveEmail)
+          setUserId(user.id)
+        }
+
+        let targetPinHash = null
+
+        // 1. Try querying Supabase public.users table using case-insensitive match
+        try {
+          const { data, error: qErr } = await supabase
+            .from('users')
+            .select('pin_hash')
+            .ilike('email', effectiveEmail)
+            .maybeSingle()
+
+          if (!qErr && data?.pin_hash && String(data.pin_hash).trim().length > 0) {
+            targetPinHash = String(data.pin_hash).trim()
+            // Sync to local SQLite cache
+            await saveUserCache(user.id, targetPinHash, true, true)
+          }
+        } catch (netErr) {
+          console.warn('Network issue fetching pin_hash from Supabase:', netErr)
+        }
+
+        // 2. If online fetch didn't yield a PIN or network was offline, check SQLite cache
+        if (!targetPinHash) {
+          try {
+            const cached = await getUserCache(user.id)
+            if (cached?.pin_hash && String(cached.pin_hash).trim().length > 0) {
+              targetPinHash = String(cached.pin_hash).trim()
+            }
+          } catch (cacheErr) {
+            console.warn('Error reading cached pin:', cacheErr)
+          }
+        }
+
+        // 3. If user really has no PIN configured anywhere, skip straight to Home
+        if (!targetPinHash) {
+          if (isMounted) navigation.replace('Home')
+          return
+        }
+
+        if (isMounted) {
+          setPinHash(targetPinHash)
+          setLoading(false)
+        }
       } catch (e) {
         console.warn('PinAuth load error:', e)
-        navigation.replace('Home')
-      } finally {
-        setLoading(false)
+        // If an unexpected error happened, check cache once more before routing to Home
+        try {
+          const { data: { session } } = await supabase.auth.getSession()
+          if (session?.user) {
+            const cached = await getUserCache(session.user.id)
+            if (cached?.pin_hash && String(cached.pin_hash).trim().length > 0) {
+              if (isMounted) {
+                setPinHash(String(cached.pin_hash).trim())
+                setLoading(false)
+                return
+              }
+            }
+          }
+        } catch (_) {}
+
+        if (isMounted) navigation.replace('Home')
       }
     }
+
     loadPin()
-  }, [])
+    return () => { isMounted = false }
+  }, [navigation])
+
+  // Cooldown timer for OTP resend
+  useEffect(() => {
+    if (forgotCooldown <= 0) return
+    const t = setTimeout(() => setForgotCooldown((v) => Math.max(0, v - 1)), 1000)
+    return () => clearTimeout(t)
+  }, [forgotCooldown])
 
   // Auto-check when 4 digits entered
   useEffect(() => {
@@ -137,8 +215,27 @@ export default function PinAuth({ navigation }) {
     ]).start()
   }
 
-  const checkPin = (entered) => {
-    if (simpleHash(entered) === pinHash) {
+  const checkPin = async (entered) => {
+    if (!pinHash) return
+    const strPinHash = String(pinHash).trim()
+    const enteredHash = simpleHash(entered)
+
+    const rawMatch = entered === strPinHash
+    const hashMatch = enteredHash === strPinHash
+
+    if (hashMatch || rawMatch) {
+      // If entered matched raw value directly, upgrade it to hash in the database
+      if (rawMatch && !hashMatch && userEmail) {
+        try {
+          await supabase
+            .from('users')
+            .update({ pin_hash: enteredHash })
+            .ilike('email', userEmail)
+          if (userId) {
+            await saveUserCache(userId, enteredHash, true, true)
+          }
+        } catch (_) {}
+      }
       navigation.replace('Home')
     } else {
       shake()
@@ -148,7 +245,7 @@ export default function PinAuth({ navigation }) {
       setError(
         remaining > 0
           ? `Incorrect PIN. ${remaining} attempt${remaining !== 1 ? 's' : ''} remaining.`
-          : 'Too many failed attempts.'
+          : 'Too many failed attempts. Account locked.'
       )
       setTimeout(() => setPin(''), 600)
     }
@@ -168,7 +265,71 @@ export default function PinAuth({ navigation }) {
   }
 
   const handleSignOut = async () => {
-    await supabase.auth.signOut()
+    try {
+      await supabase.auth.signOut()
+    } finally {
+      navigation.replace('Login')
+    }
+  }
+
+  // ── Forgot PIN handlers ──────────────────────────────────────────
+  const openForgotModal = () => {
+    setForgotStep('send')
+    setForgotOtp('')
+    setGeneratedForgotOtp(null)
+    setForgotCooldown(0)
+    setForgotModalVisible(true)
+  }
+
+  const closeForgotModal = () => {
+    setForgotModalVisible(false)
+    setForgotStep('send')
+    setForgotOtp('')
+    setGeneratedForgotOtp(null)
+  }
+
+  const handleSendForgotOtp = async () => {
+    if (forgotCooldown > 0) {
+      Alert.alert('Please wait', `You can resend code in ${forgotCooldown}s`)
+      return
+    }
+    setForgotLoading(true)
+    try {
+      if (!userEmail) throw new Error('No registered email found for this account')
+      const code = Math.floor(1000 + Math.random() * 9000).toString()
+      setGeneratedForgotOtp(code)
+      await sendEmailJsOtp(userEmail, code, 'Student')
+      setForgotStep('verify')
+      setForgotOtp('')
+      setForgotCooldown(60)
+    } catch (err) {
+      Alert.alert('Error', err.message || 'Failed to send verification code')
+    } finally {
+      setForgotLoading(false)
+    }
+  }
+
+  const handleVerifyForgotOtp = () => {
+    if (forgotOtp.length < 4) {
+      Alert.alert('Error', 'Please enter the complete 4-digit code')
+      return
+    }
+    if (forgotOtp !== generatedForgotOtp) {
+      Alert.alert('Incorrect Code', 'The code you entered is wrong. Please try again.')
+      return
+    }
+
+    closeForgotModal()
+    Alert.alert(
+      'Identity Verified',
+      'You can now create a new 4-digit PIN for your account.',
+      [
+        {
+          text: 'Set New PIN',
+          onPress: () => navigation.replace('SetPin', { mode: 'prompt' }),
+        },
+      ]
+    )
   }
 
   if (loading) {
@@ -191,7 +352,7 @@ export default function PinAuth({ navigation }) {
             resizeMode="contain"
           />
         </View>
-        <Text style={styles.appName}>Gabay PHILCSE</Text>
+        <Text style={styles.appName}>Gabay PhilNITS</Text>
       </View>
 
       <View style={styles.formContainer}>
@@ -200,8 +361,8 @@ export default function PinAuth({ navigation }) {
         </Text>
         <Text style={styles.subtitle}>
           {locked
-            ? 'You have exceeded the maximum attempts.\nPlease sign in again.'
-            : 'Welcome back!'}
+            ? 'You have exceeded the maximum attempts.\nPlease reset your PIN or sign in again.'
+            : 'Welcome back! Enter your 4-digit PIN.'}
         </Text>
 
         {!locked && <PinDots pin={pin} shakeAnim={shakeAnim} />}
@@ -214,6 +375,15 @@ export default function PinAuth({ navigation }) {
           {locked ? (
             <View style={styles.lockedActions}>
               <TouchableOpacity
+                style={styles.resetViaEmailBtn}
+                onPress={openForgotModal}
+                activeOpacity={0.85}
+              >
+                <Feather name="mail" size={18} color="#fff" style={{ marginRight: 8 }} />
+                <Text style={styles.resetViaEmailBtnText}>Reset PIN via Email</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
                 style={styles.signOutBtn}
                 onPress={handleSignOut}
                 activeOpacity={0.85}
@@ -222,10 +392,124 @@ export default function PinAuth({ navigation }) {
               </TouchableOpacity>
             </View>
           ) : (
-            <Numpad onPress={handlePress} onDelete={handleDelete} />
+            <>
+              <Numpad onPress={handlePress} onDelete={handleDelete} />
+
+              <View style={styles.footerLinksRow}>
+                <TouchableOpacity onPress={openForgotModal} activeOpacity={0.6}>
+                  <Text style={styles.footerLinkText}>Forgot PIN?</Text>
+                </TouchableOpacity>
+                <Text style={styles.footerDot}>•</Text>
+                <TouchableOpacity onPress={handleSignOut} activeOpacity={0.6}>
+                  <Text style={styles.footerLinkText}>Sign Out</Text>
+                </TouchableOpacity>
+              </View>
+            </>
           )}
         </View>
       </View>
+
+      {/* ── Forgot PIN Modal ── */}
+      <Modal
+        visible={forgotModalVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={closeForgotModal}
+      >
+        <TouchableOpacity
+          style={styles.backdrop}
+          activeOpacity={1}
+          onPress={closeForgotModal}
+        />
+        <View style={styles.sheet}>
+          <View style={styles.sheetHeader}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+              {forgotStep === 'verify' && (
+                <TouchableOpacity
+                  onPress={() => { setForgotStep('send'); setForgotOtp('') }}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                >
+                  <Feather name="arrow-left" size={20} color={NAVY} />
+                </TouchableOpacity>
+              )}
+              <Text style={styles.sheetTitle}>
+                {forgotStep === 'send' ? 'Reset PIN' : 'Enter Verification Code'}
+              </Text>
+            </View>
+            <TouchableOpacity onPress={closeForgotModal}>
+              <Feather name="x" size={22} color={NAVY} />
+            </TouchableOpacity>
+          </View>
+
+          {forgotStep === 'send' ? (
+            <View style={styles.sheetBody}>
+              <View style={styles.sheetIconWrap}>
+                <Feather name="mail" size={28} color={NAVY} />
+              </View>
+              <Text style={styles.sheetDesc}>
+                To reset your PIN, we will send a 4-digit verification code to your registered email address.
+              </Text>
+              <View style={styles.emailBox}>
+                <Feather name="at-sign" size={15} color="#64748b" />
+                <Text style={styles.emailText} numberOfLines={1}>{userEmail}</Text>
+              </View>
+              <TouchableOpacity
+                style={[styles.primaryBtn, forgotLoading && { opacity: 0.7 }]}
+                onPress={handleSendForgotOtp}
+                disabled={forgotLoading}
+                activeOpacity={0.85}
+              >
+                {forgotLoading
+                  ? <ActivityIndicator size="small" color="#fff" />
+                  : <Text style={styles.primaryBtnText}>Send Verification Code</Text>
+                }
+              </TouchableOpacity>
+            </View>
+          ) : (
+            <View style={styles.sheetBody}>
+              <View style={styles.sheetIconWrap}>
+                <Feather name="shield" size={28} color={NAVY} />
+              </View>
+              <Text style={styles.sheetDesc}>
+                Enter the 4-digit code sent to{' '}
+                <Text style={{ fontWeight: '700', color: NAVY }}>{userEmail}</Text>
+              </Text>
+
+              <View style={styles.otpInputWrap}>
+                <TextInput
+                  style={styles.otpInput}
+                  value={forgotOtp.split('').join(' ')}
+                  onChangeText={(text) => setForgotOtp(text.replace(/[^0-9]/g, '').slice(0, 4))}
+                  keyboardType="number-pad"
+                  maxLength={7}
+                  placeholder="- - - -"
+                  placeholderTextColor="#cbd5e1"
+                  autoFocus
+                />
+              </View>
+
+              <TouchableOpacity
+                style={[styles.primaryBtn, { marginTop: 16 }]}
+                onPress={handleVerifyForgotOtp}
+                activeOpacity={0.85}
+              >
+                <Text style={styles.primaryBtnText}>Verify & Reset PIN</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.resendBtn}
+                onPress={handleSendForgotOtp}
+                disabled={forgotCooldown > 0 || forgotLoading}
+                activeOpacity={0.6}
+              >
+                <Text style={[styles.resendText, forgotCooldown > 0 && { color: '#94a3b8' }]}>
+                  {forgotCooldown > 0 ? `Resend code in ${forgotCooldown}s` : 'Resend code'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          )}
+        </View>
+      </Modal>
     </View>
   )
 }
@@ -286,7 +570,7 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: '#64748b',
     textAlign: 'center',
-    marginBottom: 32,
+    marginBottom: 28,
   },
 
   // Dots
@@ -314,7 +598,7 @@ const styles = StyleSheet.create({
     color: '#ef4444',
     fontSize: 14,
     fontWeight: '500',
-    marginTop: 12,
+    marginTop: 8,
     textAlign: 'center',
     minHeight: 20,
   },
@@ -323,11 +607,25 @@ const styles = StyleSheet.create({
   lockedActions: {
     width: '100%',
     marginTop: 20,
+    gap: 12,
+  },
+  resetViaEmailBtn: {
+    backgroundColor: NAVY,
+    borderRadius: 14,
+    paddingVertical: 15,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  resetViaEmailBtnText: {
+    color: '#fff',
+    fontWeight: '700',
+    fontSize: 16,
   },
   signOutBtn: {
     backgroundColor: '#ef4444',
     borderRadius: 14,
-    paddingVertical: 16,
+    paddingVertical: 15,
     alignItems: 'center',
   },
   signOutBtnText: {
@@ -339,7 +637,7 @@ const styles = StyleSheet.create({
   // Numpad
   numpadContainer: {
     width: '100%',
-    marginTop: 16,
+    marginTop: 12,
     flex: 1,
     justifyContent: 'flex-end',
   },
@@ -361,5 +659,134 @@ const styles = StyleSheet.create({
     fontSize: 28,
     fontWeight: '500',
     color: '#1a1a1a',
+  },
+
+  // Footer links
+  footerLinksRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: 12,
+    paddingVertical: 8,
+    gap: 12,
+  },
+  footerLinkText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: BLUE,
+  },
+  footerDot: {
+    fontSize: 14,
+    color: '#94a3b8',
+  },
+
+  // ── Bottom Sheet Modal ──
+  backdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+  },
+  sheet: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingHorizontal: 24,
+    paddingTop: 20,
+    paddingBottom: Platform.OS === 'ios' ? 40 : 28,
+    elevation: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+  },
+  sheetHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 20,
+  },
+  sheetTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: NAVY,
+  },
+  sheetBody: {
+    alignItems: 'center',
+  },
+  sheetIconWrap: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: '#eff6ff',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 16,
+  },
+  sheetDesc: {
+    fontSize: 14,
+    color: '#64748b',
+    textAlign: 'center',
+    lineHeight: 21,
+    marginBottom: 20,
+  },
+  emailBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: '#f8fafc',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    width: '100%',
+    marginBottom: 20,
+  },
+  emailText: {
+    fontSize: 14,
+    color: NAVY,
+    fontWeight: '600',
+    flex: 1,
+  },
+  primaryBtn: {
+    backgroundColor: NAVY,
+    borderRadius: 12,
+    paddingVertical: 14,
+    alignItems: 'center',
+    width: '100%',
+  },
+  primaryBtnText: {
+    color: '#fff',
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  otpInputWrap: {
+    width: '100%',
+    marginBottom: 12,
+  },
+  otpInput: {
+    textAlign: 'center',
+    letterSpacing: 10,
+    fontSize: 26,
+    width: '100%',
+    borderColor: '#cbd5e1',
+    borderWidth: 1.5,
+    borderRadius: 12,
+    height: 52,
+    color: NAVY,
+    fontWeight: '700',
+    backgroundColor: '#f8fafc',
+  },
+  resendBtn: {
+    marginTop: 16,
+    paddingVertical: 6,
+  },
+  resendText: {
+    fontSize: 14,
+    color: BLUE,
+    fontWeight: '600',
   },
 })

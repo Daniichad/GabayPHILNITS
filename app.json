@@ -1,8 +1,8 @@
 {
   "expo": {
-    "name": "Gabay PhilCSE",
-    "slug": "gabay_philcse",
-    "scheme": "gabay-philcse",
+    "name": "Gabay PhilNITS",
+    "slug": "gabay_philnits",
+    "scheme": "gabay-philnits",
     "version": "1.0.0",
     "updates": {
       "enabled": false
@@ -23,7 +23,7 @@
         "foregroundImage": "./assets/app_logo.png",
         "backgroundColor": "#ffffff"
       },
-      "package": "com.anonymous.gabay_philcse"
+      "package": "com.anonymous.gabay_philnits"
     },
     "web": {
       "favicon": "./assets/favicon.png"

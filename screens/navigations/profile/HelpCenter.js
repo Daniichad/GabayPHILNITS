@@ -41,9 +41,9 @@ const FAQS = [
   },
   {
     id: 6,
-    question: 'What is the difference between Professional and Sub-professional?',
+    question: 'What is the difference between IT Passport (IP) and Fundamental Engineer (FE)?',
     answer:
-      'The Professional level is for college graduates and covers more advanced topics. The Sub-professional level is for those who completed at least 2 years of college or are high school graduates.',
+      'The Information Technology Passport (IP) examination (Level 1) covers foundational knowledge across Technology, Management, and Strategy. The Fundamental Information Technology Engineer (FE) examination (Level 2) evaluates deeper technical competency through Subject A (fundamentals & theory) and Subject B (algorithms & pseudo-code programming).',
   },
 ]
 
@@ -65,7 +65,7 @@ const CONTACTS = [
     id: 'website',
     label: 'Website',
     icon: <Feather name="globe" size={22} color={NAVY} />,
-    url: 'https://www.csc.gov.ph/',
+    url: 'https://www.philnits.org/',
   },
   {
     id: 'facebook',

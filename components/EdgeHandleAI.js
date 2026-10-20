@@ -27,8 +27,8 @@ const HANDLE_SIZE = 60
 const QUICK_PROMPTS = [
   '💡 What should I study today?',
   '📊 How is my exam readiness?',
-  '📝 Explain Pro vs Sub-Pro',
-  '⏱️ CSE Exam tips & strategy',
+  '📝 Explain IP vs FE Certifications',
+  '⏱️ FE Subject B exam strategy',
 ]
 
 export default function EdgeHandleAI({ side = 'right' }) {
@@ -54,7 +54,7 @@ export default function EdgeHandleAI({ side = 'right' }) {
     {
       id: '1',
       sender: 'ai',
-      text: 'Hello! I am your GABAY AI Study Assistant. Ask me anything about Civil Service Exam coverage, study plans, or test strategies!',
+      text: 'Hello! I am your GABAY AI Study Assistant. Ask me anything about PhilNITS IP and FE exam topics, study plans, or test strategies!',
       time: 'Just now',
     },
   ])
@@ -199,18 +199,18 @@ export default function EdgeHandleAI({ side = 'right' }) {
   const generateAiReply = (q) => {
     const query = q.toLowerCase()
     if (query.includes('study') || query.includes('today') || query.includes('review')) {
-      return 'Based on your diagnostic profile, I recommend focusing 20 minutes on Numerical Word Problems and 15 minutes on Philippine Constitution articles today.'
+      return 'Based on your diagnostic profile, I recommend dedicating 25 minutes to Algorithms & Data Structures and 20 minutes to Network Protocols & Information Security today.'
     }
     if (query.includes('readiness') || query.includes('performance') || query.includes('score')) {
-      return 'Your current exam readiness is Moderate. Keep practicing full mock exams to boost your speed and confidence in Analytical & Logical reasoning!'
+      return 'Remember: Official PhilNITS grading uses an Item Response Theory (IRT) scaled score (passing: 600/1000 for FE, 550/1000 for IP). Aim for at least 60% on raw practice questions to be well-prepared!'
     }
-    if (query.includes('pro') || query.includes('sub-pro') || query.includes('subpro') || query.includes('difference')) {
-      return 'Professional level is for 2nd-level technical/managerial positions (includes Analytical Ability). Sub-Professional level is for 1st-level clerical roles (includes Clerical Operations).'
+    if (query.includes('ip') || query.includes('fe') || query.includes('difference') || query.includes('cert')) {
+      return 'Information Technology Passport (IP) tests baseline IT knowledge for all business/IT professionals. Fundamental IT Engineer (FE) is for software engineers and covers deep technical topics, including pseudo-code algorithms and security in Subject B.'
     }
-    if (query.includes('tip') || query.includes('strategy') || query.includes('time')) {
-      return 'CSE Exam Strategy: Answer easy questions first! Spend no more than 1 minute per question. For math, estimate before calculating full steps.'
+    if (query.includes('tip') || query.includes('strategy') || query.includes('time') || query.includes('subject b')) {
+      return 'FE Subject B Strategy: Dedicate ample time to trace pseudo-code line-by-line using memory trace tables. Security and Algorithms comprise the core of Subject B!'
     }
-    return `Great question regarding "${q}"! To master this topic for the Civil Service Exam, try our practice sets in the Practice tab or review the key concepts in your Study Guide.`
+    return `Great question regarding "${q}"! To master this topic for the PhilNITS exam, try our practice sets in the Practice tab or review the key concepts in your Study Guide.`
   }
 
   return (
@@ -286,7 +286,7 @@ export default function EdgeHandleAI({ side = 'right' }) {
                     <Text style={styles.headerTitleText}>GABAY AI Assistant</Text>
                     <View style={styles.statusRow}>
                       <View style={styles.onlineDot} />
-                      <Text style={styles.statusText}>Online • CSE Study Tutor</Text>
+                      <Text style={styles.statusText}>Online • PhilNITS Study Tutor</Text>
                     </View>
                   </View>
                 </View>

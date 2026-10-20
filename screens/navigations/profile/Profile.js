@@ -234,21 +234,21 @@ export default function Profile({ session: initialSession, navigation }) {
           <MenuRow
             icon="info"
             iconFamily="Feather"
-            label="About Gabay CSE"
+            label="About Gabay PhilNITS"
             onPress={() => navigation.navigate('AboutApp')}
           />
           <View style={styles.divider} />
           <MenuRow
             icon="book"
             iconFamily="Feather"
-            label="CSE Guide"
+            label="PhilNITS Guide"
             onPress={() => navigation.navigate('CseGuide')}
           />
           <View style={styles.divider} />
           <MenuRow
             icon="map-pin"
             iconFamily="Feather"
-            label="CSE Sites Near Me"
+            label="PhilNITS Testing Venues"
             onPress={() => navigation.navigate('CseSitesNearMe')}
           />
           <View style={styles.divider} />

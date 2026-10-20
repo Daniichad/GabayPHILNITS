@@ -1,428 +1,90 @@
-import React from 'react'
+import React, { useState, useEffect, useRef, useCallback } from 'react'
 import {
   Alert, ActivityIndicator, Modal, ScrollView,
-  StyleSheet, Text, TouchableOpacity, View, BackHandler,
+  StyleSheet, Text, TouchableOpacity, View, BackHandler, Image,
 } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons'
 import { supabase } from '../../supabase'
 import { setCache } from '../../utils/cache'
+import { saveUserCache } from '../../utils/database'
+import { FALLBACK_QUESTIONS } from './DiagnosticFallbackQuestions'
 
-const SUB_PRO_CATEGORIES = [
-  'General Information',
-  'Verbal Ability',
-  'Numerical Ability',
-  'Clerical Operations',
+const IP_CATEGORIES = [
+  'Technology',
+  'Management',
+  'Strategy',
 ]
 
-const PRO_CATEGORIES = [
-  'General Information',
-  'Verbal Ability',
-  'Numerical Ability',
-  'Analytical Ability',
+const FE_CATEGORIES = [
+  'Computer Systems & Architecture',
+  'Algorithms & Programming',
+  'Networks & Security',
+  'IT Management & Strategy',
 ]
 
-const FALLBACK_QUESTIONS = [
-  // ── GENERAL INFORMATION (10 ITEMS) ──────────────────────────
-  {
-    id: 'g1',
-    category: 'General Information',
-    question: 'Republic Act No. 6713 is officially known as what act?',
-    options: [
-      'Code of Conduct and Ethical Standards for Public Officials and Employees',
-      'Anti-Graft and Corrupt Practices Act',
-      'Civil Service Reform Act of 1987',
-      'Government Procurement Reform Act'
-    ],
-    correct_answer: 'Code of Conduct and Ethical Standards for Public Officials and Employees',
+const CATEGORY_CONFIG = {
+  'Technology': {
+    label: 'Technology',
+    icon: 'laptop',
+    bg: '#E0EDFE',
+    color: '#2563EB',
+    barColor: '#2563EB',
   },
-  {
-    id: 'g2',
-    category: 'General Information',
-    question: 'According to Article II Section 1 of the 1987 Constitution, sovereignty resides in the:',
-    options: ['President', 'Congress', 'People', 'Supreme Court'],
-    correct_answer: 'People',
+  'Management': {
+    label: 'Management',
+    icon: 'clipboard-list-outline',
+    bg: '#FEF3C7',
+    color: '#D97706',
+    barColor: '#F59E0B',
   },
-  {
-    id: 'g3',
-    category: 'General Information',
-    question: 'Under the 1987 Constitution, executive power is vested in whom?',
-    options: ['Chief Justice', 'President of the Philippines', 'Senate President', 'Speaker of the House'],
-    correct_answer: 'President of the Philippines',
+  'Strategy': {
+    label: 'Strategy',
+    icon: 'lightbulb-outline',
+    bg: '#F3E8FF',
+    color: '#9333EA',
+    barColor: '#9333EA',
   },
-  {
-    id: 'g4',
-    category: 'General Information',
-    question: 'Which body has the sole power to try and decide all cases of impeachment?',
-    options: ['House of Representatives', 'Supreme Court', 'Senate', 'Sandiganbayan'],
-    correct_answer: 'Senate',
+  'Computer Systems & Architecture': {
+    label: 'Systems & Architecture',
+    icon: 'cpu-64-bit',
+    bg: '#E0EDFE',
+    color: '#2563EB',
+    barColor: '#2563EB',
   },
-  {
-    id: 'g5',
-    category: 'General Information',
-    question: 'The independent constitutional office that acts as the protector of the people is the:',
-    options: ['Commission on Audit', 'Office of the Ombudsman', 'Civil Service Commission', 'Commission on Elections'],
-    correct_answer: 'Office of the Ombudsman',
+  'Algorithms & Programming': {
+    label: 'Algorithms & Code',
+    icon: 'code-tags',
+    bg: '#DCFCE7',
+    color: '#16A34A',
+    barColor: '#16A34A',
   },
-  {
-    id: 'g6',
-    category: 'General Information',
-    question: 'Public officials must submit their Statement of Assets, Liabilities and Net Worth (SALN) within how many days after assumption of office?',
-    options: ['15 days', '30 days', '60 days', '90 days'],
-    correct_answer: '30 days',
+  'Networks & Security': {
+    label: 'Networks & Security',
+    icon: 'shield-check-outline',
+    bg: '#FEE2E2',
+    color: '#EF4444',
+    barColor: '#F87171',
   },
-  {
-    id: 'g7',
-    category: 'General Information',
-    question: 'According to Article XIV of the 1987 Constitution, the national language of the Philippines is:',
-    options: ['Tagalog', 'Filipino', 'English', 'Filipino and English'],
-    correct_answer: 'Filipino',
+  'IT Management & Strategy': {
+    label: 'Management & Strategy',
+    icon: 'briefcase-outline',
+    bg: '#FEF3C7',
+    color: '#D97706',
+    barColor: '#F59E0B',
   },
-  {
-    id: 'g8',
-    category: 'General Information',
-    question: 'Which constitutional commission is responsible for the recruitment and career progression of civil servants?',
-    options: ['Commission on Audit', 'Civil Service Commission', 'Commission on Elections', 'Commission on Human Rights'],
-    correct_answer: 'Civil Service Commission',
-  },
-  {
-    id: 'g9',
-    category: 'General Information',
-    question: 'The right of the people to be secure in their persons against unreasonable searches is guaranteed under Article III, Section:',
-    options: ['Section 1', 'Section 2', 'Section 4', 'Section 12'],
-    correct_answer: 'Section 2',
-  },
-  {
-    id: 'g10',
-    category: 'General Information',
-    question: 'What principle means that public office is a public trust?',
-    options: ['Accountability of Public Officers', 'Doctrine of Immunity', 'Checks and Balances', 'Separation of Powers'],
-    correct_answer: 'Accountability of Public Officers',
-  },
+}
 
-  // ── VERBAL ABILITY (10 ITEMS) ────────────────────────────────
-  {
-    id: 'v1',
-    category: 'Verbal Ability',
-    question: 'Choose the word that is most OPPOSITE in meaning to "BENEVOLENT".',
-    options: ['Charitable', 'Malevolent', 'Generous', 'Sympathetic'],
-    correct_answer: 'Malevolent',
-  },
-  {
-    id: 'v2',
-    category: 'Verbal Ability',
-    question: 'Choose the word that is most SIMILAR in meaning to "METICULOUS".',
-    options: ['Careless', 'Thorough', 'Hastily', 'Humble'],
-    correct_answer: 'Thorough',
-  },
-  {
-    id: 'v3',
-    category: 'Verbal Ability',
-    question: 'Identify the correctly spelled word:',
-    options: ['Acommodate', 'Accommodate', 'Acomodate', 'Accomodate'],
-    correct_answer: 'Accommodate',
-  },
-  {
-    id: 'v4',
-    category: 'Verbal Ability',
-    question: 'Complete the sentence: "Neither of the candidates _____ prepared for the interview."',
-    options: ['was', 'were', 'are', 'have been'],
-    correct_answer: 'was',
-  },
-  {
-    id: 'v5',
-    category: 'Verbal Ability',
-    question: 'Identify the error in: "She don\'t know the correct procedure for submission."',
-    options: ['She', 'don\'t', 'the correct', 'for submission'],
-    correct_answer: 'don\'t',
-  },
-  {
-    id: 'v6',
-    category: 'Verbal Ability',
-    question: 'Choose the word that best completes the analogy: "LIGHT is to DARK as KNOWLEDGE is to _____".',
-    options: ['Ignorance', 'Wisdom', 'Book', 'Intelligence'],
-    correct_answer: 'Ignorance',
-  },
-  {
-    id: 'v7',
-    category: 'Verbal Ability',
-    question: 'Choose the word that is most OPPOSITE in meaning to "OBSTINATE".',
-    options: ['Stubborn', 'Flexible', 'Rigid', 'Firm'],
-    correct_answer: 'Flexible',
-  },
-  {
-    id: 'v8',
-    category: 'Verbal Ability',
-    question: 'Complete the sentence: "The panel of judges _____ announced the winners."',
-    options: ['has', 'have', 'are', 'were'],
-    correct_answer: 'has',
-  },
-  {
-    id: 'v9',
-    category: 'Verbal Ability',
-    question: 'Select the sentence with correct grammar and usage:',
-    options: [
-      'Each of the members have submitted their report.',
-      'Each of the members has submitted his or her report.',
-      'Each of the member has submitted their report.',
-      'Each of the members were submitting their report.'
-    ],
-    correct_answer: 'Each of the members has submitted his or her report.',
-  },
-  {
-    id: 'v10',
-    category: 'Verbal Ability',
-    question: 'Choose the word that is most SIMILAR in meaning to "CANDID".',
-    options: ['Deceptive', 'Frank', 'Secretive', 'Cautious'],
-    correct_answer: 'Frank',
-  },
+// Fallback questions loaded from DiagnosticFallbackQuestions.js
 
-  // ── NUMERICAL ABILITY (10 ITEMS) ─────────────────────────────
-  {
-    id: 'n1',
-    category: 'Numerical Ability',
-    question: 'Solve for x: 4x + 12 = 36.',
-    options: ['5', '6', '7', '8'],
-    correct_answer: '6',
-  },
-  {
-    id: 'n2',
-    category: 'Numerical Ability',
-    question: 'What is 15% of 400?',
-    options: ['50', '60', '70', '80'],
-    correct_answer: '60',
-  },
-  {
-    id: 'n3',
-    category: 'Numerical Ability',
-    question: 'Find the next number in the sequence: 3, 7, 15, 31, ?',
-    options: ['45', '58', '63', '65'],
-    correct_answer: '63',
-  },
-  {
-    id: 'n4',
-    category: 'Numerical Ability',
-    question: 'If a car travels at a constant speed of 60 km/h, how far does it travel in 2 hours and 30 minutes?',
-    options: ['120 km', '135 km', '150 km', '160 km'],
-    correct_answer: '150 km',
-  },
-  {
-    id: 'n5',
-    category: 'Numerical Ability',
-    question: 'Evaluate the expression: (12 ÷ 3) + (5 × 4) - 6.',
-    options: ['16', '18', '20', '22'],
-    correct_answer: '18',
-  },
-  {
-    id: 'n6',
-    category: 'Numerical Ability',
-    question: 'Find the average score of a student who scored 85, 90, 78, and 87.',
-    options: ['84', '85', '86', '87'],
-    correct_answer: '85',
-  },
-  {
-    id: 'n7',
-    category: 'Numerical Ability',
-    question: 'An item originally priced at ₱1,000 is given a 20% discount. What is the final price?',
-    options: ['₱750', '₱800', '₱850', '₱900'],
-    correct_answer: '₱800',
-  },
-  {
-    id: 'n8',
-    category: 'Numerical Ability',
-    question: 'What is the sum of 2/5 and 1/3?',
-    options: ['3/8', '7/15', '11/15', '13/15'],
-    correct_answer: '11/15',
-  },
-  {
-    id: 'n9',
-    category: 'Numerical Ability',
-    question: 'Find the next number in the sequence: 100, 90, 81, 73, ?',
-    options: ['64', '65', '66', '67'],
-    correct_answer: '66',
-  },
-  {
-    id: 'n10',
-    category: 'Numerical Ability',
-    question: 'If 5 workers can complete a job in 6 days, how many days will 10 workers take working at the same rate?',
-    options: ['2 days', '3 days', '4 days', '5 days'],
-    correct_answer: '3 days',
-  },
+const DIAGNOSTIC_TIME_LIMIT_SECONDS = 40 * 60 // 40 minutes (2,400 seconds)
 
-  // ── ANALYTICAL ABILITY (10 ITEMS - PRO) ──────────────────────
-  {
-    id: 'a1',
-    category: 'Analytical Ability',
-    question: 'If all mammals are warm-blooded, and all dogs are mammals, which statement MUST be true?',
-    options: [
-      'All warm-blooded animals are dogs.',
-      'All dogs are warm-blooded.',
-      'Some dogs are not mammals.',
-      'None of the above.'
-    ],
-    correct_answer: 'All dogs are warm-blooded.',
-  },
-  {
-    id: 'a2',
-    category: 'Analytical Ability',
-    question: 'If TODAY is Wednesday, what day of the week will it be in 100 days?',
-    options: ['Thursday', 'Friday', 'Saturday', 'Sunday'],
-    correct_answer: 'Friday',
-  },
-  {
-    id: 'a3',
-    category: 'Analytical Ability',
-    question: 'If "RED" is coded as 18-5-4, how is "BLUE" coded?',
-    options: ['2-12-21-5', '2-11-20-5', '3-12-21-6', '2-13-22-5'],
-    correct_answer: '2-12-21-5',
-  },
-  {
-    id: 'a4',
-    category: 'Analytical Ability',
-    question: 'Identify the underlying assumption: "Sales will increase this quarter because we hired additional agents."',
-    options: [
-      'Additional agents cost less to employ.',
-      'Hiring additional agents directly contributes to higher sales volume.',
-      'No other company is hiring sales agents.',
-      'Current sales agents are unproductive.'
-    ],
-    correct_answer: 'Hiring additional agents directly contributes to higher sales volume.',
-  },
-  {
-    id: 'a5',
-    category: 'Analytical Ability',
-    question: 'Complete the letter pattern: A, C, E, G, ?',
-    options: ['H', 'I', 'J', 'K'],
-    correct_answer: 'I',
-  },
-  {
-    id: 'a6',
-    category: 'Analytical Ability',
-    question: 'Statement: All high achievers study consistently. Mark passed the exam. Conclusion:',
-    options: [
-      'Mark is a high achiever.',
-      'Mark studied consistently.',
-      'Mark may or may not be a high achiever who studied consistently.',
-      'Mark did not study.'
-    ],
-    correct_answer: 'Mark may or may not be a high achiever who studied consistently.',
-  },
-  {
-    id: 'a7',
-    category: 'Analytical Ability',
-    question: 'A department recorded sales of 120 units in Q1, 150 units in Q2, and 180 units in Q3. What is the quarterly growth trend?',
-    options: [
-      'Increasing by 30 units per quarter',
-      'Decreasing by 10%',
-      'Constant sales rate',
-      'Doubling each quarter'
-    ],
-    correct_answer: 'Increasing by 30 units per quarter',
-  },
-  {
-    id: 'a8',
-    category: 'Analytical Ability',
-    question: 'If Statement P implies Statement Q, and Statement Q is FALSE, what can be concluded about P?',
-    options: ['P is TRUE', 'P is FALSE', 'P is UNCERTAIN', 'Q must be TRUE'],
-    correct_answer: 'P is FALSE',
-  },
-  {
-    id: 'a9',
-    category: 'Analytical Ability',
-    question: 'If CIRCLE is written as ELCRIC, how is SQUARE written?',
-    options: ['ERAUQS', 'ERAUSQ', 'QSERAU', 'SQUARE'],
-    correct_answer: 'ERAUQS',
-  },
-  {
-    id: 'a10',
-    category: 'Analytical Ability',
-    question: 'Mark is taller than John. John is taller than Paul. Who is the shortest among the three?',
-    options: ['Mark', 'John', 'Paul', 'Cannot be determined'],
-    correct_answer: 'Paul',
-  },
-
-  // ── CLERICAL OPERATIONS (10 ITEMS - SUB PRO) ───────────────
-  {
-    id: 'c1',
-    category: 'Clerical Operations',
-    question: 'Which of the following names should be filed FIRST alphabetically?',
-    options: ['Alvarado, Carlos', 'Alvarez, Antonio', 'Alvarez, Bernardo', 'Alvarez, Aaron'],
-    correct_answer: 'Alvarado, Carlos',
-  },
-  {
-    id: 'c2',
-    category: 'Clerical Operations',
-    question: 'Compare Item A: "Account No. 84930291" and Item B: "Account No. 84930219". Are they identical?',
-    options: ['Identical', 'Not Identical', 'Same digits only', 'Incomplete data'],
-    correct_answer: 'Not Identical',
-  },
-  {
-    id: 'c3',
-    category: 'Clerical Operations',
-    question: 'Arrange in correct alphabetical filing order: (1) De Guzman, A. (2) Dela Cruz, B. (3) Del Rosario, C. (4) Delos Reyes, D.',
-    options: [
-      '(1), (2), (3), (4)',
-      '(2), (1), (3), (4)',
-      '(4), (3), (2), (1)',
-      '(1), (3), (2), (4)'
-    ],
-    correct_answer: '(1), (2), (3), (4)',
-  },
-  {
-    id: 'c4',
-    category: 'Clerical Operations',
-    question: 'Identify the spelling error in: "The secretary filed the documents in the cabinet yesterday."',
-    options: ['secretary', 'documents', 'cabinet', 'No error'],
-    correct_answer: 'No error',
-  },
-  {
-    id: 'c5',
-    category: 'Clerical Operations',
-    question: 'In standard numerical filing, which document number comes immediately before #00452?',
-    options: ['#00450', '#00451', '#00453', '#00460'],
-    correct_answer: '#00451',
-  },
-  {
-    id: 'c6',
-    category: 'Clerical Operations',
-    question: 'Which of the following words is MISSPELLED?',
-    options: ['Receit', 'Maintenance', 'Calendar', 'Guarantee'],
-    correct_answer: 'Receit',
-  },
-  {
-    id: 'c7',
-    category: 'Clerical Operations',
-    question: 'Match target code "A4-9982" with the exact matching option:',
-    options: ['A4-9928', 'A4-9982', 'A4-9892', 'A4-9988'],
-    correct_answer: 'A4-9982',
-  },
-  {
-    id: 'c8',
-    category: 'Clerical Operations',
-    question: 'Which name should be placed LAST in alphabetical order?',
-    options: ['Brown, A.', 'Brown, Aaron', 'Brown, Adam', 'Brown, Alan'],
-    correct_answer: 'Brown, Alan',
-  },
-  {
-    id: 'c9',
-    category: 'Clerical Operations',
-    question: 'What is the primary function of a paper shredder in an office setting?',
-    options: [
-      'Binding documents',
-      'Disposing confidential files securely',
-      'Duplicating papers',
-      'Laminating records'
-    ],
-    correct_answer: 'Disposing confidential files securely',
-  },
-  {
-    id: 'c10',
-    category: 'Clerical Operations',
-    question: 'Compare Code 1: "CSE-2026-SUBPRO" and Code 2: "CSE-2026-SUPBRO". What is the difference?',
-    options: ['No difference', 'Spelling order of SUBPRO vs SUPBRO', 'Numbering difference', 'Case sensitivity'],
-    correct_answer: 'Spelling order of SUBPRO vs SUPBRO',
-  },
-]
+function formatTime(totalSeconds) {
+  const mins = Math.floor(Math.max(totalSeconds, 0) / 60)
+  const secs = Math.max(totalSeconds, 0) % 60
+  const pad = (n) => String(n).padStart(2, '0')
+  return `${pad(mins)}:${pad(secs)}`
+}
 
 export default function DiagnosticAssessment({ navigation, route }) {
   const from = route?.params?.from
@@ -437,15 +99,24 @@ export default function DiagnosticAssessment({ navigation, route }) {
   const [finished, setFinished] = React.useState(false)
   const [saving, setSaving] = React.useState(false)
   const [result, setResult] = React.useState(null)
-  const [examType, setExamType] = React.useState('pro')
-  const [targetCategories, setTargetCategories] = React.useState(PRO_CATEGORIES)
+  const [examType, setExamType] = React.useState('ip')
+  const [targetCategories, setTargetCategories] = React.useState(IP_CATEGORIES)
+  const [secondsLeft, setSecondsLeft] = React.useState(DIAGNOSTIC_TIME_LIMIT_SECONDS)
+
+  const timerRef = React.useRef(null)
+  const answersRef = React.useRef(answers)
+  const selectedAnswerRef = React.useRef(selectedAnswer)
+  const currentQuestionRef = React.useRef(null)
+
+  React.useEffect(() => { answersRef.current = answers }, [answers])
+  React.useEffect(() => { selectedAnswerRef.current = selectedAnswer }, [selectedAnswer])
 
   // ── Load exam type & questions ─────────────────────────────
   React.useEffect(() => { loadQuestions() }, [])
 
   // Disable back gesture on iOS / Android navigators
   React.useEffect(() => {
-    navigation.setOptions({ gestureEnabled: false })
+    navigation?.setOptions?.({ gestureEnabled: false })
   }, [navigation])
 
   // Handle hardware back press (3-dot nav / gestures)
@@ -474,15 +145,15 @@ export default function DiagnosticAssessment({ navigation, route }) {
 
         if (data?.target_exam_level) {
           const lvl = data.target_exam_level.toLowerCase()
-          if (lvl.includes('sub')) {
-            return 'sub_pro'
+          if (lvl.includes('fe') || lvl.includes('engineer')) {
+            return 'fe'
           }
         }
       }
     } catch (e) {
       console.warn('Error fetching exam type:', e)
     }
-    return 'pro'
+    return 'ip'
   }
 
   const loadQuestions = async () => {
@@ -493,8 +164,9 @@ export default function DiagnosticAssessment({ navigation, route }) {
       const userExamType = await fetchUserExamType()
       setExamType(userExamType)
 
-      const categories = userExamType === 'sub_pro' ? SUB_PRO_CATEGORIES : PRO_CATEGORIES
+      const categories = userExamType === 'fe' ? FE_CATEGORIES : IP_CATEGORIES
       setTargetCategories(categories)
+      setSecondsLeft((userExamType === 'fe' ? 40 : 30) * 60)
 
       // Attempt to load from Supabase for target categories
       const { data: dbData, error } = await supabase
@@ -506,7 +178,7 @@ export default function DiagnosticAssessment({ navigation, route }) {
 
       let assembled = []
 
-      // Assembly: Randomly pick 10 questions per category (40 total)
+      // Assembly: Randomly pick questions per category
       categories.forEach((cat) => {
         const dbCatQuestions = (dbData || []).filter((q) => q.category === cat)
         const fallbackCatQuestions = FALLBACK_QUESTIONS.filter((q) => q.category === cat)
@@ -520,7 +192,7 @@ export default function DiagnosticAssessment({ navigation, route }) {
           combined = [...combined, ...fillers]
         }
 
-        // Randomly shuffle all questions in this category and pick 10
+        // Randomly shuffle all questions in this category and pick up to 10
         const shuffled = [...combined].sort(() => Math.random() - 0.5)
         assembled.push(...shuffled.slice(0, 10))
       })
@@ -530,11 +202,28 @@ export default function DiagnosticAssessment({ navigation, route }) {
         assembled = FALLBACK_QUESTIONS.filter((q) => categories.includes(q.category))
       }
 
-      setQuestions(assembled)
+      // Ensure options are strictly arrays of strings
+      const normalized = assembled.map((q) => {
+        let opts = q.options
+        if (typeof opts === 'string') {
+          try {
+            opts = JSON.parse(opts)
+          } catch (e) {
+            opts = []
+          }
+        }
+        return {
+          ...q,
+          options: Array.isArray(opts) ? opts : [],
+        }
+      })
+
+      setQuestions(normalized)
     } catch (e) {
       console.warn('Load questions error, using local fallback:', e)
-      const categories = examType === 'sub_pro' ? SUB_PRO_CATEGORIES : PRO_CATEGORIES
-      setQuestions(FALLBACK_QUESTIONS.filter((q) => categories.includes(q.category)))
+      const categories = examType === 'fe' ? FE_CATEGORIES : IP_CATEGORIES
+      const fallbackList = FALLBACK_QUESTIONS.filter((q) => categories.includes(q.category))
+      setQuestions(fallbackList)
     } finally {
       setLoading(false)
     }
@@ -542,6 +231,8 @@ export default function DiagnosticAssessment({ navigation, route }) {
 
   const currentQuestion = questions[questionIndex]
   const progress = `${Math.min(questionIndex + 1, questions.length)} / ${questions.length}`
+
+  React.useEffect(() => { currentQuestionRef.current = currentQuestion }, [currentQuestion])
 
   // ── Compute results & Review Speed ─────────────────────────
   const computeResults = React.useCallback((answerMap) => {
@@ -562,7 +253,7 @@ export default function DiagnosticAssessment({ navigation, route }) {
       }
     })
 
-    let weakestCategory = targetCategories[0] || 'Numerical Ability'
+    let weakestCategory = targetCategories[0] || 'Technology'
     let lowestPct = 101
 
     Object.entries(categoryScores).forEach(([cat, bucket]) => {
@@ -576,7 +267,7 @@ export default function DiagnosticAssessment({ navigation, route }) {
 
     const totalQuestions = questions.length || 40
     const scorePercent = Math.round((correctCount / totalQuestions) * 100)
-    
+
     // Level assessment
     const level = scorePercent >= 80 ? 'Advanced'
       : scorePercent >= 60 ? 'Intermediate'
@@ -584,30 +275,79 @@ export default function DiagnosticAssessment({ navigation, route }) {
           : 'Needs Practice'
 
     // Auto-calculate review speed based on performance:
-    // - Slow: Majority wrong (< 50%)
-    // - Normal: Middle range (50% - 79%)
-    // - Fast: Almost all correct (>= 80%)
-    let calculatedSpeed = 'normal'
+    // - Detailed: Majority wrong (< 50%)
+    // - Standard: Middle range (50% - 79%)
+    // - Quick: Almost all correct (>= 80%)
+    let calculatedSpeed = 'Standard'
     if (scorePercent < 50) {
-      calculatedSpeed = 'slow'
+      calculatedSpeed = 'Detailed'
     } else if (scorePercent >= 80) {
-      calculatedSpeed = 'fast'
+      calculatedSpeed = 'Quick'
     } else {
-      calculatedSpeed = 'normal'
+      calculatedSpeed = 'Standard'
     }
 
-    return { 
-      correctCount, 
-      totalQuestions, 
-      scorePercent, 
-      level, 
-      categoryScores, 
+    return {
+      correctCount,
+      totalQuestions,
+      scorePercent,
+      level,
+      categoryScores,
       weakestCategory,
       lowestPct: lowestPct === 101 ? 0 : lowestPct,
       answerMap,
-      calculatedSpeed 
+      calculatedSpeed
     }
   }, [questions, targetCategories])
+
+  // ── Auto-submit when 40 minutes expire ──────────────────────
+  const handleTimeoutFinish = React.useCallback(async () => {
+    if (timerRef.current) clearInterval(timerRef.current)
+    const latestAnswers = { ...answersRef.current }
+    if (selectedAnswerRef.current && currentQuestionRef.current?.id) {
+      latestAnswers[currentQuestionRef.current.id] = selectedAnswerRef.current
+    }
+    Alert.alert(
+      "Time's Up!",
+      'The 40-minute limit for the diagnostic assessment has expired. Your current answers have been submitted automatically.',
+      [{ text: 'View Results' }]
+    )
+    const summary = computeResults(latestAnswers)
+    setFinished(true)
+    setSaving(true)
+    try {
+      await saveAttempt(summary)
+      setResult(summary)
+    } catch (err) {
+      console.warn('Save diagnostic warning on timeout:', err)
+      setResult(summary)
+    } finally {
+      setSaving(false)
+    }
+  }, [computeResults, saveAttempt])
+
+  // ── 40-Minute Countdown Timer ──────────────────────────────
+  React.useEffect(() => {
+    if (!started || finished) {
+      if (timerRef.current) clearInterval(timerRef.current)
+      return
+    }
+
+    timerRef.current = setInterval(() => {
+      setSecondsLeft((prev) => {
+        if (prev <= 1) {
+          if (timerRef.current) clearInterval(timerRef.current)
+          handleTimeoutFinish()
+          return 0
+        }
+        return prev - 1
+      })
+    }, 1000)
+
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current)
+    }
+  }, [started, finished, handleTimeoutFinish])
 
   // ── Save attempt & update user review_speed ───────────────
   const saveAttempt = React.useCallback(async (summary) => {
@@ -651,16 +391,20 @@ export default function DiagnosticAssessment({ navigation, route }) {
         .update({ review_speed: formattedSpeed })
         .eq('email', userEmail)
     }
+
+    // 4. Update local user cache so offline / initial routing recognizes diagnostic is completed
+    try {
+      await saveUserCache(userId, null, true, true)
+    } catch (cacheErr) {
+      console.warn('Local cache save warning:', cacheErr)
+    }
   }, [])
 
   // ── Handlers ───────────────────────────────────────────────
   const handleChoose = (option) => setSelectedAnswer(option)
 
   const handleNext = async () => {
-    if (!selectedAnswer) {
-      Alert.alert('Select an answer', 'Please choose one option before continuing.')
-      return
-    }
+    if (!selectedAnswer) return
     const updatedAnswers = { ...answers, [currentQuestion.id]: selectedAnswer }
     setAnswers(updatedAnswers)
     setSelectedAnswer('')
@@ -670,6 +414,7 @@ export default function DiagnosticAssessment({ navigation, route }) {
       return
     }
 
+    if (timerRef.current) clearInterval(timerRef.current)
     const summary = computeResults(updatedAnswers)
     setFinished(true)
     setSaving(true)
@@ -685,6 +430,7 @@ export default function DiagnosticAssessment({ navigation, route }) {
   }
 
   const handleExitAssessment = () => {
+    if (timerRef.current) clearInterval(timerRef.current)
     setExitVisible(false)
     if (from === 'Home') navigation?.navigate('Home')
     else navigation?.goBack()
@@ -696,7 +442,7 @@ export default function DiagnosticAssessment({ navigation, route }) {
       <SafeAreaView style={styles.safeArea}>
         <View style={styles.centered}>
           <ActivityIndicator size="large" color="#0F2747" />
-          <Text style={styles.loadingText}>Loading 40 {examType === 'sub_pro' ? 'Sub-Professional' : 'Professional'} questions…</Text>
+          <Text style={styles.loadingText}>Loading {examType === 'fe' ? 40 : 30} {examType === 'fe' ? 'Fundamental IT Engineer (FE)' : 'IT Passport (IP)'} questions…</Text>
         </View>
       </SafeAreaView>
     )
@@ -720,92 +466,134 @@ export default function DiagnosticAssessment({ navigation, route }) {
 
   // ─────────────────────────────── RESULT STATE ────────────
   if (finished && result) {
-    const weakCategories = targetCategories.filter((cat) => {
-      const b = result.categoryScores[cat]
-      return b && b.total > 0 && b.correct < b.total
-    }).slice(0, 3)
-
-    const strongCategories = targetCategories.filter((cat) => {
-      const b = result.categoryScores[cat]
-      return b && b.total > 0 && b.correct === b.total
-    }).slice(0, 3)
-
-    const speedLabel = result.calculatedSpeed.toUpperCase()
-    const speedDescription = 
-      result.calculatedSpeed === 'slow' ? 'Comprehensive step-by-step guidance'
-      : result.calculatedSpeed === 'fast' ? 'Concise & fast-paced practice content'
-      : 'Standard balanced study plan'
+    const scoreFormatted = (result.scorePercent || 0).toFixed(2)
 
     return (
       <SafeAreaView style={styles.safeArea}>
         <View style={styles.resultContainer}>
-          <ScrollView style={styles.resultScroll} contentContainerStyle={styles.resultScrollContent} showsVerticalScrollIndicator={false}>
-            <View style={styles.resultCard}>
-              <View style={styles.resultIconWrap}>
-                <Text style={styles.resultIcon}>✓</Text>
+          <ScrollView
+            style={styles.resultScroll}
+            contentContainerStyle={styles.resultScrollContent}
+            showsVerticalScrollIndicator={false}
+          >
+            {/* Top Center Checkmark & Title */}
+            <View style={styles.resultHeaderWrap}>
+              <View style={styles.resultCheckCircle}>
+                <MaterialCommunityIcons name="check" size={32} color="#2563EB" />
               </View>
-              <Text style={styles.resultTitle}>Assessment Complete!</Text>
-              <Text style={styles.resultSubtitle}>
-                {examType === 'sub_pro' ? 'Sub-Professional' : 'Professional'} Exam Track (40 Items)
-              </Text>
-
-              <View style={styles.scoreBox}>
-                <Text style={styles.scoreText}>{result.correctCount} / {result.totalQuestions}</Text>
-                <Text style={styles.scorePercent}>{result.scorePercent}%</Text>
-              </View>
-
-              <View style={styles.levelBox}>
-                <Text style={styles.levelText}>{result.level}</Text>
-              </View>
-
-              {/* Recommended Review Speed Box */}
-              <View style={styles.speedBox}>
-                <Text style={styles.speedHeader}>RECOMMENDED STUDY SPEED</Text>
-                <Text style={styles.speedBadge}>⚡ {speedLabel} SPEED</Text>
-                <Text style={styles.speedDesc}>{speedDescription}</Text>
-              </View>
-
-              <Text style={styles.sectionTitle}>Category Breakdown (10 items each)</Text>
-              <View style={styles.breakdownBox}>
-                {targetCategories.map((cat) => {
-                  const b = result.categoryScores[cat] || { correct: 0, total: 10 }
-                  return (
-                    <View key={cat} style={styles.breakdownRow}>
-                      <Text style={styles.breakdownLabel}>{cat}</Text>
-                      <Text style={styles.breakdownValue}>{b.correct} / {b.total}</Text>
-                    </View>
-                  )
-                })}
-              </View>
-
-              <View style={styles.insightDangerBox}>
-                <Text style={styles.insightTitle}>Areas for Improvement</Text>
-                {weakCategories.length > 0
-                  ? weakCategories.map((cat) => <Text key={cat} style={styles.insightItem}>• {cat}</Text>)
-                  : <Text style={styles.insightItem}>• None detected! Excellent performance across all areas.</Text>}
-              </View>
-
-              <View style={styles.insightSafeBox}>
-                <Text style={styles.insightTitle}>Strong Areas</Text>
-                {strongCategories.length > 0
-                  ? strongCategories.map((cat) => <Text key={cat} style={styles.insightItem}>• {cat}</Text>)
-                  : <Text style={styles.insightItem}>• Keep practicing to build stronger areas.</Text>}
-              </View>
-
-              <TouchableOpacity
-                style={styles.finalButton}
-                activeOpacity={0.85}
-                onPress={() => {
-                  if (navigation?.reset) {
-                    navigation.reset({ index: 0, routes: [{ name: 'Home' }] })
-                  } else {
-                    navigation?.replace('Home')
-                  }
-                }}
-              >
-                <Text style={styles.finalButtonText}>{saving ? 'SAVING...' : "LET'S START YOUR JOURNEY"}</Text>
-              </TouchableOpacity>
+              <Text style={styles.resultMainTitle}>Assessment Complete!</Text>
+              <Text style={styles.resultMainSubtitle}>Here's your diagnostic report</Text>
             </View>
+
+            {/* Overall Score Card */}
+            <View style={styles.reportScoreCard}>
+              <View style={styles.scoreCircle}>
+                <Text style={styles.scoreCircleValue}>
+                  {result.correctCount}
+                  <Text style={styles.scoreCircleTotal}>/{result.totalQuestions}</Text>
+                </Text>
+              </View>
+              <View style={styles.scoreCardDetails}>
+                <Text style={styles.scoreCardLabel}>Overall Score</Text>
+                <Text style={styles.scoreCardBigPercent}>{scoreFormatted}%</Text>
+                <Text style={styles.scoreCardSub}>Correct Answers</Text>
+              </View>
+            </View>
+
+            {/* Your Level Card */}
+            <View style={styles.reportLevelCard}>
+              <View style={styles.levelIconCircle}>
+                <MaterialCommunityIcons name="chart-bar" size={24} color="#3B82F6" />
+              </View>
+              <View style={styles.levelCardDetails}>
+                <View style={styles.levelRow}>
+                  <Text style={styles.levelLabel}>Your Level:  </Text>
+                  <Text style={styles.levelValue}>{result.level}</Text>
+                </View>
+                <Text style={styles.levelSub}>Knowledge Level</Text>
+              </View>
+            </View>
+
+            {/* Category Breakdown */}
+            <View style={styles.breakdownHeaderRow}>
+              <Text style={styles.breakdownTitle}>Category Breakdown</Text>
+              <Text style={styles.breakdownTotalQuestions}>Total: {result.totalQuestions} Questions</Text>
+            </View>
+
+            {targetCategories.map((cat) => {
+              const b = result.categoryScores[cat] || { correct: 0, total: 10 }
+              const pct = b.total > 0 ? Math.round((b.correct / b.total) * 100) : 0
+              const cfg = CATEGORY_CONFIG[cat] || {
+                label: cat,
+                icon: 'format-list-checks',
+                bg: '#EFF6FF',
+                color: '#2563EB',
+                barColor: '#2563EB',
+              }
+
+              return (
+                <View key={cat} style={styles.catCard}>
+                  <View style={[styles.catIconWrap, { backgroundColor: cfg.bg }]}>
+                    <MaterialCommunityIcons name={cfg.icon} size={22} color={cfg.color} />
+                  </View>
+                  <View style={styles.catInfoWrap}>
+                    <View style={styles.catRowTop}>
+                      <Text style={styles.catLabelText}>{cfg.label}</Text>
+                      <View style={styles.catScoreRight}>
+                        <Text style={styles.catFractionText}>{b.correct}/{b.total}</Text>
+                        <Text style={styles.catPercentText}>{pct}%</Text>
+                      </View>
+                    </View>
+                    <View style={styles.catBarTrack}>
+                      <View
+                        style={[
+                          styles.catBarFill,
+                          { backgroundColor: cfg.barColor, width: `${Math.max(pct, 4)}%` },
+                        ]}
+                      />
+                    </View>
+                  </View>
+                </View>
+              )
+            })}
+
+            {/* Areas for Improvement */}
+            <Text style={styles.areasImprovementHeader}>Areas for Improvement</Text>
+            <View style={styles.areasImprovementCard}>
+              {targetCategories.map((cat) => (
+                <Text key={cat} style={styles.areaBulletText}>
+                  •  {cat}
+                </Text>
+              ))}
+            </View>
+
+            {/* Strong Areas */}
+            <Text style={styles.strongAreasHeader}>Strong Areas</Text>
+            <View style={styles.strongAreasCard}>
+              {targetCategories.map((cat) => (
+                <Text key={cat} style={styles.areaBulletText}>
+                  •  {cat}
+                </Text>
+              ))}
+            </View>
+
+            {/* Action Button: LET'S START STUDYING! */}
+            <TouchableOpacity
+              style={styles.studyNowButton}
+              activeOpacity={0.85}
+              onPress={() => {
+                if (navigation?.reset) {
+                  navigation.reset({ index: 0, routes: [{ name: 'Home' }] })
+                } else {
+                  navigation?.replace('Home')
+                }
+              }}
+            >
+              <Text style={styles.studyNowButtonText}>
+                {saving ? 'SAVING...' : "LET'S START STUDYING!"}
+              </Text>
+            </TouchableOpacity>
+
           </ScrollView>
         </View>
       </SafeAreaView>
@@ -831,29 +619,29 @@ export default function DiagnosticAssessment({ navigation, route }) {
             </View>
             <Text style={styles.introTitle}>Diagnostic Assessment</Text>
             <Text style={styles.introSubtitle}>
-              {examType === 'sub_pro' ? 'Sub-Professional Level' : 'Professional Level'}
+              {examType === 'fe' ? 'Fundamental IT Engineer (FE)' : 'Information Technology Passport (IP)'}
             </Text>
             <Text style={styles.introBody}>
-              This 40-item diagnostic test evaluates your readiness across 4 core subjects and automatically sets your optimal review speed.
+              This {questions.length || (examType === 'fe' ? 40 : 30)}-item diagnostic test evaluates your readiness across {examType === 'fe' ? '4 core technical subjects' : '3 core domains (Technology, Management, Strategy)'} and automatically sets your optimal review speed.
             </Text>
             <View style={styles.bulletBox}>
               <View style={styles.bulletRow}>
                 <MaterialCommunityIcons name="check-circle" size={20} color="#d85e67" style={styles.bulletIcon} />
                 <Text style={styles.bulletText}>
-                  40 questions (10 items each: {targetCategories.join(', ')})
+                  {questions.length || (examType === 'fe' ? 40 : 30)} questions (10 items each: {targetCategories.join(', ')})
                 </Text>
               </View>
               <View style={styles.bulletRow}>
                 <MaterialCommunityIcons name="clock-outline" size={20} color="#d85e67" style={styles.bulletIcon} />
-                <Text style={styles.bulletText}>Takes about 15 - 20 minutes</Text>
+                <Text style={styles.bulletText}>Time limit: {Math.round(secondsLeft / 60)} minutes (1 minute per question)</Text>
               </View>
               <View style={styles.bulletRow}>
                 <MaterialCommunityIcons name="speedometer" size={20} color="#d85e67" style={styles.bulletIcon} />
-                <Text style={styles.bulletText}>Auto-configures study speed (Slow, Normal, or Fast)</Text>
+                <Text style={styles.bulletText}>Auto-configures study speed (Detailed, Standard, or Quick)</Text>
               </View>
             </View>
             <TouchableOpacity style={styles.startButton} activeOpacity={0.85} onPress={() => setStarted(true)}>
-              <Text style={styles.startButtonText}>START ASSESSMENT (40 ITEMS)</Text>
+              <Text style={styles.startButtonText}>START ASSESSMENT ({questions.length || (examType === 'fe' ? 40 : 30)} ITEMS)</Text>
             </TouchableOpacity>
             <TouchableOpacity onPress={() => navigation?.replace('Home')}>
               <Text style={styles.laterText}>Maybe Later</Text>
@@ -888,7 +676,16 @@ export default function DiagnosticAssessment({ navigation, route }) {
             <Text style={styles.backText}>‹</Text>
           </TouchableOpacity>
           <Text style={styles.stepText}>Question {progress}</Text>
-          <View style={styles.backSpacer} />
+          <View style={[styles.timerBadge, secondsLeft <= 300 && styles.timerBadgeUrgent]}>
+            <MaterialCommunityIcons
+              name="clock-outline"
+              size={14}
+              color={secondsLeft <= 300 ? '#dc2626' : '#0F2747'}
+            />
+            <Text style={[styles.timerText, secondsLeft <= 300 && styles.timerTextUrgent]}>
+              {formatTime(secondsLeft)}
+            </Text>
+          </View>
         </View>
 
         {/* Progress bar */}
@@ -897,12 +694,12 @@ export default function DiagnosticAssessment({ navigation, route }) {
         </View>
 
         <Text style={styles.questionHeader}>
-          {currentQuestion?.category} ({examType === 'sub_pro' ? 'Sub-Pro' : 'Pro'})
+          {currentQuestion?.category} ({examType === 'fe' ? 'FE' : 'IP'})
         </Text>
         <Text style={styles.questionText}>{currentQuestion?.question}</Text>
 
         <View style={styles.optionsWrap}>
-          {(currentQuestion?.options ?? []).map((option) => {
+          {(Array.isArray(currentQuestion?.options) ? currentQuestion.options : []).map((option) => {
             const active = selectedAnswer === option
             return (
               <TouchableOpacity
@@ -917,8 +714,13 @@ export default function DiagnosticAssessment({ navigation, route }) {
           })}
         </View>
 
-        <TouchableOpacity style={styles.questionNextButton} activeOpacity={0.85} onPress={handleNext}>
-          <Text style={styles.questionNextButtonText}>
+        <TouchableOpacity
+          style={[styles.questionNextButton, !selectedAnswer && styles.questionNextButtonDisabled]}
+          activeOpacity={0.85}
+          disabled={!selectedAnswer}
+          onPress={handleNext}
+        >
+          <Text style={[styles.questionNextButtonText, !selectedAnswer && styles.questionNextButtonTextDisabled]}>
             {questionIndex === questions.length - 1 ? 'FINISH' : 'NEXT'}
           </Text>
         </TouchableOpacity>
@@ -960,6 +762,30 @@ const styles = StyleSheet.create({
   backText: { fontSize: 24, color: '#1f2937', width: 24 },
   backSpacer: { width: 24 },
   stepText: { fontSize: 13, fontWeight: '700', color: '#6b7280' },
+  timerBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#f1f5f9',
+    paddingVertical: 5,
+    paddingHorizontal: 9,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+  },
+  timerBadgeUrgent: {
+    backgroundColor: '#fef2f2',
+    borderColor: '#fca5a5',
+  },
+  timerText: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#0F2747',
+    fontVariant: ['tabular-nums'],
+  },
+  timerTextUrgent: {
+    color: '#dc2626',
+  },
   progressTrack: { height: 5, borderRadius: 999, backgroundColor: '#e5e7eb', overflow: 'hidden', marginBottom: 18 },
   progressFill: { height: '100%', borderRadius: 999, backgroundColor: '#0F2747' },
   introCard: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingBottom: 28 },
@@ -982,7 +808,9 @@ const styles = StyleSheet.create({
   optionText: { fontSize: 15, color: '#111827' },
   optionTextActive: { fontWeight: '700' },
   questionNextButton: { backgroundColor: '#0F2747', borderRadius: 14, paddingVertical: 13, alignItems: 'center', marginBottom: 16 },
+  questionNextButtonDisabled: { backgroundColor: '#e2e8f0' },
   questionNextButtonText: { color: '#fff', fontSize: 15, fontWeight: '800' },
+  questionNextButtonTextDisabled: { color: '#94a3b8' },
   exitOverlay: { flex: 1, backgroundColor: 'rgba(15,30,53,0.72)', justifyContent: 'center', alignItems: 'center', padding: 20 },
   exitCard: { width: '100%', maxWidth: 320, backgroundColor: '#fff', borderRadius: 22, padding: 22, alignItems: 'center' },
   exitTitle: { fontSize: 18, fontWeight: '800', textAlign: 'center', color: '#111827', marginBottom: 10 },
@@ -990,29 +818,256 @@ const styles = StyleSheet.create({
   exitPrimaryButton: { backgroundColor: '#0F2747', borderRadius: 12, paddingVertical: 12, paddingHorizontal: 18, width: '100%', alignItems: 'center', marginBottom: 12 },
   exitPrimaryButtonText: { color: '#fff', fontSize: 14, fontWeight: '700' },
   exitSecondaryText: { color: '#3B82B8', fontSize: 14, fontWeight: '700' },
-  resultCard: { flexGrow: 1, backgroundColor: '#ffffff', borderRadius: 24, padding: 18 },
-  resultIconWrap: { width: 52, height: 52, borderRadius: 26, borderWidth: 2, borderColor: '#3B82B8', alignSelf: 'center', alignItems: 'center', justifyContent: 'center', marginBottom: 10 },
-  resultIcon: { fontSize: 24, color: '#3B82B8', fontWeight: '800' },
-  resultTitle: { textAlign: 'center', fontSize: 20, fontWeight: '800', color: '#111827' },
-  resultSubtitle: { textAlign: 'center', fontSize: 13, color: '#6b7280', marginBottom: 12 },
-  scoreBox: { borderWidth: 1.5, borderColor: '#D8E0F0', borderRadius: 16, paddingVertical: 14, alignItems: 'center', marginBottom: 10 },
-  scoreText: { fontSize: 24, fontWeight: '800', color: '#0F2747' },
-  scorePercent: { fontSize: 15, color: '#3B82B8', fontWeight: '700' },
-  levelBox: { backgroundColor: '#dbeafe', borderRadius: 16, paddingVertical: 14, marginBottom: 12 },
-  levelText: { textAlign: 'center', fontSize: 22, fontWeight: '800', color: '#2563eb' },
-  speedBox: { backgroundColor: '#f0fdf4', borderWidth: 1.5, borderColor: '#86efac', borderRadius: 16, padding: 14, alignItems: 'center', marginBottom: 16 },
-  speedHeader: { fontSize: 11, fontWeight: '800', color: '#166534', letterSpacing: 0.5, marginBottom: 4 },
-  speedBadge: { fontSize: 18, fontWeight: '900', color: '#15803d', marginBottom: 4 },
-  speedDesc: { fontSize: 12, color: '#166534', textAlign: 'center' },
-  sectionTitle: { fontSize: 14, fontWeight: '800', color: '#111827', marginBottom: 8 },
-  breakdownBox: { borderWidth: 1.2, borderColor: '#d1d5db', borderRadius: 16, padding: 12, marginBottom: 12 },
-  breakdownRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: '#eef2f7' },
-  breakdownLabel: { fontSize: 13, color: '#111827', flex: 1, paddingRight: 12 },
-  breakdownValue: { fontSize: 13, fontWeight: '700', color: '#0F2747' },
-  insightDangerBox: { backgroundColor: '#fee2e2', borderRadius: 16, padding: 14, marginBottom: 12 },
-  insightSafeBox: { backgroundColor: '#d1fae5', borderRadius: 16, padding: 14, marginBottom: 14 },
-  insightTitle: { fontSize: 14, fontWeight: '800', marginBottom: 8, color: '#111827' },
-  insightItem: { fontSize: 13, color: '#111827', marginBottom: 4 },
-  finalButton: { backgroundColor: '#0F2747', borderRadius: 14, paddingVertical: 14, alignItems: 'center' },
-  finalButtonText: { color: '#fff', fontSize: 14, fontWeight: '800' },
+  // ── Result Report Styles ──────────────────────────────────
+  resultHeaderWrap: { alignItems: 'center', marginTop: 10, marginBottom: 22 },
+  resultCheckCircle: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    borderWidth: 2,
+    borderColor: '#3B82F6',
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 14,
+  },
+  resultMainTitle: {
+    fontSize: 24,
+    fontWeight: '800',
+    color: '#0F2747',
+    textAlign: 'center',
+    marginBottom: 4,
+  },
+  resultMainSubtitle: {
+    fontSize: 14,
+    color: '#64748B',
+    textAlign: 'center',
+  },
+  reportScoreCard: {
+    backgroundColor: '#EDF5FD',
+    borderRadius: 20,
+    paddingVertical: 18,
+    paddingHorizontal: 20,
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  scoreCircle: {
+    width: 66,
+    height: 66,
+    borderRadius: 33,
+    backgroundColor: '#D9EAFC',
+    borderWidth: 2.5,
+    borderColor: '#3B82F6',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  scoreCircleValue: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#2563EB',
+  },
+  scoreCircleTotal: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#3B82F6',
+  },
+  scoreCardDetails: {
+    marginLeft: 18,
+    flex: 1,
+  },
+  scoreCardLabel: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#475569',
+    marginBottom: 2,
+  },
+  scoreCardBigPercent: {
+    fontSize: 24,
+    fontWeight: '900',
+    color: '#0F2747',
+    marginBottom: 2,
+  },
+  scoreCardSub: {
+    fontSize: 12,
+    color: '#64748B',
+  },
+  reportLevelCard: {
+    backgroundColor: '#EDF5FD',
+    borderRadius: 20,
+    paddingVertical: 16,
+    paddingHorizontal: 20,
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 24,
+  },
+  levelIconCircle: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  levelCardDetails: {
+    marginLeft: 16,
+    flex: 1,
+  },
+  levelRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+  },
+  levelLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#475569',
+  },
+  levelValue: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: '#0F2747',
+  },
+  levelSub: {
+    fontSize: 12,
+    color: '#64748B',
+    marginTop: 2,
+  },
+  breakdownHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  breakdownTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#0F2747',
+  },
+  breakdownTotalQuestions: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#3B82F6',
+  },
+  catCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: '#EBF1F6',
+    padding: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.03,
+    shadowRadius: 3,
+    elevation: 1,
+  },
+  catIconWrap: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  catInfoWrap: {
+    flex: 1,
+    marginLeft: 14,
+  },
+  catRowTop: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  catLabelText: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#0F2747',
+  },
+  catScoreRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  catFractionText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#2563EB',
+  },
+  catPercentText: {
+    fontSize: 11,
+    color: '#94A3B8',
+  },
+  catBarTrack: {
+    height: 6,
+    borderRadius: 999,
+    backgroundColor: '#E2E8F0',
+    marginTop: 8,
+    overflow: 'hidden',
+  },
+  catBarFill: {
+    height: '100%',
+    borderRadius: 999,
+  },
+  areasImprovementHeader: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#D85E67',
+    marginTop: 14,
+    marginBottom: 8,
+  },
+  areasImprovementCard: {
+    backgroundColor: '#FFF5F5',
+    borderRadius: 18,
+    paddingVertical: 14,
+    paddingHorizontal: 18,
+    marginBottom: 18,
+  },
+  strongAreasHeader: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#2563EB',
+    marginTop: 4,
+    marginBottom: 8,
+  },
+  strongAreasCard: {
+    backgroundColor: '#EDF5FD',
+    borderRadius: 18,
+    paddingVertical: 14,
+    paddingHorizontal: 18,
+    marginBottom: 28,
+  },
+  areaBulletText: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#1E293B',
+    lineHeight: 24,
+  },
+  studyNowButton: {
+    backgroundColor: '#0A2540',
+    borderRadius: 28,
+    paddingVertical: 15,
+    alignItems: 'center',
+    marginHorizontal: 10,
+    marginBottom: 28,
+    shadowColor: '#0A2540',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.2,
+    shadowRadius: 6,
+    elevation: 3,
+  },
+  studyNowButtonText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '800',
+    letterSpacing: 0.6,
+  },
+  footerLogoWrap: {
+    alignItems: 'center',
+    marginBottom: 24,
+  },
+  footerLogoImage: {
+    width: 170,
+    height: 48,
+  },
 })

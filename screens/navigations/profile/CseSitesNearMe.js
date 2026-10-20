@@ -21,22 +21,20 @@ const ACCENT = '#d85e67'
 
 // Fallback data in case HTTP request fails or user is offline
 const FALLBACK_SITES = [
-  { id: 1, name: 'CSC Central Office', address: 'Constitution Hills, Diliman, Quezon City', lat: 14.6521, lng: 121.0505, phone: '(02) 8931-7939' },
-  { id: 2, name: 'CSC National Capital Region (NCR)', address: 'No. 25 Kaliraya St., Doña Josefa, Quezon City', lat: 14.6293, lng: 121.0426, phone: '(02) 8740-7987' },
-  { id: 3, name: 'CSC Cordillera Administrative Region (CAR)', address: 'No. 116 Wagner Road, Baguio City', lat: 16.4023, lng: 120.5960, phone: '(074) 443-0366' },
-  { id: 4, name: 'CSC Regional Office No. 1', address: 'Quezon Avenue, San Fernando City, La Union', lat: 16.6101, lng: 120.3161, phone: '(072) 700-5639' },
-  { id: 5, name: 'CSC Regional Office No. 2', address: 'Government Center, Carig Sur, Tuguegarao City, Cagayan', lat: 17.6132, lng: 121.7270, phone: '(078) 844-5352' },
-  { id: 6, name: 'CSC Regional Office No. 3', address: 'Diosdado Macapagal Government Center, Maimpis, City of San Fernando, Pampanga', lat: 15.0333, lng: 120.6833, phone: '(045) 455-3241' },
-  { id: 7, name: 'CSC Regional Office No. 4', address: '139 Panay Avenue, South Triangle, Quezon City', lat: 14.6468, lng: 121.0514, phone: '(02) 8927-1830' },
-  { id: 8, name: 'CSC Regional Office No. 5', address: 'Rawis, Legazpi City', lat: 13.1384, lng: 123.7353, phone: '(052) 482-0699' },
-  { id: 9, name: 'CSC Regional Office No. 6', address: 'M.H. Del Pilar St., Molo, Iloilo City', lat: 10.7202, lng: 122.5621, phone: '(033) 337-6784' },
-  { id: 10, name: 'CSC Regional Office No. 7', address: 'Sudlon, Lahug, Cebu City', lat: 10.3157, lng: 123.8854, phone: '(032) 253-9030' },
-  { id: 11, name: 'CSC Regional Office No. 8', address: 'Government Center, Candahug, Palo, Leyte', lat: 11.2444, lng: 125.0038, phone: '(053) 323-2967' },
-  { id: 12, name: 'CSC Regional Office No. 9', address: 'Caburihan, Zamboanga City', lat: 6.9214, lng: 122.0790, phone: '(062) 991-2714' },
-  { id: 13, name: 'CSC Regional Office No. 10', address: 'Vamenta Blvd., Carmen, Cagayan de Oro City', lat: 8.4839, lng: 124.6383, phone: '(088) 858-7563' },
-  { id: 14, name: 'CSC Regional Office No. 11', address: 'Ecoland Drive, Matina, Davao City', lat: 7.0736, lng: 125.6110, phone: '(082) 299-1787' },
-  { id: 15, name: 'CSC Regional Office No. 12', address: 'Government Center, Cotabato City', lat: 7.2236, lng: 124.2464, phone: '(064) 421-2287' },
-  { id: 16, name: 'CSC Regional Office No. 13 (Caraga)', address: 'Doongan Road, Butuan City', lat: 8.9475, lng: 125.5406, phone: '(085) 342-8289' }
+  { id: 1, name: 'PhilNITS Foundation Headquarters', address: '3/F Oppen Bldg, 349 Sen. Gil Puyat Ave, Makati City', lat: 14.5606, lng: 121.0189, phone: '(02) 8890-5026' },
+  { id: 2, name: 'UP Diliman (Dept. of Computer Science)', address: 'Engineering Complex, UP Diliman, Quezon City', lat: 14.6538, lng: 121.0685, phone: '(02) 8981-8500' },
+  { id: 3, name: 'Ateneo de Manila University (DISCS)', address: 'Katipunan Ave, Loyola Heights, Quezon City', lat: 14.6396, lng: 121.0775, phone: '(02) 8426-6001' },
+  { id: 4, name: 'De La Salle University (CCS)', address: '2401 Taft Ave, Malate, Manila', lat: 14.5648, lng: 120.9932, phone: '(02) 8524-4611' },
+  { id: 5, name: 'University of Santo Tomas (CICS)', address: 'España Blvd, Sampaloc, Manila', lat: 14.6095, lng: 120.9898, phone: '(02) 8786-1611' },
+  { id: 6, name: 'Mapúa University (School of IT)', address: 'Muralla St, Intramuros, Manila', lat: 14.5905, lng: 120.9779, phone: '(02) 8247-5000' },
+  { id: 7, name: 'Saint Louis University (Baguio)', address: 'A. Bonifacio St, Baguio City, Benguet', lat: 16.4178, lng: 120.5985, phone: '(074) 442-2793' },
+  { id: 8, name: 'Angeles University Foundation (AUF)', address: 'MacArthur Hwy, Angeles City, Pampanga', lat: 15.1451, lng: 120.5935, phone: '(045) 625-2888' },
+  { id: 9, name: 'University of Saint Louis (Tuguegarao)', address: 'Mabini St, Tuguegarao City, Cagayan', lat: 17.6186, lng: 121.7303, phone: '(078) 844-1872' },
+  { id: 10, name: 'Cebu Institute of Technology - University', address: 'N. Bacalso Ave, Cebu City', lat: 10.2946, lng: 123.8809, phone: '(032) 261-7741' },
+  { id: 11, name: 'University of San Carlos (Talamban)', address: 'Gov. M. Cuenco Ave, Cebu City', lat: 10.3541, lng: 123.9130, phone: '(032) 230-0100' },
+  { id: 12, name: 'Iloilo Science & Technology University', address: 'Burgos St, La Paz, Iloilo City', lat: 10.7169, lng: 122.5648, phone: '(033) 320-7190' },
+  { id: 13, name: 'Ateneo de Davao University', address: 'E. Jacinto St, Poblacion District, Davao City', lat: 7.0722, lng: 125.6128, phone: '(082) 221-2411' },
+  { id: 14, name: 'Xavier University - Ateneo de Cagayan', address: '73 Corrales Ave, Cagayan de Oro City', lat: 8.4776, lng: 124.6468, phone: '(088) 853-9800' }
 ]
 
 export default function CseSitesNearMe({ navigation }) {
@@ -48,18 +46,11 @@ export default function CseSitesNearMe({ navigation }) {
   const [errorMsg, setErrorMsg] = useState(null)
   const [selectedSite, setSelectedSite] = useState(null)
 
-  // Fetch CSE sites via HTTP request
+  // Load PhilNITS examination centers and partner universities
   const fetchCseSites = async () => {
     try {
-      const response = await fetch('https://raw.githubusercontent.com/Daniichad/GabayPHILCSE/main/csc_offices.json')
-      if (response.ok) {
-        const data = await response.json()
-        setSites(data || FALLBACK_SITES)
-      } else {
-        setSites(FALLBACK_SITES)
-      }
+      setSites(FALLBACK_SITES)
     } catch (err) {
-      console.warn('HTTP Fetch failed, using fallback sites:', err)
       setSites(FALLBACK_SITES)
     }
   }
@@ -199,14 +190,14 @@ export default function CseSitesNearMe({ navigation }) {
         <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()}>
           <Feather name="arrow-left" size={24} color={NAVY} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>CSE Sites Near Me</Text>
+        <Text style={styles.headerTitle}>PhilNITS Testing Venues</Text>
         <View style={styles.placeholderBtn} />
       </View>
 
       {loading ? (
         <View style={styles.centered}>
           <ActivityIndicator size="large" color={NAVY} />
-          <Text style={styles.loadingText}>Locating nearest exam centers...</Text>
+          <Text style={styles.loadingText}>Locating nearest testing centers...</Text>
         </View>
       ) : (
         <View style={styles.content}>
@@ -284,7 +275,7 @@ export default function CseSitesNearMe({ navigation }) {
                       L.marker([userLat, userLng], {icon: userIcon}).addTo(map)
                         .bindPopup('<b>Your Location</b>').openPopup();
 
-                      // CSE Sites markers
+                      // PhilNITS Testing Sites markers
                       var siteIcon = L.icon({
                         iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-red.png',
                         shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
@@ -304,7 +295,7 @@ export default function CseSitesNearMe({ navigation }) {
                   </html>
                 `}
                 style={{ width: '100%', height: '100%', minHeight: 350, border: 'none' }}
-                title="CSE Sites Map"
+                title="PhilNITS Testing Venues Map"
               />
             </View>
           ) : (
@@ -317,7 +308,7 @@ export default function CseSitesNearMe({ navigation }) {
           {/* Quick Info & Site Selector list */}
           <View style={styles.sitesSheet}>
             <Text style={styles.sheetSectionTitle}>
-              {errorMsg ? 'All CSE Sites' : 'Nearest Centers'}
+              {errorMsg ? 'All PhilNITS Venues' : 'Nearest Centers'}
             </Text>
             <ScrollView style={styles.sitesList} showsVerticalScrollIndicator={false}>
               {sortedSites.map((site) => (
@@ -362,7 +353,7 @@ export default function CseSitesNearMe({ navigation }) {
             </View>
             <Text style={styles.permissionTitle}>Enable Location Services</Text>
             <Text style={styles.permissionDesc}>
-              We need access to your device location to search and display Civil Service Exam (CSE) sites and centers near you.
+              We need access to your device location to search and display accredited PhilNITS partner testing venues and university testing centers near you.
             </Text>
 
             <TouchableOpacity style={styles.allowButton} onPress={requestPermission}>

@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react'
-import { Modal, View, Text, TextInput, TouchableOpacity, Alert, StyleSheet, Animated, Image, KeyboardAvoidingView, Platform, ActivityIndicator } from 'react-native'
+import { Modal, View, Text, TextInput, TouchableOpacity, Alert, StyleSheet, Animated, Image, KeyboardAvoidingView, Platform, ActivityIndicator, ScrollView } from 'react-native'
 import { Feather, Ionicons } from '@expo/vector-icons'
 import * as WebBrowser from 'expo-web-browser'
 import * as QueryParams from 'expo-auth-session'
@@ -101,10 +101,22 @@ export default function Login({ navigation }) {
   const [forgotConfirmPassword, setForgotConfirmPassword] = useState('')
   const [passwordUpdatedVisible, setPasswordUpdatedVisible] = useState(false)
   const [showResetPassword, setShowResetPassword] = useState(false)
+  const [showResetConfirmPassword, setShowResetConfirmPassword] = useState(false)
   const [forgotLoading, setForgotLoading] = useState(false)
   const [resetCooldown, setResetCooldown] = useState(0)
   const [generatedForgotOtp, setGeneratedForgotOtp] = useState(null)
-  
+  const forgotOtpInputRef = useRef(null)
+  const [isForgotOtpFocused, setIsForgotOtpFocused] = useState(false)
+
+  useEffect(() => {
+    if (forgotVisible && forgotStep === 'verify') {
+      const timer = setTimeout(() => {
+        forgotOtpInputRef.current?.focus()
+      }, 350)
+      return () => clearTimeout(timer)
+    }
+  }, [forgotVisible, forgotStep])
+
   const getForgotOtpString = () => forgotOtp
 
   // Floating placeholder animations
@@ -148,9 +160,9 @@ export default function Login({ navigation }) {
     setLoading(true)
     try {
       const redirectUrl = QueryParams.makeRedirectUri({
-        scheme: 'gabay-philcse',
+        scheme: 'gabay-philnits',
       })
-      
+
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
@@ -166,7 +178,7 @@ export default function Login({ navigation }) {
 
       if (data?.url) {
         const result = await WebBrowser.openAuthSessionAsync(data.url, redirectUrl)
-        
+
         if (result.type === 'success' && result.url) {
           // Parse dynamic hash parameters from return URI
           const parsed = QueryParams.parseQueryParams(result.url)
@@ -324,7 +336,7 @@ export default function Login({ navigation }) {
 
       setForgotVisible(false)
       setPasswordUpdatedVisible(true)
-      
+
       setForgotStep('request')
       setForgotEmail('')
       setForgotOtp('')
@@ -351,9 +363,9 @@ export default function Login({ navigation }) {
       <View style={styles.content}>
         {/* Logo */}
         <View style={styles.logoContainer}>
-          <Image 
-            source={require('../../assets/loading.png')} 
-            style={styles.logoImage} 
+          <Image
+            source={require('../../assets/loading.png')}
+            style={styles.logoImage}
             resizeMode="contain"
           />
         </View>
@@ -363,15 +375,15 @@ export default function Login({ navigation }) {
           <Text style={styles.heading}>Enter to your account</Text>
 
           {/* Google Button */}
-          <TouchableOpacity 
-            style={styles.googleButton} 
+          <TouchableOpacity
+            style={styles.googleButton}
             activeOpacity={0.85}
             onPress={handleGoogleSignIn}
             disabled={loading}
           >
-            <Image 
-              source={{ uri: 'https://developers.google.com/static/identity/images/g-logo.png' }} 
-              style={{ width: 18, height: 18, marginRight: 10 }} 
+            <Image
+              source={{ uri: 'https://developers.google.com/static/identity/images/g-logo.png' }}
+              style={{ width: 18, height: 18, marginRight: 10 }}
             />
             <Text style={styles.googleButtonText}>Continue with Google</Text>
           </TouchableOpacity>
@@ -486,7 +498,7 @@ export default function Login({ navigation }) {
           </TouchableOpacity>
 
           {/* Login Button */}
-          <TouchableOpacity 
+          <TouchableOpacity
             style={[styles.loginButton, { backgroundColor: isLoginDisabled ? '#f1999d' : '#c14954' }]}
             onPress={handleLogin}
             disabled={isLoginDisabled}
@@ -505,106 +517,160 @@ export default function Login({ navigation }) {
       </View>
 
       {/* Bottom Text */}
-      <Text style={styles.bottomText}>Log In to continue your CSE preparation</Text>
+      <Text style={styles.bottomText}>Log In to continue your PhilNITS preparation</Text>
 
+      {/* ── Forgot Password Modal (Steps 1, 2, 3) ── */}
       <Modal
         transparent
         visible={forgotVisible}
-        animationType="slide"
+        animationType="fade"
+        statusBarTranslucent
         onRequestClose={() => {
           setForgotVisible(false)
           setForgotStep('request')
+          setForgotOtp('')
         }}
       >
-        <KeyboardAvoidingView
-          style={{ flex: 1 }}
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        >
-          <View style={styles.modalOverlay}>
-            <View style={forgotStep === 'verify' ? styles.verifyCard : styles.modalCard}>
-              <TouchableOpacity
-                style={{ position: 'absolute', top: 16, left: 16, zIndex: 10 }}
-                onPress={() => {
-                  if (forgotStep === 'verify') {
-                    setForgotStep('request')
-                  } else {
-                    setForgotVisible(false)
-                    setForgotStep('request')
-                    setForgotNewPassword('')
-                    setForgotConfirmPassword('')
-                    setShowResetPassword(false)
-                  }
-                }}
-              >
-                <Feather name="chevron-left" size={28} color="#4B5563" />
-              </TouchableOpacity>
+        <View style={styles.verifyModalContainer}>
+          <KeyboardAvoidingView
+            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+            style={styles.verifyKeyboardAvoid}
+          >
+            <ScrollView
+              contentContainerStyle={styles.verifyScrollContent}
+              keyboardShouldPersistTaps="handled"
+              showsVerticalScrollIndicator={false}
+              bounces={false}
+            >
+              {/* App Logo */}
+              <View style={styles.verifyLogoContainer}>
+                <Image
+                  source={require('../../assets/loading.png')}
+                  style={styles.verifyLogoImage}
+                  resizeMode="contain"
+                />
+              </View>
 
+              {/* Step 1: Request OTP */}
               {forgotStep === 'request' && (
-                <>
-                  <Text style={styles.modalTitle}>Reset Your Password</Text>
-                  <Text style={styles.modalSubtitle}>Enter your email address and we’ll send a one-time code.</Text>
+                <View style={styles.fpCard}>
+                  <View style={styles.fpHeaderRow}>
+                    <TouchableOpacity
+                      style={styles.fpBackBtn}
+                      onPress={() => {
+                        setForgotVisible(false)
+                        setForgotStep('request')
+                      }}
+                      hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                    >
+                      <Feather name="chevron-left" size={26} color="#1E293B" />
+                    </TouchableOpacity>
+                    <Text style={styles.fpHeaderTitle}>Reset Your Password</Text>
+                  </View>
+
+                  <Text style={styles.fpSubtitle}>
+                    Enter your email address to reset your password
+                  </Text>
+
                   <TextInput
-                    placeholder="Email"
+                    placeholder="Enter your email"
                     value={forgotEmail}
                     onChangeText={setForgotEmail}
                     autoCapitalize="none"
                     keyboardType="email-address"
-                    style={styles.modalInput}
-                    placeholderTextColor="#9CA3AF"
+                    style={styles.fpSingleInput}
+                    placeholderTextColor="#94A3B8"
                   />
-                  <TouchableOpacity
-                    style={[styles.modalButton, { backgroundColor: isSendOtpDisabled ? '#f1999d' : '#c14954' }]}
-                    onPress={handleSendResetCode}
-                    disabled={isSendOtpDisabled}
-                  >
-                    <Text style={styles.modalButtonText}>
-                      {forgotLoading
-                        ? 'Sending...'
-                        : resetCooldown > 0
-                          ? `Wait ${resetCooldown}s`
-                          : 'Send OTP'}
-                    </Text>
-                  </TouchableOpacity>
-                </>
-              )}
 
-              {forgotStep === 'verify' && (
-                <>
-                  <View style={styles.verifyIconContainer}>
-                    <Text style={styles.verifyIcon}>✉️</Text>
-                  </View>
-                  <Text style={styles.verifyTitle}>Verify OTP</Text>
-                  <Text style={styles.verifySubtitle}>
-                    We sent a 4-digit code to
-                  </Text>
-                  <Text style={styles.verifyEmail}>{forgotEmail}</Text>
-
-                  {/* OTP Input */}
-                  <View style={styles.otpContainer}>
-                    <TextInput
-                      style={[styles.modalInput, { textAlign: 'center', letterSpacing: 8, fontSize: 24 }]}
-                      value={forgotOtp.split('').join(' ')}
-                      onChangeText={(text) => setForgotOtp(text.replace(/[^0-9]/g, '').slice(0, 4))}
-                      keyboardType="number-pad"
-                      maxLength={7}
-                      placeholder="- - - -"
-                      placeholderTextColor="#D1D5DB"
-                    />
-                  </View>
-
-                  {/* Verify Button */}
                   <TouchableOpacity
                     style={[
-                      styles.verifyButton,
-                      { backgroundColor: isVerifyOtpDisabled ? '#f1999d' : '#c14954' }
+                      styles.fpPrimaryBtn,
+                      isSendOtpDisabled && styles.fpPrimaryBtnDisabled,
+                    ]}
+                    onPress={handleSendResetCode}
+                    disabled={isSendOtpDisabled}
+                    activeOpacity={0.85}
+                  >
+                    {forgotLoading ? (
+                      <ActivityIndicator color="#fff" size="small" />
+                    ) : (
+                      <Text style={styles.fpPrimaryBtnText}>
+                        {resetCooldown > 0 ? `Wait ${resetCooldown}s` : 'Send OTP'}
+                      </Text>
+                    )}
+                  </TouchableOpacity>
+                </View>
+              )}
+
+              {/* Step 2: Verify OTP */}
+              {forgotStep === 'verify' && (
+                <View style={styles.fpCard}>
+                  {/* Lock with Alert Badge */}
+                  <View style={styles.fpLockBadgeContainer}>
+                    <Ionicons name="lock-closed" size={54} color="#B8464E" />
+                    <View style={styles.fpLockAlertBadge}>
+                      <Ionicons name="warning" size={22} color="#B8464E" />
+                    </View>
+                  </View>
+
+                  <Text style={styles.fpVerifyTitle}>Verify your code</Text>
+                  <Text style={styles.fpSubtitle}>
+                    We sent a 4-digit code to
+                  </Text>
+                  <Text style={styles.fpVerifyEmail}>{forgotEmail.trim() || 'email@gmail.com'}</Text>
+
+                  {/* 4-Digit OTP Boxes */}
+                  <TouchableOpacity
+                    activeOpacity={1}
+                    onPress={() => forgotOtpInputRef.current?.focus()}
+                    style={styles.otpBoxesRow}
+                  >
+                    {[0, 1, 2, 3].map((index) => {
+                      const digit = forgotOtp[index] || ''
+                      const isCurrent = forgotOtp.length === index
+                      return (
+                        <View
+                          key={index}
+                          style={[
+                            styles.otpBox,
+                            digit ? styles.otpBoxFilled : null,
+                            isCurrent && isForgotOtpFocused ? styles.otpBoxActive : null,
+                          ]}
+                        >
+                          <Text style={styles.otpDigitText}>{digit}</Text>
+                        </View>
+                      )
+                    })}
+                    <TextInput
+                      ref={forgotOtpInputRef}
+                      value={forgotOtp}
+                      onChangeText={(text) => {
+                        const cleaned = text.replace(/[^0-9]/g, '').slice(0, 4)
+                        setForgotOtp(cleaned)
+                      }}
+                      onFocus={() => setIsForgotOtpFocused(true)}
+                      onBlur={() => setIsForgotOtpFocused(false)}
+                      keyboardType="number-pad"
+                      maxLength={4}
+                      style={styles.hiddenOtpInput}
+                      caretHidden={true}
+                    />
+                  </TouchableOpacity>
+
+                  {/* Verify Code Button */}
+                  <TouchableOpacity
+                    style={[
+                      styles.fpPrimaryBtn,
+                      isVerifyOtpDisabled && styles.fpPrimaryBtnDisabled,
                     ]}
                     onPress={handleVerifyResetCode}
                     disabled={isVerifyOtpDisabled}
+                    activeOpacity={0.85}
                   >
                     {forgotLoading ? (
-                      <ActivityIndicator color="#fff" />
+                      <ActivityIndicator color="#fff" size="small" />
                     ) : (
-                      <Text style={styles.verifyButtonText}>Verify Code</Text>
+                      <Text style={styles.fpPrimaryBtnText}>Verify Code</Text>
                     )}
                   </TouchableOpacity>
 
@@ -614,6 +680,7 @@ export default function Login({ navigation }) {
                     <TouchableOpacity
                       onPress={handleSendResetCode}
                       disabled={resetCooldown > 0 || forgotLoading}
+                      activeOpacity={0.7}
                     >
                       <Text
                         style={[
@@ -621,56 +688,99 @@ export default function Login({ navigation }) {
                           resetCooldown > 0 && styles.resendLinkDisabled,
                         ]}
                       >
-                        {resetCooldown > 0 ? `Resend in ${resetCooldown}s` : 'Resend'}
+                        {resetCooldown > 0 ? `Resend (${resetCooldown}s)` : 'Resend'}
                       </Text>
                     </TouchableOpacity>
                   </View>
-                </>
+
+                  {/* Cancel Button */}
+                  <TouchableOpacity
+                    style={styles.cancelButton}
+                    onPress={() => {
+                      setForgotStep('request')
+                      setForgotOtp('')
+                    }}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={styles.cancelText}>Cancel</Text>
+                  </TouchableOpacity>
+                </View>
               )}
 
+              {/* Step 3: Reset Password */}
               {forgotStep === 'reset' && (
-                <>
-                  <Text style={styles.modalTitle}>Reset Password</Text>
-                  <Text style={styles.modalSubtitle}>Set a new password for your account.</Text>
+                <View style={styles.fpCard}>
+                  <View style={styles.fpHeaderRow}>
+                    <TouchableOpacity
+                      style={styles.fpBackBtn}
+                      onPress={() => setForgotStep('verify')}
+                      hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                    >
+                      <Feather name="chevron-left" size={26} color="#1E293B" />
+                    </TouchableOpacity>
+                    <Text style={styles.fpHeaderTitle}>Reset Password</Text>
+                  </View>
+
+                  <Text style={styles.fpSubtitle}>
+                    Enter your new password to reset your account access
+                  </Text>
 
                   {/* New Password */}
-                  <View style={styles.modalPasswordRow}>
+                  <View style={styles.fpInputRow}>
                     <TextInput
-                      placeholder="New password"
+                      placeholder="Enter new password"
                       value={forgotNewPassword}
                       onChangeText={setForgotNewPassword}
                       secureTextEntry={!showResetPassword}
-                      style={styles.modalPasswordInput}
-                      placeholderTextColor="#9CA3AF"
+                      style={styles.fpInputText}
+                      placeholderTextColor="#94A3B8"
                     />
-                    <TouchableOpacity style={styles.modalEyeButton} onPress={() => setShowResetPassword(prev => !prev)}>
-                      <Feather name={showResetPassword ? 'eye-off' : 'eye'} size={18} color="#9CA3AF" />
+                    <TouchableOpacity
+                      onPress={() => setShowResetPassword((prev) => !prev)}
+                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    >
+                      <Feather name={showResetPassword ? 'eye-off' : 'eye'} size={18} color="#94A3B8" />
                     </TouchableOpacity>
                   </View>
 
                   {/* Confirm Password */}
-                  <View style={styles.modalPasswordRow}>
+                  <View style={styles.fpInputRow}>
                     <TextInput
-                      placeholder="Confirm password"
+                      placeholder="Confirm new password"
                       value={forgotConfirmPassword}
                       onChangeText={setForgotConfirmPassword}
-                      secureTextEntry={!showResetPassword}
-                      style={styles.modalPasswordInput}
-                      placeholderTextColor="#9CA3AF"
+                      secureTextEntry={!showResetConfirmPassword}
+                      style={styles.fpInputText}
+                      placeholderTextColor="#94A3B8"
                     />
-                    <TouchableOpacity style={styles.modalEyeButton} onPress={() => setShowResetPassword(prev => !prev)}>
-                      <Feather name={showResetPassword ? 'eye-off' : 'eye'} size={18} color="#9CA3AF" />
+                    <TouchableOpacity
+                      onPress={() => setShowResetConfirmPassword((prev) => !prev)}
+                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    >
+                      <Feather name={showResetConfirmPassword ? 'eye-off' : 'eye'} size={18} color="#94A3B8" />
                     </TouchableOpacity>
                   </View>
 
-                  <TouchableOpacity style={[styles.modalButton, { backgroundColor: isResetPasswordDisabled ? '#f1999d' : '#c14954' }]} onPress={handleResetPassword} disabled={isResetPasswordDisabled}>
-                    <Text style={styles.modalButtonText}>{forgotLoading ? 'Saving...' : 'Save Password'}</Text>
+                  <TouchableOpacity
+                    style={[
+                      styles.fpPrimaryBtn,
+                      isResetPasswordDisabled && styles.fpPrimaryBtnDisabled,
+                    ]}
+                    onPress={handleResetPassword}
+                    disabled={isResetPasswordDisabled}
+                    activeOpacity={0.85}
+                  >
+                    {forgotLoading ? (
+                      <ActivityIndicator color="#fff" size="small" />
+                    ) : (
+                      <Text style={styles.fpPrimaryBtnText}>Reset</Text>
+                    )}
                   </TouchableOpacity>
-                </>
+                </View>
               )}
-            </View>
-          </View>
-        </KeyboardAvoidingView>
+            </ScrollView>
+          </KeyboardAvoidingView>
+        </View>
       </Modal>
 
       {/* Custom Alert Modal */}
@@ -711,52 +821,63 @@ export default function Login({ navigation }) {
         </View>
       </Modal>
 
-      {/* Password Updated Modal */}
+      {/* ── Password Updated Modal (Step 4: PUS) ── */}
       <Modal
         transparent
         visible={passwordUpdatedVisible}
         animationType="fade"
+        statusBarTranslucent
         onRequestClose={() => setPasswordUpdatedVisible(false)}
       >
-        <View style={styles.modalOverlay}>
-          <View style={[styles.modalCard, { alignItems: 'center', padding: 32 }]}>
-            {/* Icon Graphic */}
-            <View style={{ marginBottom: 24, position: 'relative', width: 100, height: 100, alignItems: 'center', justifyContent: 'center' }}>
-              <View style={{ width: 80, height: 80, borderRadius: 40, backgroundColor: '#CBD5E1', alignItems: 'center', justifyContent: 'center' }}>
-                <View style={{ width: 64, height: 64, borderRadius: 32, backgroundColor: '#0f1e35', alignItems: 'center', justifyContent: 'center' }}>
-                  <Feather name="key" size={28} color="#fff" />
-                </View>
-              </View>
-              {/* Decorative dots */}
-              <View style={{ position: 'absolute', top: 10, left: 10, width: 6, height: 6, borderRadius: 3, backgroundColor: '#94A3B8' }} />
-              <View style={{ position: 'absolute', top: 20, right: 0, width: 12, height: 12, borderRadius: 6, backgroundColor: '#94A3B8' }} />
-              <View style={{ position: 'absolute', bottom: 10, left: 20, width: 8, height: 8, borderRadius: 4, backgroundColor: '#94A3B8' }} />
+        <View style={styles.verifyModalContainer}>
+          <ScrollView
+            contentContainerStyle={styles.verifyScrollContent}
+            showsVerticalScrollIndicator={false}
+            bounces={false}
+          >
+            {/* App Logo */}
+            <View style={styles.verifyLogoContainer}>
+              <Image
+                source={require('../../assets/loading.png')}
+                style={styles.verifyLogoImage}
+                resizeMode="contain"
+              />
             </View>
 
-            <Text style={{ fontSize: 20, fontWeight: '700', color: '#0f1e35', marginBottom: 12 }}>
-              Password Updated
-            </Text>
-            
-            <Text style={{ fontSize: 13, color: '#64748B', textAlign: 'center', lineHeight: 20, marginBottom: 24 }}>
-              Your password has been changed successfully. {'\n'}
-              Please use your new password the next time you log in
-            </Text>
+            <View style={styles.pusCard}>
+              {/* Icon Graphic */}
+              <View style={styles.pusBadgeContainer}>
+                <View style={styles.pusOuterRing}>
+                  <View style={styles.pusInnerCircle}>
+                    <Ionicons
+                      name="key"
+                      size={28}
+                      color="#FFFFFF"
+                      style={{ transform: [{ rotate: '-35deg' }] }}
+                    />
+                  </View>
+                </View>
+                {/* Decorative accent dots */}
+                <View style={styles.pusDot1} />
+                <View style={styles.pusDot2} />
+                <View style={styles.pusDot3} />
+              </View>
 
-            <TouchableOpacity
-              style={{
-                width: '100%',
-                height: 48,
-                borderRadius: 24,
-                borderWidth: 1,
-                borderColor: '#0f1e35',
-                alignItems: 'center',
-                justifyContent: 'center',
-              }}
-              onPress={() => setPasswordUpdatedVisible(false)}
-            >
-              <Text style={{ color: '#0f1e35', fontSize: 16, fontWeight: '600' }}>Close</Text>
-            </TouchableOpacity>
-          </View>
+              <Text style={styles.pusTitle}>Password Updated</Text>
+
+              <Text style={styles.pusSubtitle}>
+                Your password has been changed successfully. Please use your new password the next time you log in
+              </Text>
+
+              <TouchableOpacity
+                style={styles.pusCloseButton}
+                onPress={() => setPasswordUpdatedVisible(false)}
+                activeOpacity={0.85}
+              >
+                <Text style={styles.pusCloseButtonText}>Close</Text>
+              </TouchableOpacity>
+            </View>
+          </ScrollView>
         </View>
       </Modal>
 
@@ -970,129 +1091,324 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     marginTop: 4,
   },
-  // ── Verify Card ──
-  verifyCard: {
-    width: '100%',
-    backgroundColor: '#fff',
-    borderRadius: 28,
-    padding: 28,
-    alignItems: 'center',
-    maxWidth: 420,
+  // ── Forgot Password & Reset Modal Styles ──
+  verifyModalContainer: {
+    flex: 1,
+    backgroundColor: '#0F2238',
   },
-  verifyIconContainer: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
-    backgroundColor: '#FFF1F2',
+  verifyKeyboardAvoid: {
+    flex: 1,
+    width: '100%',
+  },
+  verifyScrollContent: {
+    flexGrow: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 16,
+    paddingHorizontal: 20,
+    paddingVertical: 36,
   },
-  verifyIcon: {
-    fontSize: 36,
+  verifyLogoContainer: {
+    marginBottom: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  verifyTitle: {
+  verifyLogoImage: {
+    width: 60,
+    height: 60,
+  },
+  fpCard: {
+    width: '100%',
+    maxWidth: 350,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 36,
+    paddingTop: 36,
+    paddingBottom: 32,
+    paddingHorizontal: 24,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.16,
+    shadowRadius: 20,
+    elevation: 8,
+  },
+  fpHeaderRow: {
+    width: '100%',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    position: 'relative',
+    marginBottom: 4,
+  },
+  fpBackBtn: {
+    position: 'absolute',
+    left: 0,
+    padding: 2,
+    zIndex: 10,
+  },
+  fpHeaderTitle: {
     fontSize: 22,
     fontWeight: '700',
-    color: '#111827',
-    marginBottom: 6,
-  },
-  verifySubtitle: {
-    fontSize: 14,
-    color: '#6B7280',
+    color: '#0F2238',
     textAlign: 'center',
   },
-  verifyEmail: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: '#0f1e35',
-    marginTop: 2,
-    marginBottom: 28,
+  fpSubtitle: {
+    fontSize: 13.5,
+    color: '#4B5876',
     textAlign: 'center',
+    lineHeight: 19,
+    marginTop: 6,
+    marginBottom: 24,
+    paddingHorizontal: 4,
   },
-  // ── OTP Boxes ──
-  otpContainer: {
-    flexDirection: 'row',
-    gap: 10,
-    marginBottom: 28,
-  },
-  otpBox: {
-    width: 46,
-    height: 56,
-    borderWidth: 2,
-    borderColor: '#D1D5DB',
-    borderRadius: 14,
-    fontSize: 24,
-    fontWeight: '700',
-    color: '#111827',
-    backgroundColor: '#F9FAFB',
-  },
-  otpBoxFilled: {
-    borderColor: '#D9989E',
-    backgroundColor: '#FFF1F2',
-    color: '#D9989E',
-  },
-  // ── Verify Button ──
-  verifyButton: {
+  fpSingleInput: {
     width: '100%',
-    backgroundColor: '#D9989E',
-    borderRadius: 14,
-    paddingVertical: 15,
+    height: 52,
+    borderWidth: 1.5,
+    borderColor: '#CBD5E1',
+    borderRadius: 24,
+    paddingHorizontal: 18,
+    fontSize: 15,
+    color: '#0F2238',
+    backgroundColor: '#FFFFFF',
+    marginBottom: 22,
+  },
+  fpPrimaryBtn: {
+    width: '100%',
+    backgroundColor: '#B8464E',
+    borderRadius: 26,
+    paddingVertical: 14,
     alignItems: 'center',
+    justifyContent: 'center',
     marginBottom: 16,
   },
-  verifyButtonDisabled: {
-    opacity: 0.5,
+  fpPrimaryBtnDisabled: {
+    backgroundColor: '#E79DA2',
+    opacity: 0.7,
   },
-  verifyButtonText: {
-    color: '#fff',
+  fpPrimaryBtnText: {
+    color: '#FFFFFF',
     fontSize: 16,
     fontWeight: '700',
   },
+
+  // ── Step 2: Verify Code Specifics ──
+  fpLockBadgeContainer: {
+    position: 'relative',
+    width: 64,
+    height: 64,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 12,
+  },
+  fpLockAlertBadge: {
+    position: 'absolute',
+    bottom: -2,
+    right: 0,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    padding: 1,
+  },
+  fpVerifyTitle: {
+    fontSize: 26,
+    fontWeight: '700',
+    color: '#B8464E',
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  fpVerifyEmail: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#0F2238',
+    marginBottom: 26,
+    textAlign: 'center',
+  },
+
+  // ── Step 3: Password Inputs ──
+  fpInputRow: {
+    width: '100%',
+    height: 52,
+    borderWidth: 1.5,
+    borderColor: '#CBD5E1',
+    borderRadius: 24,
+    paddingHorizontal: 18,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    marginBottom: 14,
+  },
+  fpInputText: {
+    flex: 1,
+    fontSize: 15,
+    color: '#0F2238',
+  },
+
+  // ── Step 4: Password Updated Success Card ──
+  pusCard: {
+    width: '100%',
+    maxWidth: 350,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 36,
+    paddingTop: 40,
+    paddingBottom: 32,
+    paddingHorizontal: 24,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.16,
+    shadowRadius: 20,
+    elevation: 8,
+  },
+  pusBadgeContainer: {
+    width: 96,
+    height: 96,
+    alignItems: 'center',
+    justifyContent: 'center',
+    position: 'relative',
+    marginBottom: 16,
+  },
+  pusOuterRing: {
+    width: 86,
+    height: 86,
+    borderRadius: 43,
+    backgroundColor: '#E2E8F0',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  pusInnerCircle: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: '#0F2238',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  pusDot1: {
+    position: 'absolute',
+    top: 6,
+    left: 8,
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#94A3B8',
+  },
+  pusDot2: {
+    position: 'absolute',
+    top: 14,
+    right: 2,
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: '#94A3B8',
+  },
+  pusDot3: {
+    position: 'absolute',
+    bottom: 8,
+    left: 14,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#94A3B8',
+  },
+  pusTitle: {
+    fontSize: 22,
+    fontWeight: '700',
+    color: '#0F2238',
+    marginBottom: 10,
+    textAlign: 'center',
+  },
+  pusSubtitle: {
+    fontSize: 13.5,
+    color: '#4B5876',
+    textAlign: 'center',
+    lineHeight: 20,
+    marginBottom: 28,
+    paddingHorizontal: 8,
+  },
+  pusCloseButton: {
+    width: '100%',
+    backgroundColor: '#0F2238',
+    borderRadius: 26,
+    paddingVertical: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  pusCloseButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '700',
+  },
+
+  // ── OTP Boxes ──
+  otpBoxesRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 12,
+    marginBottom: 26,
+    position: 'relative',
+    width: '100%',
+  },
+  otpBox: {
+    width: 58,
+    height: 60,
+    borderWidth: 1.5,
+    borderColor: '#CBD5E1',
+    borderRadius: 16,
+    backgroundColor: '#FFFFFF',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  otpBoxFilled: {
+    borderColor: '#B8464E',
+  },
+  otpBoxActive: {
+    borderColor: '#B8464E',
+    backgroundColor: '#FFF7F7',
+  },
+  otpDigitText: {
+    fontSize: 24,
+    fontWeight: '700',
+    color: '#0F2238',
+  },
+  hiddenOtpInput: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    opacity: 0.01,
+    color: 'transparent',
+  },
+
   // ── Resend ──
   resendContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 12,
+    justifyContent: 'center',
+    marginBottom: 16,
   },
   resendText: {
-    fontSize: 13,
-    color: '#6B7280',
+    fontSize: 13.5,
+    color: '#4B5876',
   },
   resendLink: {
-    fontSize: 13,
-    color: '#3B82B8',
+    fontSize: 13.5,
+    color: '#0F2238',
     fontWeight: '700',
   },
   resendLinkDisabled: {
-    color: '#9CA3AF',
+    color: '#94A3B8',
   },
+
+  // ── Cancel ──
   cancelButton: {
-    marginTop: 4,
+    paddingVertical: 6,
+    paddingHorizontal: 16,
   },
   cancelText: {
-    color: '#6B7280',
-    fontSize: 15,
-    fontWeight: '600',
-  },
-  modalPasswordRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#D1D5DB',
-    borderRadius: 14,
-    paddingHorizontal: 16,
-    marginBottom: 14,
-    backgroundColor: '#fff',
-  },
-  modalPasswordInput: {
-    flex: 1,
-    paddingVertical: 12,
-    fontSize: 16,
-    color: '#111827',
-  },
-  modalEyeButton: {
-    padding: 4,
+    color: '#4B5876',
+    fontSize: 14,
+    fontWeight: '500',
   },
   // ── Alert Popup Styles ──
   alertOverlay: {

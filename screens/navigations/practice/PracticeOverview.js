@@ -23,19 +23,19 @@ const OVERVIEWS = {
   },
   TrueFalse: {
     title: 'True or False',
-    expect: 'A series of statements about Civil Service subject topics where you must evaluate correctness.',
+    expect: 'A series of statements about PhilNITS IP & FE subject topics where you must evaluate correctness.',
     how: 'Read each statement carefully. Tap the green "True" button if the statement is correct, or the red "False" button if it contains errors.',
     duration: 'Rapid response quiz'
   },
   MultipleChoice: {
     title: 'Multiple Choice Quiz',
-    expect: 'Standard test questions with 4 possible choices, simulating actual civil service examination formats.',
+    expect: 'Standard test questions with 4 possible choices, simulating actual PhilNITS examination formats.',
     how: 'Read the question, analyze the options, and select the correct answer. Get instant feedback on your choices as you proceed.',
     duration: 'Practice test simulation'
   },
   MockExamHome: {
     title: 'Mock Examination',
-    expect: 'A fully timed comprehensive test simulation covering all active Civil Service syllabus criteria.',
+    expect: 'A fully timed comprehensive test simulation covering official PhilNITS IP and FE syllabus criteria.',
     how: 'Find a quiet spot. Complete all sections under strict timing constraints. Your performance is tabulated into readiness metrics.',
     duration: 'Full-length simulation'
   }
@@ -43,12 +43,13 @@ const OVERVIEWS = {
 
 const SUBJECTS = [
   'All',
-  'Verbal Ability',
-  'Numerical Ability',
-  'Analytical Ability',
-  'Logical Reasoning',
-  'General Information',
-  'Clerical Ability',
+  'Technology',
+  'Management',
+  'Strategy',
+  'Computer Systems & Architecture',
+  'Algorithms & Programming',
+  'Networks & Security',
+  'Databases & SQL',
 ]
 
 const ITEM_COUNTS = [10, 20, 30, 40, 50]

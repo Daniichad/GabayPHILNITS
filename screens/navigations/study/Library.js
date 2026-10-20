@@ -12,54 +12,56 @@ import { getCache, setCache } from '../../../utils/cache'
 
 const NAVY = '#13294b'
 
-const CSE_SUBJECTS = [
-  'Verbal Ability',
-  'Numerical Ability',
-  'Analytical Ability',
-  'Logical Reasoning',
-  'General Information',
-  'Clerical Operations',
+const PHILNITS_SUBJECTS = [
+  'Technology',
+  'Management',
+  'Strategy',
+  'Computer Systems & Architecture',
+  'Algorithms & Programming',
+  'Networks & Security',
+  'IT Management & Strategy',
 ]
+const CSE_SUBJECTS = PHILNITS_SUBJECTS
 
 const VIDEO_LECTURES = [
   {
     id: 'vid-1',
-    title: 'Basic Arithmetic Review',
-    subject: 'Numerical Ability',
-    duration: '12 minutes',
-    duration_minutes: 12,
+    title: 'Computer Architecture & CPU Fundamentals',
+    subject: 'Computer Systems & Architecture',
+    duration: '15 minutes',
+    duration_minutes: 15,
     progressMinutes: 5,
-    url: 'https://www.youtube.com/watch?v=sI9pP3s63c8',
-    thumbnail_url: 'https://images.unsplash.com/photo-1434030216411-0b793f4b4173?w=400&q=80',
-    author: 'Team Lyqa',
-    author_url: 'https://www.youtube.com/@TeamLyqa',
-    description: 'Comprehensive review of fundamental arithmetic operations, PEMDAS order of operations, and shortcut techniques for Civil Service Exam numerical questions.',
+    url: 'https://www.youtube.com/watch?v=FZGugFqDr60',
+    thumbnail_url: 'https://images.unsplash.com/photo-1518770660439-4636190af475?w=400&q=80',
+    author: 'CrashCourse Computer Science',
+    author_url: 'https://www.youtube.com/@crashcourse',
+    description: 'Comprehensive review of CPU architecture, ALU, registers, cache hierarchy, and execution cycles for PhilNITS IP & FE exams.',
   },
   {
     id: 'vid-2',
-    title: 'Percentages & Decimals',
-    subject: 'Numerical Ability',
-    duration: '5 minutes',
-    duration_minutes: 5,
-    progressMinutes: 1,
-    url: 'https://www.youtube.com/watch?v=FqE2wPif_9E',
-    thumbnail_url: 'https://images.unsplash.com/photo-1454165804606-c3d57bc86b40?w=400&q=80',
-    author: 'Team Lyqa',
-    author_url: 'https://www.youtube.com/@TeamLyqa',
-    description: 'Master quick calculations for percentage problems, conversions between decimals and fractions, and real-world word problems.',
+    title: 'Data Structures & Algorithm Tracing',
+    subject: 'Algorithms & Programming',
+    duration: '18 minutes',
+    duration_minutes: 18,
+    progressMinutes: 4,
+    url: 'https://www.youtube.com/watch?v=RBSGKlAvoiM',
+    thumbnail_url: 'https://images.unsplash.com/photo-1555066931-4365d14bab8c?w=400&q=80',
+    author: 'freeCodeCamp',
+    author_url: 'https://www.youtube.com/@freecodecamp',
+    description: 'Master binary search, bubble/quick sort, recursion tracing, and Big-O time complexity essential for PhilNITS FE Subject A and Subject B.',
   },
   {
     id: 'vid-3',
-    title: 'Word Analogy reviewer',
-    subject: 'Verbal Ability',
-    duration: '15 minutes',
-    duration_minutes: 15,
-    progressMinutes: 8,
-    url: 'https://www.youtube.com/watch?v=F388d0xG7m0',
-    thumbnail_url: 'https://images.unsplash.com/photo-1546410531-bb4caa6b424d?w=400&q=80',
-    author: 'Team Lyqa',
-    author_url: 'https://www.youtube.com/@TeamLyqa',
-    description: 'Detailed reviewer for word analogy questions, common relationships, and logical word associations found in CSE verbal ability.',
+    title: 'Network Security & Cryptography',
+    subject: 'Networks & Security',
+    duration: '14 minutes',
+    duration_minutes: 14,
+    progressMinutes: 6,
+    url: 'https://www.youtube.com/watch?v=AQDCe585Lnc',
+    thumbnail_url: 'https://images.unsplash.com/photo-1563986768609-322da13575f3?w=400&q=80',
+    author: 'Computerphile',
+    author_url: 'https://www.youtube.com/@Computerphile',
+    description: 'Detailed walkthrough of symmetric vs asymmetric encryption, RSA, digital signatures, certificates, and TLS handshakes.',
   },
 ]
 
@@ -67,10 +69,28 @@ const VIDEO_LECTURES = [
 // ─── Material card ───────────────────────────────────────────
 function MaterialCard({ item, onPress }) {
   const progress = item.progress || 0
+  const speed = item.review_speed
   return (
     <TouchableOpacity style={styles.materialCard} activeOpacity={0.85} onPress={onPress}>
       <View style={styles.materialImagePlaceholder}>
         <Feather name="book-open" size={32} color="#4d72c7" />
+        {speed ? (
+          <View style={[
+            styles.speedBadge,
+            speed === 'Quick' ? styles.speedBadgeQuick :
+            speed === 'Detailed' ? styles.speedBadgeDetailed :
+            styles.speedBadgeStandard
+          ]}>
+            <Text style={[
+              styles.speedBadgeText,
+              speed === 'Quick' ? styles.speedBadgeTextQuick :
+              speed === 'Detailed' ? styles.speedBadgeTextDetailed :
+              styles.speedBadgeTextStandard
+            ]}>
+              {speed}
+            </Text>
+          </View>
+        ) : null}
       </View>
       <View style={styles.materialBody}>
         <Text style={styles.materialTitle} numberOfLines={1}>{item.title}</Text>
@@ -95,6 +115,7 @@ export default function Library({ navigation }) {
   const [error,     setError]       = useState(null)
   const [search,    setSearch]      = useState('')
   const [activeChip, setActiveChip] = useState(null)
+  const [userReviewSpeed, setUserReviewSpeed] = useState('Standard')
 
   useEffect(() => {
     const unsubscribe = navigation.addListener('focus', () => {
@@ -110,7 +131,9 @@ export default function Library({ navigation }) {
       if (!forceRefresh) {
         const cachedMaterials = await getCache('library_materials')
         const cachedVideos = await getCache('library_videos')
+        const cachedSpeed = await getCache('user_review_speed')
         if (cachedMaterials && cachedVideos) {
+          if (cachedSpeed) setUserReviewSpeed(cachedSpeed)
           setMaterials(cachedMaterials)
           setVideos(cachedVideos)
           setLoading(false)
@@ -139,9 +162,23 @@ export default function Library({ navigation }) {
 
       if (readErr) throw readErr
 
-      // Fetch user reading progress from Supabase
+      // Fetch user review speed & reading progress from Supabase
       const { data: { session } } = await supabase.auth.getSession()
       const uid = session?.user?.id
+      const uemail = session?.user?.email
+
+      let currentSpeed = 'Standard'
+      if (uemail) {
+        const { data: userData } = await supabase
+          .from('users')
+          .select('review_speed')
+          .ilike('email', uemail)
+          .maybeSingle()
+        if (userData?.review_speed && typeof userData.review_speed === 'string') {
+          currentSpeed = userData.review_speed.trim()
+        }
+      }
+      setUserReviewSpeed(currentSpeed)
 
       let progressList = []
       if (uid) {
@@ -174,6 +211,7 @@ export default function Library({ navigation }) {
       setMaterials(materialsWithProgress)
       await setCache('library_materials', materialsWithProgress)
       await setCache('library_videos', videoData ?? [])
+      await setCache('user_review_speed', currentSpeed)
     } catch (e) {
       console.error('Library load error:', e)
       setError('Failed to load materials.')
@@ -182,11 +220,15 @@ export default function Library({ navigation }) {
     }
   }
 
-  // Filter
+  // Filter reading materials strictly by:
+  // 1. User's review speed
+  // 2. Selected subject chip
+  // 3. Search query
   const filtered = materials.filter(m => {
+    const matchSpeed  = m.review_speed && m.review_speed.toLowerCase() === userReviewSpeed.toLowerCase()
     const matchChip   = !activeChip || m.subject === activeChip
     const matchSearch = !search || m.title.toLowerCase().includes(search.toLowerCase())
-    return matchChip && matchSearch
+    return matchSpeed && matchChip && matchSearch
   })
 
   // Group by subject
@@ -201,7 +243,7 @@ export default function Library({ navigation }) {
       <StatusBar barStyle="dark-content" backgroundColor="#fff" />
 
       {/* Sticky top bar without back button */}
-      <View style={{ paddingTop: insets.top + 8, paddingBottom: 14, borderBottomWidth: 1, borderBottomColor: '#e8edf5', backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center' }}>
+      <View style={{ paddingTop: Math.max(insets.top, (StatusBar.currentHeight || 0), 28) + 8, paddingBottom: 14, borderBottomWidth: 1, borderBottomColor: '#e8edf5', backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center' }}>
         <Text style={{ fontSize: 18, fontWeight: '900', color: NAVY, letterSpacing: 2, textTransform: 'uppercase' }}>Library</Text>
       </View>
 
@@ -251,6 +293,23 @@ export default function Library({ navigation }) {
           <View style={styles.sectionTitleRow}>
             <Feather name="book-open" size={20} color={NAVY} />
             <Text style={styles.sectionHeaderText}>Reading Materials</Text>
+            {userReviewSpeed ? (
+              <View style={[
+                styles.headerSpeedBadge,
+                userReviewSpeed === 'Quick' ? styles.speedBadgeQuick :
+                userReviewSpeed === 'Detailed' ? styles.speedBadgeDetailed :
+                styles.speedBadgeStandard
+              ]}>
+                <Text style={[
+                  styles.headerSpeedBadgeText,
+                  userReviewSpeed === 'Quick' ? styles.speedBadgeTextQuick :
+                  userReviewSpeed === 'Detailed' ? styles.speedBadgeTextDetailed :
+                  styles.speedBadgeTextStandard
+                ]}>
+                  {userReviewSpeed} Pace
+                </Text>
+              </View>
+            ) : null}
           </View>
           <TouchableOpacity onPress={() => loadMaterials(true)}>
             <Feather name="refresh-cw" size={16} color="#64748b" />
@@ -298,7 +357,7 @@ export default function Library({ navigation }) {
         {!loading && !error && Object.keys(grouped).length === 0 && (
           <View style={styles.centered}>
             <Feather name="inbox" size={40} color="#94a3b8" />
-            <Text style={styles.emptyText}>No materials found.</Text>
+            <Text style={styles.emptyText}>No reading materials found for {userReviewSpeed} pace.</Text>
           </View>
         )}
 
@@ -313,7 +372,7 @@ export default function Library({ navigation }) {
                 <MaterialCard
                   key={item.id}
                   item={item}
-                  onPress={() => navigation?.navigate('ReadingMaterial', { materialId: item.id, title: item.title })}
+                  onPress={() => navigation?.navigate('ReadingMaterial', { materialId: item.id, title: item.title, reviewSpeed: item.review_speed, learningObjective: item.learning_objective })}
                 />
               ))}
             </ScrollView>
@@ -414,7 +473,7 @@ const styles = StyleSheet.create({
 
   // Cards
   materialCard:            { width: 160, borderRadius: 12, backgroundColor: '#fff', borderWidth: 1, borderColor: '#e5e7eb', overflow: 'hidden', elevation: 1, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.06, shadowRadius: 3 },
-  materialImagePlaceholder:{ height: 80, backgroundColor: '#dbe8fb', alignItems: 'center', justifyContent: 'center' },
+  materialImagePlaceholder:{ height: 80, backgroundColor: '#dbe8fb', alignItems: 'center', justifyContent: 'center', position: 'relative' },
   materialBody:            { padding: 10 },
   materialTitle:           { fontSize: 13, fontWeight: '700', color: NAVY, marginBottom: 3 },
   materialSubtitle:        { fontSize: 11, color: '#374151', minHeight: 28, marginBottom: 8 },
@@ -422,6 +481,16 @@ const styles = StyleSheet.create({
   progressTrack:           { flex: 1, height: 5, borderRadius: 999, backgroundColor: '#e5e7eb', overflow: 'hidden' },
   progressFill:            { height: '100%', borderRadius: 999, backgroundColor: NAVY },
   progressText:            { fontSize: 10, color: '#6b7280', fontWeight: '600' },
+  speedBadge:              { position: 'absolute', top: 6, right: 6, paddingHorizontal: 7, paddingVertical: 2.5, borderRadius: 8 },
+  speedBadgeQuick:         { backgroundColor: '#fef3c7' },
+  speedBadgeDetailed:      { backgroundColor: '#f1f5f9' },
+  speedBadgeStandard:      { backgroundColor: '#eff6ff' },
+  speedBadgeText:          { fontSize: 9, fontWeight: '800' },
+  speedBadgeTextQuick:     { color: '#d97706' },
+  speedBadgeTextDetailed:  { color: '#0f2747' },
+  speedBadgeTextStandard:  { color: '#2563eb' },
+  headerSpeedBadge:        { marginLeft: 8, paddingHorizontal: 8, paddingVertical: 2.5, borderRadius: 12 },
+  headerSpeedBadgeText:    { fontSize: 11, fontWeight: '800' },
 
   // Video Cards
   videoCard: {

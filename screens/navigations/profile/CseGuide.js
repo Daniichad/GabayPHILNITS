@@ -26,7 +26,7 @@ export default function CseGuide({ route, navigation }) {
         <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
           <Ionicons name="chevron-back" size={26} color={NAVY} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>CSE Guide</Text>
+        <Text style={styles.headerTitle}>PhilNITS Guide</Text>
         <View style={{ width: 40 }} />
       </View>
 
@@ -37,7 +37,7 @@ export default function CseGuide({ route, navigation }) {
           onPress={() => setActiveTab('process')}
         >
           <Text style={[styles.tabText, activeTab === 'process' && styles.tabTextActive, { color: activeTab === 'process' ? NAVY : '#3b587a' }]}>
-            Process & Scope
+            Scope & Tracks
           </Text>
         </TouchableOpacity>
 
@@ -55,7 +55,7 @@ export default function CseGuide({ route, navigation }) {
           onPress={() => setActiveTab('comparison')}
         >
           <Text style={[styles.tabText, activeTab === 'comparison' && styles.tabTextActive, { color: activeTab === 'comparison' ? NAVY : '#8c3d42' }]}>
-            Prof vs Sub-prof
+            IP vs FE & ITPEC
           </Text>
         </TouchableOpacity>
       </View>
@@ -66,82 +66,62 @@ export default function CseGuide({ route, navigation }) {
           <View style={styles.tabContent}>
             {/* Banner info */}
             <View style={[styles.infoBanner, { backgroundColor: '#e0efff', borderColor: '#bed6ff' }]}>
-              <Text style={[styles.bannerTitle, { color: NAVY }]}>CSE-PPT Conduct Announcement</Text>
+              <Text style={[styles.bannerTitle, { color: NAVY }]}>PhilNITS / ITPEC Certification</Text>
               <Text style={styles.bannerDesc}>
-                The Civil Service Commission (CSC) administers the Career Service Examination, Pen and Paper Test (CSE-PPT) for both Professional and Subprofessional levels.
+                Administered by the PhilNITS Foundation under the DTI in partnership with Japan's IPA and ITPEC. Standardized benchmark for IT competence in Asia.
               </Text>
               <View style={styles.metaRow}>
                 <Ionicons name="calendar-outline" size={16} color={NAVY} />
-                <Text style={styles.metaText}>Exam Date: August 9, 2026</Text>
+                <Text style={styles.metaText}>Cycle: Semi-annual (April & October)</Text>
               </View>
               <View style={styles.metaRow}>
                 <Ionicons name="ribbon-outline" size={16} color={NAVY} />
-                <Text style={styles.metaText}>Passing Score: 80.00% minimum</Text>
+                <Text style={styles.metaText}>Passing Score: 600 / 1000 scaled score (~55–60% raw)</Text>
               </View>
             </View>
 
             {/* Scope details */}
-            <Text style={styles.sectionTitle}>Scope of Examination</Text>
+            <Text style={styles.sectionTitle}>Examination Scopes</Text>
             
-            {/* Accordion Item: General Information */}
-            <TouchableOpacity style={styles.accordionHeader} onPress={() => toggleSection('gen_info')}>
-              <Text style={styles.accordionTitle}>1. General Information (English)</Text>
-              <Ionicons name={expandedSection === 'gen_info' ? 'chevron-up' : 'chevron-down'} size={18} color={NAVY} />
+            {/* Accordion Item: IP Scope */}
+            <TouchableOpacity style={styles.accordionHeader} onPress={() => toggleSection('ip_scope')}>
+              <Text style={styles.accordionTitle}>1. IT Passport (IP) Examination</Text>
+              <Ionicons name={expandedSection === 'ip_scope' ? 'chevron-up' : 'chevron-down'} size={18} color={NAVY} />
             </TouchableOpacity>
-            {expandedSection === 'gen_info' && (
+            {expandedSection === 'ip_scope' && (
               <View style={styles.accordionBody}>
-                <Text style={styles.bodyBullet}>• Philippine Constitution</Text>
-                <Text style={styles.bodyBullet}>• Code of Conduct and Ethical Standards for Public Officials and Employees (R.A. 6713)</Text>
-                <Text style={styles.bodyBullet}>• Peace and Human Rights Issues and Concepts</Text>
-                <Text style={styles.bodyBullet}>• Environment Management and Protection</Text>
+                <Text style={[styles.accordionSubtitle, { color: ACCENT }]}>100 Questions • 120 Minutes</Text>
+                <Text style={styles.bodyBullet}>• Technology Domain (40%): Computer hardware, system software, database schemas, networking protocols, security fundamentals.</Text>
+                <Text style={styles.bodyBullet}>• Strategy Domain (35%): Corporate governance, business analysis, digital transformation, intellectual property, IT legal compliance.</Text>
+                <Text style={styles.bodyBullet}>• Management Domain (25%): Software development lifecycles, project management, IT service management (ITIL), security auditing.</Text>
               </View>
             )}
 
-            {/* Accordion Item: Verbal Ability */}
-            <TouchableOpacity style={styles.accordionHeader} onPress={() => toggleSection('verbal')}>
-              <Text style={styles.accordionTitle}>2. Verbal Ability (English & Filipino)</Text>
-              <Ionicons name={expandedSection === 'verbal' ? 'chevron-up' : 'chevron-down'} size={18} color={NAVY} />
+            {/* Accordion Item: FE Subject A */}
+            <TouchableOpacity style={styles.accordionHeader} onPress={() => toggleSection('fe_a')}>
+              <Text style={styles.accordionTitle}>2. FE Subject A (Morning Session)</Text>
+              <Ionicons name={expandedSection === 'fe_a' ? 'chevron-up' : 'chevron-down'} size={18} color={NAVY} />
             </TouchableOpacity>
-            {expandedSection === 'verbal' && (
+            {expandedSection === 'fe_a' && (
               <View style={styles.accordionBody}>
-                <Text style={styles.bodyBullet}>• Word meaning</Text>
-                <Text style={styles.bodyBullet}>• Sentence completion</Text>
-                <Text style={styles.bodyBullet}>• Error recognition</Text>
-                <Text style={styles.bodyBullet}>• Sentence structure</Text>
-                <Text style={styles.bodyBullet}>• Paragraph organization</Text>
-                <Text style={styles.bodyBullet}>• Reading comprehension</Text>
+                <Text style={[styles.accordionSubtitle, { color: ACCENT }]}>60 Questions • 90 Minutes (Multiple Choice)</Text>
+                <Text style={styles.bodyBullet}>• Computer Systems & Architecture: CPU architecture, logic gates, cache memory, operating systems, compiler theory.</Text>
+                <Text style={styles.bodyBullet}>• Algorithms & Programming: Binary representation, data structures, recursion, time/space complexity.</Text>
+                <Text style={styles.bodyBullet}>• Networks & Security: OSI model, TCP/IP, cryptographic algorithms, vulnerability defense, authentication.</Text>
+                <Text style={styles.bodyBullet}>• IT Management & Enterprise Architecture: Systems analysis, database design, ER diagrams, project metrics.</Text>
               </View>
             )}
 
-            {/* Accordion Item: Numerical Ability */}
-            <TouchableOpacity style={styles.accordionHeader} onPress={() => toggleSection('numerical')}>
-              <Text style={styles.accordionTitle}>3. Numerical Ability (English)</Text>
-              <Ionicons name={expandedSection === 'numerical' ? 'chevron-up' : 'chevron-down'} size={18} color={NAVY} />
+            {/* Accordion Item: FE Subject B */}
+            <TouchableOpacity style={styles.accordionHeader} onPress={() => toggleSection('fe_b')}>
+              <Text style={styles.accordionTitle}>3. FE Subject B (Afternoon Session)</Text>
+              <Ionicons name={expandedSection === 'fe_b' ? 'chevron-up' : 'chevron-down'} size={18} color={NAVY} />
             </TouchableOpacity>
-            {expandedSection === 'numerical' && (
+            {expandedSection === 'fe_b' && (
               <View style={styles.accordionBody}>
-                <Text style={styles.bodyBullet}>• Basic mathematical operations</Text>
-                <Text style={styles.bodyBullet}>• Number sequences</Text>
-                <Text style={styles.bodyBullet}>• Word problems</Text>
-              </View>
-            )}
-
-            {/* Accordion Item: Analytical vs Clerical */}
-            <TouchableOpacity style={styles.accordionHeader} onPress={() => toggleSection('level_specific')}>
-              <Text style={styles.accordionTitle}>4. Level-Specific Modules</Text>
-              <Ionicons name={expandedSection === 'level_specific' ? 'chevron-up' : 'chevron-down'} size={18} color={NAVY} />
-            </TouchableOpacity>
-            {expandedSection === 'level_specific' && (
-              <View style={styles.accordionBody}>
-                <Text style={[styles.accordionSubtitle, { color: ACCENT }]}>Professional Level: Analytical Ability</Text>
-                <Text style={styles.bodyBullet}>• Word analogy</Text>
-                <Text style={styles.bodyBullet}>• Symbolic logic / abstract reasoning</Text>
-                <Text style={styles.bodyBullet}>• Identifying assumptions & drawing conclusions</Text>
-                <Text style={styles.bodyBullet}>• Data interpretation</Text>
-
-                <Text style={[styles.accordionSubtitle, { color: ACCENT, marginTop: 14 }]}>Subprofessional Level: Clerical Ability</Text>
-                <Text style={styles.bodyBullet}>• Filing systems</Text>
-                <Text style={styles.bodyBullet}>• Spelling checks</Text>
+                <Text style={[styles.accordionSubtitle, { color: ACCENT }]}>20 Questions • 100 Minutes (Case & Scenario Based)</Text>
+                <Text style={styles.bodyBullet}>• Algorithms & Data Structures (16 Questions): Tracing complex pseudocode routines, dynamic arrays, binary trees, graph traversals.</Text>
+                <Text style={styles.bodyBullet}>• Information Security (4 Questions): Enterprise security incidents, threat modeling, access control, and defense-in-depth architecture.</Text>
               </View>
             )}
           </View>
@@ -151,30 +131,30 @@ export default function CseGuide({ route, navigation }) {
         {activeTab === 'requirements' && (
           <View style={styles.tabContent}>
             <View style={[styles.infoBanner, { backgroundColor: '#fff0ec', borderColor: '#ffd2c9' }]}>
-              <Text style={[styles.bannerTitle, { color: '#a04838' }]}>Filing & Application Checklist</Text>
+              <Text style={[styles.bannerTitle, { color: '#a04838' }]}>Registration & Filing Checklist</Text>
               <Text style={styles.bannerDesc}>
-                Applications are processed on a first-come, first-served basis. File early via official online modes:
+                Examinees can register online or through accredited partner universities and regional testing centers.
               </Text>
-              <Text style={styles.filingLink}>• CSC eServe: services.csc.gov.ph</Text>
-              <Text style={styles.filingLink}>• CSC OCSEAS: ocseas.csc.gov.ph</Text>
+              <Text style={styles.filingLink}>• Official Website: www.philnits.org</Text>
+              <Text style={styles.filingLink}>• ITPEC Consortium: itpec.org</Text>
             </View>
 
-            <Text style={styles.sectionTitle}>Documentary Requirements</Text>
+            <Text style={styles.sectionTitle}>Registration Requirements</Text>
             <View style={styles.requirementsList}>
               <View style={styles.reqItem}>
                 <Ionicons name="checkbox-outline" size={20} color={NAVY} style={{ marginTop: 2 }} />
                 <View style={styles.reqTextWrap}>
-                  <Text style={styles.reqTitle}>Application Form</Text>
-                  <Text style={styles.reqDesc}>Fully accomplished CS Form No. 100, Revised 2023.</Text>
+                  <Text style={styles.reqTitle}>Online Application</Text>
+                  <Text style={styles.reqDesc}>Completed PhilNITS registration form submitted before the deadline (typically 3 weeks before exam date).</Text>
                 </View>
               </View>
 
               <View style={styles.reqItem}>
                 <Ionicons name="checkbox-outline" size={20} color={NAVY} style={{ marginTop: 2 }} />
                 <View style={styles.reqTextWrap}>
-                  <Text style={styles.reqTitle}>Four (4) ID Pictures</Text>
+                  <Text style={styles.reqTitle}>Valid Identification</Text>
                   <Text style={styles.reqDesc}>
-                    Philippine passport size (4.5 cm x 3.5 cm), white background, taken within 3 months prior to filing. Standard close-up, showing both left & right ears, bare face (no eyeglasses/colored contacts). Name tag must show handwritten signature over printed full name.
+                    Government-issued ID or valid School/Student ID (Passport, Driver's License, UMID, PRC ID, or School Registration).
                   </Text>
                 </View>
               </View>
@@ -182,9 +162,9 @@ export default function CseGuide({ route, navigation }) {
               <View style={styles.reqItem}>
                 <Ionicons name="checkbox-outline" size={20} color={NAVY} style={{ marginTop: 2 }} />
                 <View style={styles.reqTextWrap}>
-                  <Text style={styles.reqTitle}>Valid ID Card</Text>
+                  <Text style={styles.reqTitle}>ID Photograph</Text>
                   <Text style={styles.reqDesc}>
-                    Original & photocopy of accepted ID (e.g. Driver's License, Passport, PRC, SSS, GSIS, Voter ID, PhilHealth, PhilID, or NBI Clearance). ID must include date of birth.
+                    2x2 colored photograph with white background, taken within the last 6 months.
                   </Text>
                 </View>
               </View>
@@ -193,48 +173,59 @@ export default function CseGuide({ route, navigation }) {
                 <Ionicons name="checkbox-outline" size={20} color={NAVY} style={{ marginTop: 2 }} />
                 <View style={styles.reqTextWrap}>
                   <Text style={styles.reqTitle}>Examination Fee</Text>
-                  <Text style={styles.reqDesc}>Standard fee of Five Hundred Pesos (PhP 500.00).</Text>
+                  <Text style={styles.reqDesc}>
+                    Information Technology Passport: ~₱1,000{'\n'}Fundamental IT Engineer: ~₱1,500{'\n'}(Discounted rates available for accredited partner academic institutions).
+                  </Text>
                 </View>
               </View>
             </View>
           </View>
         )}
 
-        {/* TAB 3: PROF VS SUB-PROF COMPARISON */}
+        {/* TAB 3: IP VS FE COMPARISON */}
         {activeTab === 'comparison' && (
           <View style={styles.tabContent}>
             <View style={[styles.infoBanner, { backgroundColor: '#ffeef1', borderColor: '#ffd5db' }]}>
-              <Text style={[styles.bannerTitle, { color: '#ab3742' }]}>Resulting Eligibility & Positions</Text>
+              <Text style={[styles.bannerTitle, { color: '#ab3742' }]}>Certification Levels & Asian Mutual Recognition</Text>
               <Text style={styles.bannerDesc}>
-                Understanding the two levels of eligibility granted by the Civil Service Commission:
+                PhilNITS certifications are internationally recognized under the Information Technology Professionals Examination Council (ITPEC):
               </Text>
             </View>
 
             <Text style={styles.sectionTitle}>Level Comparison</Text>
 
-            {/* Professional Card */}
-            <View style={[styles.compareCard, { borderLeftColor: ACCENT, borderLeftWidth: 5 }]}>
-              <Text style={styles.compareTitle}>Professional Eligibility</Text>
-              <Text style={styles.compareTier}>Second-Level Positions</Text>
+            {/* IP Card */}
+            <View style={[styles.compareCard, { borderLeftColor: '#3b82f6', borderLeftWidth: 5 }]}>
+              <Text style={styles.compareTitle}>Information Technology Passport (IP)</Text>
+              <Text style={styles.compareTier}>Foundational IT Certification</Text>
               <Text style={styles.compareDesc}>
-                Appropriate for both first-level (clerical) and second-level (technical, professional, scientific, executive, and managerial) positions in the government.
+                Validates broad, fundamental knowledge of IT and business systems. Ideal for entry-level IT practitioners, students, and business professionals who interact with technology solutions.
               </Text>
               <Text style={styles.compareScopeText}>
-                <Text style={{ fontWeight: '700' }}>Includes: </Text>
-                Analytical Ability questions (Word Analogy, Logic, Data Interpretation).
+                <Text style={{ fontWeight: '700' }}>Scope: </Text>
+                Technology (40%), Strategy (35%), Management (25%). 100 multiple choice questions.
               </Text>
             </View>
 
-            {/* Sub-Professional Card */}
+            {/* FE Card */}
             <View style={[styles.compareCard, { borderLeftColor: NAVY, borderLeftWidth: 5 }]}>
-              <Text style={styles.compareTitle}>Sub-Professional Eligibility</Text>
-              <Text style={styles.compareTier}>First-Level Positions Only</Text>
+              <Text style={styles.compareTitle}>Fundamental IT Engineer (FE)</Text>
+              <Text style={styles.compareTier}>Engineering Level Certification</Text>
               <Text style={styles.compareDesc}>
-                Appropriate only for first-level (clerical, trades, crafts, and custodial) positions in the government.
+                Validates in-depth technical competency in software engineering, algorithms, networks, and cybersecurity. Meets standards for expedited Japanese work visa processing and global technical roles.
               </Text>
               <Text style={styles.compareScopeText}>
-                <Text style={{ fontWeight: '700' }}>Includes: </Text>
-                Clerical Ability questions (Filing systems, spelling checks).
+                <Text style={{ fontWeight: '700' }}>Scope: </Text>
+                Subject A (60 MCQs on architecture, algorithms, security) + Subject B (20 scenario questions on pseudocode and cybersecurity).
+              </Text>
+            </View>
+
+            {/* ITPEC Member Countries */}
+            <View style={[styles.compareCard, { borderLeftColor: '#10b981', borderLeftWidth: 5 }]}>
+              <Text style={styles.compareTitle}>Mutual Recognition in Asia</Text>
+              <Text style={styles.compareTier}>7 Partner Countries</Text>
+              <Text style={styles.compareDesc}>
+                Passing PhilNITS grants certification equivalent to Japan's Information Technology Engineers Examination (ITEE), recognized in Japan, Philippines, Vietnam, Myanmar, Mongolia, Thailand, and Bangladesh.
               </Text>
             </View>
           </View>

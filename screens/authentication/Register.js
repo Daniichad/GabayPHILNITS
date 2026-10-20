@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react'
+import React, { useState, useRef, useEffect } from 'react'
 import {
   Modal,
   ScrollView,
@@ -88,6 +88,17 @@ export default function Register({ navigation }) {
   // 4-digit OTP state
   const [otp, setOtp] = useState('')
   const getOtpString = () => otp
+  const otpInputRef = useRef(null)
+  const [isOtpFocused, setIsOtpFocused] = useState(false)
+
+  useEffect(() => {
+    if (verifyVisible) {
+      const timer = setTimeout(() => {
+        otpInputRef.current?.focus()
+      }, 350)
+      return () => clearTimeout(timer)
+    }
+  }, [verifyVisible])
 
   const startResendCooldown = () => {
     setResendCooldown(60)
@@ -543,7 +554,7 @@ export default function Register({ navigation }) {
         </View>
 
         {/* Bottom */}
-        <Text style={styles.bottomText}>Start your Civil Service Exam Preparation Journey</Text>
+        <Text style={styles.bottomText}>Start your PhilNITS Exam Preparation Journey</Text>
       </ScrollView>
 
       {/* ── Terms Modal ── */}
@@ -567,13 +578,13 @@ export default function Register({ navigation }) {
               contentContainerStyle={{ paddingBottom: 12 }}
             >
               <Text style={styles.modalText}>
-                {"1. Acceptance of Terms\nBy accessing and using GABAY CSE, you agree to comply with and be bound by these Terms and Conditions. If you do not agree, you must not use the application.\n\n" +
-                  "2. Purpose of the Application\nGABAY PhilCSE is a mobile-based reviewer designed to assist users in preparing for the Civil Service Examination. The application provides learning materials, quizzes, analytics, and study recommendations for educational purposes only.\n\n" +
+                {"1. Acceptance of Terms\nBy accessing and using GABAY PhilNITS, you agree to comply with and be bound by these Terms and Conditions. If you do not agree, you must not use the application.\n\n" +
+                  "2. Purpose of the Application\nGABAY PhilNITS is a mobile learning and reviewer system designed to assist users in preparing for the PhilNITS Information Technology Passport (IP) and Fundamental IT Engineer (FE) Examinations. The application provides learning materials, quizzes, analytics, and study recommendations for educational purposes only.\n\n" +
                   "3. User Responsibilities\nUsers agree to:\n• Provide accurate and complete information upon registration\n• Maintain the confidentiality of their account credentials\n• Use the application for lawful and educational purposes only\n• Avoid sharing, copying, or distributing content without permission\n\n" +
                   "4. Account Management\nThe system allows users to create and manage accounts. The developers reserve the right to suspend or terminate accounts that violate these terms or engage in unauthorized activities.\n\n" +
                   "5. Content and Intellectual Property\nAll content within the application, including questions, materials, and features, is the intellectual property of the developers unless otherwise stated. Unauthorized reproduction or distribution is strictly prohibited.\n\n" +
                   "6. Data Privacy\nUser data such as personal information and performance data will be collected and used solely for system functionality, analytics, and improving user experience. The system ensures reasonable protection of user data but does not guarantee absolute security.\n\n" +
-                  "7. System Limitations\n• The application does not guarantee passing the Civil Service Examination.\n• Results from analytics and predictions are estimates based on user performance.\n• The system is not affiliated with or officially connected to the Civil Service Commission (CSC).\n\n" +
+                  "7. System Limitations\n• The application does not guarantee passing the PhilNITS IP or FE Examinations.\n• Results from analytics and predictions are estimates based on user performance.\n• The system is not affiliated with or officially connected to the PhilNITS Foundation or ITPEC.\n\n" +
                   "8. Availability of Service\nThe developers aim to provide continuous access to the application; however, interruptions may occur due to maintenance, updates, or technical issues.\n\n" +
                   "9. Updates and Modifications\nThe developers reserve the right to modify, update, or discontinue features of the application at any time without prior notice.\n\n" +
                   "10. Limitation of Liability\nThe developers shall not be held liable for any damages, losses, or consequences resulting from the use or inability to use the application.\n\n" +
@@ -589,85 +600,134 @@ export default function Register({ navigation }) {
       <Modal
         transparent
         visible={verifyVisible}
-        animationType="slide"
-        onRequestClose={() => setVerifyVisible(false)}
+        animationType="fade"
+        statusBarTranslucent
+        onRequestClose={() => {
+          setVerifyVisible(false)
+          setOtp('')
+        }}
       >
-        <KeyboardAvoidingView
-          style={{ flex: 1 }}
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        >
-          <View style={styles.modalOverlay}>
-            <View style={styles.verifyCard}>
-              <TouchableOpacity
-                style={{ position: 'absolute', top: 16, left: 16, zIndex: 10 }}
-                onPress={() => setVerifyVisible(false)}
-              >
-                <Feather name="chevron-left" size={28} color="#4B5563" />
-              </TouchableOpacity>
-              {/* Header */}
-              <View style={styles.verifyIconContainer}>
-                <Text style={styles.verifyIcon}>✉️</Text>
-              </View>
-              <Text style={styles.verifyTitle}>Verify your email</Text>
-              <Text style={styles.verifySubtitle}>
-                We sent a 4-digit code to
-              </Text>
-              <Text style={styles.verifyEmail}>{email}</Text>
-
-              {/* OTP Input */}
-              <View style={styles.otpContainer}>
-                <TextInput
-                  style={[styles.modalInput, { textAlign: 'center', letterSpacing: 8, fontSize: 24 }]}
-                  value={otp.split('').join(' ')}
-                  onChangeText={(text) => setOtp(text.replace(/[^0-9]/g, '').slice(0, 4))}
-                  keyboardType="number-pad"
-                  maxLength={7}
-                  placeholder="- - - -"
-                  placeholderTextColor="#D1D5DB"
+        <View style={styles.verifyModalContainer}>
+          <KeyboardAvoidingView
+            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+            style={styles.verifyKeyboardAvoid}
+          >
+            <ScrollView
+              contentContainerStyle={styles.verifyScrollContent}
+              keyboardShouldPersistTaps="handled"
+              showsVerticalScrollIndicator={false}
+              bounces={false}
+            >
+              {/* App Logo */}
+              <View style={styles.verifyLogoContainer}>
+                <Image
+                  source={require('../../assets/loading.png')}
+                  style={styles.verifyLogoImage}
+                  resizeMode="contain"
                 />
               </View>
 
-              {/* Verify Button */}
-              <TouchableOpacity
-                style={[
-                  styles.verifyButton,
-                  (verifying || getOtpString().length < 4) && styles.verifyButtonDisabled,
-                ]}
-                onPress={handleVerifyEmail}
-                disabled={verifying || getOtpString().length < 4}
-              >
-                {verifying ? (
-                  <ActivityIndicator color="#fff" />
-                ) : (
-                  <Text style={styles.verifyButtonText}>Verify Code</Text>
-                )}
-              </TouchableOpacity>
+              {/* White Card */}
+              <View style={styles.verifyCard}>
+                <Text style={styles.verifyTitle}>Verify your email</Text>
+                <Text style={styles.verifySubtitle}>
+                  We sent a 4-digit code to
+                </Text>
+                <Text style={styles.verifyEmail}>{email.trim() || 'email@gmail.com'}</Text>
 
-              {/* Resend */}
-              <View style={styles.resendContainer}>
-                <Text style={styles.resendText}>Didn't receive the code? </Text>
+                {/* 4-Digit OTP Boxes */}
                 <TouchableOpacity
-                  onPress={handleResendCode}
-                  disabled={resendCooldown > 0 || resending}
+                  activeOpacity={1}
+                  onPress={() => otpInputRef.current?.focus()}
+                  style={styles.otpBoxesRow}
                 >
-                  {resending ? (
-                    <ActivityIndicator size="small" color="#3B82B8" />
+                  {[0, 1, 2, 3].map((index) => {
+                    const digit = otp[index] || ''
+                    const isCurrent = otp.length === index
+                    return (
+                      <View
+                        key={index}
+                        style={[
+                          styles.otpBox,
+                          digit ? styles.otpBoxFilled : null,
+                          isCurrent && isOtpFocused ? styles.otpBoxActive : null,
+                        ]}
+                      >
+                        <Text style={styles.otpDigitText}>{digit}</Text>
+                      </View>
+                    )
+                  })}
+                  <TextInput
+                    ref={otpInputRef}
+                    value={otp}
+                    onChangeText={(text) => {
+                      const cleaned = text.replace(/[^0-9]/g, '').slice(0, 4)
+                      setOtp(cleaned)
+                    }}
+                    onFocus={() => setIsOtpFocused(true)}
+                    onBlur={() => setIsOtpFocused(false)}
+                    keyboardType="number-pad"
+                    maxLength={4}
+                    style={styles.hiddenOtpInput}
+                    caretHidden={true}
+                  />
+                </TouchableOpacity>
+
+                {/* Verify Account Button */}
+                <TouchableOpacity
+                  style={[
+                    styles.verifyButton,
+                    (verifying || getOtpString().length < 4) && styles.verifyButtonDisabled,
+                  ]}
+                  onPress={handleVerifyEmail}
+                  disabled={verifying || getOtpString().length < 4}
+                  activeOpacity={0.85}
+                >
+                  {verifying ? (
+                    <ActivityIndicator color="#fff" size="small" />
                   ) : (
-                    <Text
-                      style={[
-                        styles.resendLink,
-                        resendCooldown > 0 && styles.resendLinkDisabled,
-                      ]}
-                    >
-                      {resendCooldown > 0 ? `Resend in ${resendCooldown}s` : 'Resend'}
-                    </Text>
+                    <Text style={styles.verifyButtonText}>Verify Account</Text>
                   )}
                 </TouchableOpacity>
-              </View>
 
-            </View>
-          </View>
-        </KeyboardAvoidingView>
+                {/* Resend */}
+                <View style={styles.resendContainer}>
+                  <Text style={styles.resendText}>Didn't receive the code? </Text>
+                  <TouchableOpacity
+                    onPress={handleResendCode}
+                    disabled={resendCooldown > 0 || resending}
+                    activeOpacity={0.7}
+                  >
+                    {resending ? (
+                      <ActivityIndicator size="small" color="#0F2238" />
+                    ) : (
+                      <Text
+                        style={[
+                          styles.resendLink,
+                          resendCooldown > 0 && styles.resendLinkDisabled,
+                        ]}
+                      >
+                        {resendCooldown > 0 ? `Resend (${resendCooldown}s)` : 'Resend'}
+                      </Text>
+                    )}
+                  </TouchableOpacity>
+                </View>
+
+                {/* Cancel Button */}
+                <TouchableOpacity
+                  style={styles.cancelButton}
+                  onPress={() => {
+                    setVerifyVisible(false)
+                    setOtp('')
+                  }}
+                  activeOpacity={0.7}
+                >
+                  <Text style={styles.cancelText}>Cancel</Text>
+                </TouchableOpacity>
+              </View>
+            </ScrollView>
+          </KeyboardAvoidingView>
+        </View>
       </Modal>
 
       {/* Custom Alert Modal */}
@@ -917,84 +977,125 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
 
-  // ── Verify Card ──
-  verifyCard: {
-    width: '100%',
-    backgroundColor: '#fff',
-    borderRadius: 28,
-    padding: 28,
-    alignItems: 'center',
-    maxWidth: 420,
+  // ── Verify Modal Overlay & Container ──
+  verifyModalContainer: {
+    flex: 1,
+    backgroundColor: '#0F2238',
   },
-  verifyIconContainer: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
-    backgroundColor: '#FFF1F2',
+  verifyKeyboardAvoid: {
+    flex: 1,
+    width: '100%',
+  },
+  verifyScrollContent: {
+    flexGrow: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 16,
+    paddingHorizontal: 20,
+    paddingVertical: 36,
   },
-  verifyIcon: {
-    fontSize: 36,
+  verifyLogoContainer: {
+    marginBottom: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  verifyLogoImage: {
+    width: 60,
+    height: 60,
+  },
+  verifyCard: {
+    width: '100%',
+    maxWidth: 350,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 36,
+    paddingTop: 44,
+    paddingBottom: 34,
+    paddingHorizontal: 24,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.16,
+    shadowRadius: 20,
+    elevation: 8,
   },
   verifyTitle: {
-    fontSize: 22,
+    fontSize: 27,
     fontWeight: '700',
-    color: '#111827',
-    marginBottom: 6,
+    color: '#B8464E',
+    marginBottom: 12,
+    textAlign: 'center',
   },
   verifySubtitle: {
     fontSize: 14,
-    color: '#6B7280',
+    color: '#4B5876',
     textAlign: 'center',
+    marginBottom: 4,
   },
   verifyEmail: {
-    fontSize: 14,
+    fontSize: 15,
     fontWeight: '700',
-    color: '#0f1e35',
-    marginTop: 2,
+    color: '#0F2238',
     marginBottom: 28,
     textAlign: 'center',
   },
 
   // ── OTP Boxes ──
-  otpContainer: {
+  otpBoxesRow: {
     flexDirection: 'row',
-    gap: 10,
-    marginBottom: 28,
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 12,
+    marginBottom: 26,
+    position: 'relative',
+    width: '100%',
   },
   otpBox: {
-    width: 46,
-    height: 56,
-    borderWidth: 2,
-    borderColor: '#D1D5DB',
-    borderRadius: 14,
-    fontSize: 24,
-    fontWeight: '700',
-    color: '#111827',
-    backgroundColor: '#F9FAFB',
+    width: 58,
+    height: 60,
+    borderWidth: 1.5,
+    borderColor: '#CBD5E1',
+    borderRadius: 16,
+    backgroundColor: '#FFFFFF',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   otpBoxFilled: {
-    borderColor: '#D9989E',
-    backgroundColor: '#FFF1F2',
-    color: '#D9989E',
+    borderColor: '#B8464E',
+  },
+  otpBoxActive: {
+    borderColor: '#B8464E',
+    backgroundColor: '#FFF7F7',
+  },
+  otpDigitText: {
+    fontSize: 24,
+    fontWeight: '700',
+    color: '#0F2238',
+  },
+  hiddenOtpInput: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    opacity: 0.01,
+    color: 'transparent',
   },
 
   // ── Verify Button ──
   verifyButton: {
     width: '100%',
-    backgroundColor: '#D9989E',
-    borderRadius: 14,
-    paddingVertical: 15,
+    backgroundColor: '#B8464E',
+    borderRadius: 26,
+    paddingVertical: 14,
     alignItems: 'center',
-    marginBottom: 16,
+    justifyContent: 'center',
+    marginBottom: 18,
   },
   verifyButtonDisabled: {
-    opacity: 0.5,
+    backgroundColor: '#E79DA2',
+    opacity: 0.7,
   },
   verifyButtonText: {
-    color: '#fff',
+    color: '#FFFFFF',
     fontSize: 16,
     fontWeight: '700',
   },
@@ -1003,27 +1104,29 @@ const styles = StyleSheet.create({
   resendContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 12,
+    justifyContent: 'center',
+    marginBottom: 16,
   },
   resendText: {
-    fontSize: 13,
-    color: '#6B7280',
+    fontSize: 13.5,
+    color: '#4B5876',
   },
   resendLink: {
-    fontSize: 13,
-    color: '#3B82B8',
+    fontSize: 13.5,
+    color: '#0F2238',
     fontWeight: '700',
   },
   resendLinkDisabled: {
-    color: '#9CA3AF',
+    color: '#94A3B8',
   },
 
   // ── Cancel ──
   cancelButton: {
-    paddingVertical: 8,
+    paddingVertical: 6,
+    paddingHorizontal: 16,
   },
   cancelText: {
-    color: '#9CA3AF',
+    color: '#4B5876',
     fontSize: 14,
     fontWeight: '500',
   },

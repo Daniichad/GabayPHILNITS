@@ -17,18 +17,75 @@ function formatTimeSpent(totalSeconds) {
 }
 
 export default function MockExamResult({ route, navigation }) {
-  const { score, total, level, timeSpent, correct, incorrect, skipped } = route?.params || {
-    score: 0,
-    total: 170,
-    level: 'professional',
-    timeSpent: 0,
-    correct: 0,
-    incorrect: 0,
-    skipped: 0
-  };
+  const {
+    score = 0,
+    total = 100,
+    level = 'ip',
+    timeSpent = 0,
+    correct = 0,
+    incorrect = 0,
+    skipped = 0,
+    questions = [],
+    answers = [],
+    sections = []
+  } = route?.params || {};
 
   const percentage = total > 0 ? (score / total) * 100 : 0;
-  const levelTitle = level === 'professional' ? 'Professional Mock Exam' : 'Sub-Professional Mock Exam';
+
+  const levelTitle = route?.params?.levelTitle || (
+    level === 'ip' ? 'Information Technology Passport (IP)' :
+    level === 'fe_a' ? 'FE Subject A: IT Fundamentals' :
+    level === 'fe_b' ? 'FE Subject B: Algorithms & Logic' :
+    'PhilNITS Mock Exam'
+  );
+
+  const isIp = level === 'ip';
+  const isFe = level === 'fe_a' || level === 'fe_b';
+
+  // Compute readiness indicator according to PhilNITS benchmark criteria
+  let readinessStatus = 'Insufficient data to estimate readiness';
+  let readinessColor = '#6B7684';
+
+  if (total > 0) {
+    if (isIp) {
+      if (percentage >= 65) {
+        readinessStatus = 'Above configured practice benchmark';
+        readinessColor = '#16A34A';
+      } else if (percentage >= 55) {
+        readinessStatus = 'Near configured practice benchmark';
+        readinessColor = '#D97706';
+      } else {
+        readinessStatus = 'Below configured practice benchmark';
+        readinessColor = '#DC2626';
+      }
+    } else {
+      if (percentage >= 70) {
+        readinessStatus = 'Above configured practice benchmark';
+        readinessColor = '#16A34A';
+      } else if (percentage >= 60) {
+        readinessStatus = 'Near configured practice benchmark';
+        readinessColor = '#D97706';
+      } else {
+        readinessStatus = 'Below configured practice benchmark';
+        readinessColor = '#DC2626';
+      }
+    }
+  }
+
+  // Calculate field/section breakdown if questions available
+  const sectionBreakdown = {};
+  if (Array.isArray(questions) && questions.length > 0) {
+    questions.forEach((q, idx) => {
+      const sec = q.section_name || 'General';
+      if (!sectionBreakdown[sec]) {
+        sectionBreakdown[sec] = { correct: 0, total: 0 };
+      }
+      sectionBreakdown[sec].total += 1;
+      if (answers[idx] !== null && answers[idx] === q.correct_index) {
+        sectionBreakdown[sec].correct += 1;
+      }
+    });
+  }
 
   const handleRetake = () => {
     navigation.replace('MockExamTake', { level });
@@ -51,44 +108,79 @@ export default function MockExamResult({ route, navigation }) {
         <View style={{ width: 40 }} />
       </View>
 
-      <View style={styles.body}>
-        <Text style={styles.levelText}>{levelTitle}</Text>
+      <ScrollView
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+      >
+        <View style={styles.body}>
+          <Text style={styles.levelText}>{levelTitle}</Text>
 
-        {/* Score Circle */}
-        <View style={styles.scoreCircle}>
-          <Text style={styles.scoreCircleLabel}>YOUR SCORE</Text>
-          <Text style={styles.scoreCircleValue}>{score}/{total}</Text>
-          <Text style={styles.percentageText}>{percentage.toFixed(1)}%</Text>
-        </View>
+          {/* Score Circle */}
+          <View style={styles.scoreCircle}>
+            <Text style={styles.scoreCircleLabel}>RAW PRACTICE SCORE</Text>
+            <Text style={styles.scoreCircleValue}>{score}/{total}</Text>
+            <Text style={styles.percentageText}>{percentage.toFixed(1)}%</Text>
+          </View>
 
-        <Text style={styles.congratsTitle}>
-          {percentage >= 80 ? 'Excellent!' : percentage >= 50 ? 'Good Job!' : 'Keep Practicing!'}
-        </Text>
+          {/* Readiness Status Banner */}
+          <View style={[styles.readinessBanner, { borderColor: readinessColor }]}>
+            <Ionicons name="stats-chart" size={16} color={readinessColor} style={{ marginRight: 6 }} />
+            <Text style={[styles.readinessText, { color: readinessColor }]}>{readinessStatus}</Text>
+          </View>
 
-        <Text style={styles.congratsSubtitle}>
-          {correct} correct · {incorrect} incorrect · {skipped} skipped
-        </Text>
+          <Text style={styles.congratsSubtitle}>
+            {correct} correct · {incorrect} incorrect · {skipped} skipped
+          </Text>
 
-        {/* Time spent metrics card */}
-        <View style={styles.statsCard}>
-          <View style={styles.statRow}>
-            <Text style={styles.statLabel}>Time Spent:</Text>
-            <Text style={styles.statValue}>{formatTimeSpent(timeSpent)}</Text>
+          {/* Field/Section Breakdown for IP & FE */}
+          {Object.keys(sectionBreakdown).length > 0 && (
+            <View style={styles.breakdownCard}>
+              <Text style={styles.breakdownTitle}>Performance by Field / Section</Text>
+              {Object.entries(sectionBreakdown).map(([secName, data]) => {
+                const secPct = data.total > 0 ? Math.round((data.correct / data.total) * 100) : 0;
+                return (
+                  <View key={secName} style={styles.breakdownRow}>
+                    <Text style={styles.breakdownLabel}>{secName}</Text>
+                    <View style={styles.breakdownStats}>
+                      <Text style={styles.breakdownValue}>{data.correct}/{data.total} ({secPct}%)</Text>
+                    </View>
+                  </View>
+                );
+              })}
+            </View>
+          )}
+
+          {/* Time spent metrics card */}
+          <View style={styles.statsCard}>
+            <View style={styles.statRow}>
+              <Text style={styles.statLabel}>Time Spent:</Text>
+              <Text style={styles.statValue}>{formatTimeSpent(timeSpent)}</Text>
+            </View>
+          </View>
+
+          {/* Official Certification Scoring Notice */}
+          <View style={styles.noticeCard}>
+            <Ionicons name="information-circle-outline" size={18} color="#4A5568" style={{ marginRight: 6 }} />
+            <Text style={styles.noticeText}>
+              {isIp
+                ? 'Practice percentage represents raw item accuracy. Official PhilNITS IP certification eligibility requires minimum thresholds across Technology, Strategy, and Management fields.'
+                : 'This score is a Raw Practice Score. Official PhilNITS FE certification uses an official scaled score (passing mark: 60/100 points) and cannot be calculated directly from raw percentage alone.'}
+            </Text>
           </View>
         </View>
-      </View>
 
-      {/* Footer */}
-      <View style={styles.footer}>
-        <TouchableOpacity style={styles.primaryButton} onPress={handleRetake}>
-          <Text style={styles.primaryButtonText}>Take Again</Text>
-          <Ionicons name="refresh" size={16} color="#FFFFFF" style={{ marginLeft: 6 }} />
-        </TouchableOpacity>
+        {/* Footer */}
+        <View style={styles.footer}>
+          <TouchableOpacity style={styles.primaryButton} onPress={handleRetake}>
+            <Text style={styles.primaryButtonText}>Take Again</Text>
+            <Ionicons name="refresh" size={16} color="#FFFFFF" style={{ marginLeft: 6 }} />
+          </TouchableOpacity>
 
-        <TouchableOpacity style={styles.secondaryButton} onPress={handleBackToHome}>
-          <Text style={styles.secondaryButtonText}>Back to Home</Text>
-        </TouchableOpacity>
-      </View>
+          <TouchableOpacity style={styles.secondaryButton} onPress={handleBackToHome}>
+            <Text style={styles.secondaryButtonText}>Back to Home</Text>
+          </TouchableOpacity>
+        </View>
+      </ScrollView>
     </SafeAreaView>
   );
 }
@@ -176,9 +268,79 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     marginBottom: 20,
   },
+  scrollContent: {
+    paddingBottom: 24,
+  },
+  readinessBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1.5,
+    borderRadius: 12,
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    marginBottom: 16,
+  },
+  readinessText: {
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  breakdownCard: {
+    width: '100%',
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    borderRadius: 14,
+    padding: 16,
+    marginBottom: 16,
+  },
+  breakdownTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: NAVY,
+    marginBottom: 10,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  breakdownRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 6,
+    borderBottomWidth: 1,
+    borderBottomColor: '#EDF2F7',
+  },
+  breakdownLabel: {
+    fontSize: 13,
+    color: '#4A5568',
+    fontWeight: '600',
+  },
+  breakdownStats: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  breakdownValue: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: NAVY,
+  },
+  noticeCard: {
+    flexDirection: 'row',
+    backgroundColor: '#EDF2F7',
+    borderRadius: 12,
+    padding: 12,
+    marginTop: 16,
+    width: '100%',
+    alignItems: 'flex-start',
+  },
+  noticeText: {
+    flex: 1,
+    fontSize: 12,
+    color: '#4A5568',
+    lineHeight: 18,
+  },
   statsCard: {
     width: '100%',
-    maxWidth: 240,
     backgroundColor: '#F5F7FA',
     borderRadius: 14,
     padding: 14,

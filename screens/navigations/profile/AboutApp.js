@@ -18,7 +18,7 @@ export default function AboutApp({ navigation }) {
         <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()}>
           <Feather name="chevron-left" size={26} color={NAVY} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>About GABAY PHILCSE</Text>
+        <Text style={styles.headerTitle}>About GABAY PHILNITS</Text>
         <View style={styles.backBtn} />
       </View>
 
@@ -38,19 +38,19 @@ export default function AboutApp({ navigation }) {
 
         {/* Content Paragraphs */}
         <Text style={styles.bodyText}>
-          <Text style={styles.boldWord}>GABAY PhilCSE</Text> is a mobile-based intelligent reviewer designed to help individuals prepare effectively for the Civil Service Examination. The application provides a structured and interactive learning experience through categorized review materials, practice quizzes, mock examinations, and personalized study tools.
+          <Text style={styles.boldWord}>GABAY PhilNITS</Text> is a mobile-based intelligent reviewer designed to help examinees prepare effectively for the Philippine National Information Technology Standards (PhilNITS) Information Technology Passport (IP) and Fundamental IT Engineer (FE) Certification Examinations.
         </Text>
 
         <Text style={styles.bodyText}>
-          <Text style={styles.boldWord}>GABAY PhilCSE</Text> utilizes adaptive learning and performance analytics to assess the user’s knowledge level and recommend targeted study strategies. By identifying strengths and weaknesses, the system helps users focus on areas that need improvement, making review sessions more efficient and goal-oriented.
+          <Text style={styles.boldWord}>GABAY PhilNITS</Text> utilizes adaptive learning and domain performance analytics across Technology, Management, Strategy, Computer Architecture, Algorithms, and Cybersecurity. By identifying knowledge gaps, the system helps learners focus on high-yield domains to maximize their exam readiness.
         </Text>
 
         <Text style={styles.bodyText}>
-          The application also offers features such as diagnostic assessments, real-time feedback, progress tracking, and study reminders to support consistent learning. In addition, it provides essential information about the Civil Service Examination, including coverage, requirements, and eligibility guidelines.
+          The application features ITPEC-aligned diagnostic assessments, realistic timed mock examinations, interactive flashcard drills, progress analytics, and dynamic semi-annual exam cycle countdowns.
         </Text>
 
         <Text style={styles.bodyText}>
-          <Text style={styles.boldWord}>GABAY CSE</Text> aims to promote accessible, flexible, and data-driven learning, empowering aspiring government employees to enhance their readiness and improve their chances of passing the Civil Service Examination.
+          <Text style={styles.boldWord}>GABAY PhilNITS</Text> aims to promote accessible, flexible, and standards-compliant preparation, empowering aspiring IT professionals and engineers to achieve international certification recognized across Asian ITPEC partner nations.
         </Text>
       </ScrollView>
     </View>

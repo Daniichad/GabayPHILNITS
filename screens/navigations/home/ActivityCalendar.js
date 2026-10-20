@@ -160,7 +160,7 @@ export default function ActivityCalendar({ route, navigation }) {
           </View>
         </View>
 
-        {/* CSE Exam Schedule */}
+        {/* PhilNITS Exam Schedule */}
         <View style={styles.card}>
           <Text style={styles.sectionTitle}>Upcoming Examination</Text>
           {cseSchedule ? (

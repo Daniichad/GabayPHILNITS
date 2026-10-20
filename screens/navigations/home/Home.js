@@ -30,12 +30,12 @@ const NAVY = '#0f2747'
 const ACCENT = '#d85e67'
 
 const DEFAULT_SUBJECTS = [
-  { label: 'Verbal Ability', progress: 0 },
-  { label: 'Numerical Ability', progress: 0 },
-  { label: 'Analytical Ability', progress: 0 },
-  { label: 'Logical Reasoning', progress: 0 },
-  { label: 'General Information', progress: 0 },
-  { label: 'Clerical Operations', progress: 0 },
+  { label: 'Technology', progress: 0 },
+  { label: 'Management', progress: 0 },
+  { label: 'Strategy', progress: 0 },
+  { label: 'Computer Systems & Architecture', progress: 0 },
+  { label: 'Algorithms & Programming', progress: 0 },
+  { label: 'Networks & Security', progress: 0 },
 ]
 
 export default function Home({ session, navigation }) {
@@ -101,8 +101,8 @@ export default function Home({ session, navigation }) {
         generated.push({
           id: 'exam',
           icon: 'calendar-clock',
-          title: 'CSE Exam Reminder',
-          body: `The next CSE exam is in ${cseSchedule.daysLeft} days. Stay focused!`,
+          title: 'PhilNITS Exam Reminder',
+          body: `The next PhilNITS exam is in ${cseSchedule.daysLeft} days. Stay focused!`,
           time: 'Just now',
           read: false,
         })
@@ -185,51 +185,41 @@ export default function Home({ session, navigation }) {
 
   const unreadCount = notifications.filter((n) => !n.read).length
 
-  // ─── Known official 2026 CSE dates (verified from csc.gov.ph) ──
-  const KNOWN_CSE_DATES_2026 = [
-    { date: new Date('2026-03-08'), label: 'March 8, 2026', appPeriod: 'Nov 3 – Dec 28, 2025', cycle: '1st Cycle' },
-    { date: new Date('2026-08-09'), label: 'August 9, 2026', appPeriod: 'May 14 – Jun 10, 2026', cycle: '2nd Cycle' },
-  ]
-
-  // Returns the nearest upcoming date from a list
-  const getNextDate = (dates) => {
+  // ─── Dynamic PhilNITS semi-annual cycles (Spring: April, Autumn: October) ──
+  const getNextPhilNitsExamCycle = () => {
     const now = new Date()
-    const future = dates.filter((d) => d.date > now).sort((a, b) => a.date - b.date)
-    return future[0] || dates[dates.length - 1]
-  }
+    const year = now.getFullYear()
+    const candidates = []
 
-  // Tries to parse CSE exam dates from the CSC RSS feed XML text
-  const parseCseDatesFromRSS = (xml) => {
-    const monthNames = ['January', 'February', 'March', 'April', 'May', 'June',
-      'July', 'August', 'September', 'October', 'November', 'December']
-    // Match pattern: Month D(D), YYYY — only near CSE-related keywords
-    const cseKeywords = /career service exam|cse-ppt|cse ppt|civil service exam/i
-    const datePattern = /(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{1,2}),?\s+(2026|2027)/gi
+    for (let y = year; y <= year + 2; y++) {
+      // April cycle: 4th Sunday of April
+      const apr1 = new Date(y, 3, 1)
+      const aprFirstSun = ((7 - apr1.getDay()) % 7) + 1
+      const aprExamDate = new Date(y, 3, aprFirstSun + 21)
+      candidates.push({
+        date: aprExamDate,
+        label: aprExamDate.toLocaleDateString('en-PH', { month: 'long', day: 'numeric', year: 'numeric' }),
+        appPeriod: `January 15 – March 20, ${y}`,
+        cycle: `${y} Spring Cycle (April)`,
+      })
 
-    const items = xml.split(/<item>|<\/item>/i)
-    const found = []
-
-    for (const item of items) {
-      if (!cseKeywords.test(item)) continue
-      let m
-      while ((m = datePattern.exec(item)) !== null) {
-        const parsed = new Date(`${m[1]} ${m[2]}, ${m[3]}`)
-        if (!isNaN(parsed.getTime())) found.push(parsed)
-      }
-      datePattern.lastIndex = 0
+      // October cycle: 4th Sunday of October
+      const oct1 = new Date(y, 9, 1)
+      const octFirstSun = ((7 - oct1.getDay()) % 7) + 1
+      const octExamDate = new Date(y, 9, octFirstSun + 21)
+      candidates.push({
+        date: octExamDate,
+        label: octExamDate.toLocaleDateString('en-PH', { month: 'long', day: 'numeric', year: 'numeric' }),
+        appPeriod: `July 15 – September 20, ${y}`,
+        cycle: `${y} Autumn Cycle (October)`,
+      })
     }
 
-    // Return unique future dates
-    const now = new Date()
-    const unique = [...new Set(found.map((d) => d.toDateString()))]
-      .map((s) => new Date(s))
-      .filter((d) => d > now)
-      .sort((a, b) => a - b)
-
-    return unique
+    const future = candidates.filter((c) => c.date > now).sort((a, b) => a.date - b.date)
+    return future[0] || candidates[0]
   }
 
-  // ─── Fetch CSE Schedule ────────────────────────────────────────
+  // ─── Fetch PhilNITS Schedule ────────────────────────────────────
   const fetchCSESchedule = useCallback(async () => {
     const cached = await getCache('home_cse_schedule')
     if (cached) {
@@ -238,45 +228,17 @@ export default function Home({ session, navigation }) {
     } else {
       setCseLoading(true)
     }
-    try {
-      // Try RSS feed first — it's publicly accessible
-      const res = await fetch('https://www.csc.gov.ph/?format=feed&type=rss', {
-        headers: { 'User-Agent': 'GabayPHILCSE/1.0' },
-      })
-      if (res.ok) {
-        const xml = await res.text()
-        const parsedDates = parseCseDatesFromRSS(xml)
-        if (parsedDates.length > 0) {
-          const next = parsedDates[0]
-          const now = new Date()
-          const diffDays = Math.ceil((next - now) / (1000 * 60 * 60 * 24))
-          const label = next.toLocaleDateString('en-PH', { month: 'long', day: 'numeric', year: 'numeric' })
-          const payload = {
-            date: next instanceof Date ? next.toISOString() : next,
-            label,
-            daysLeft: diffDays,
-            appPeriod: null,
-            source: 'live',
-          }
-          setCseSchedule(payload)
-          await setCache('home_cse_schedule', payload)
-          setCseLoading(false)
-          return
-        }
-      }
-    } catch { /* silently fall through */ }
 
-    // Fallback: use known official 2026 dates
-    const next = getNextDate(KNOWN_CSE_DATES_2026)
+    const nextCycle = getNextPhilNitsExamCycle()
     const now = new Date()
-    const diffDays = Math.ceil((next.date - now) / (1000 * 60 * 60 * 24))
+    const diffDays = Math.ceil((nextCycle.date - now) / (1000 * 60 * 60 * 24))
     const payload = {
-      date: next.date instanceof Date ? next.date.toISOString() : next.date,
-      label: next.label,
-      daysLeft: diffDays > 0 ? diffDays : 0,
-      appPeriod: next.appPeriod,
-      cycle: next.cycle,
-      source: 'official',
+      date: nextCycle.date.toISOString(),
+      label: nextCycle.label,
+      daysLeft: Math.max(diffDays, 0),
+      appPeriod: nextCycle.appPeriod,
+      cycle: nextCycle.cycle,
+      source: 'philnits_official',
     }
     setCseSchedule(payload)
     await setCache('home_cse_schedule', payload)
@@ -643,22 +605,36 @@ export default function Home({ session, navigation }) {
         performanceMap[s.label] = { correct: 0, total: 0 }
       })
 
+      const mapCategory = (name) => {
+        if (!name) return null
+        const n = String(name).trim()
+        if (n === 'Technology' || n.includes('Tech')) return 'Technology'
+        if (n === 'Management' || n.includes('Manage') || n.includes('Project')) return 'Management'
+        if (n === 'Strategy' || n.includes('Strat') || n.includes('Business')) return 'Strategy'
+        if (n.includes('Architecture') || n.includes('Computer Systems') || n.includes('Hardware')) return 'Computer Systems & Architecture'
+        if (n.includes('Algorithm') || n.includes('Program') || n.includes('Data Structure')) return 'Algorithms & Programming'
+        if (n.includes('Network') || n.includes('Security')) return 'Networks & Security'
+        return null
+      }
+
       if (mcqPerformance) {
         mcqPerformance.forEach(r => {
-          const name = r.multiple_choice_questions?.practice_categories?.name
-          if (name && performanceMap[name] !== undefined) {
-            performanceMap[name].total++
-            if (r.is_correct) performanceMap[name].correct++
+          const rawName = r.multiple_choice_questions?.practice_categories?.name
+          const mapped = mapCategory(rawName)
+          if (mapped && performanceMap[mapped] !== undefined) {
+            performanceMap[mapped].total++
+            if (r.is_correct) performanceMap[mapped].correct++
           }
         })
       }
 
       if (tfPerformance) {
         tfPerformance.forEach(r => {
-          const name = r.true_false_questions?.practice_categories?.name
-          if (name && performanceMap[name] !== undefined) {
-            performanceMap[name].total++
-            if (r.is_correct) performanceMap[name].correct++
+          const rawName = r.true_false_questions?.practice_categories?.name
+          const mapped = mapCategory(rawName)
+          if (mapped && performanceMap[mapped] !== undefined) {
+            performanceMap[mapped].total++
+            if (r.is_correct) performanceMap[mapped].correct++
           }
         })
       }
@@ -810,7 +786,7 @@ export default function Home({ session, navigation }) {
         {/* ── Hero Card ── */}
         <View style={styles.heroCard}>
           <Text style={styles.greeting}>Hello, {profileName}!</Text>
-          <Text style={styles.greetingSub}>Your CSE journey continues today.</Text>
+          <Text style={styles.greetingSub}>Your PhilNITS certification journey continues today.</Text>
           <TouchableOpacity
             style={styles.studyPlanBtn}
             activeOpacity={0.85}
@@ -867,25 +843,28 @@ export default function Home({ session, navigation }) {
                 <Text style={styles.metricUnit}>days</Text>
               </Text>
             )}
-            <Text style={styles.metricLabel}>until next CSE exam</Text>
+            <Text style={styles.metricLabel}>until next PhilNITS exam</Text>
           </View>
         </View>
 
-        {/* ── CSE Updates ── */}
+        {/* ── PhilNITS Updates ── */}
         <View style={styles.updatesCard}>
-          <Text style={styles.updatesTitle}>CSE UPDATES</Text>
+          <Text style={styles.updatesTitle}>PHILNITS UPDATES</Text>
 
           {cseLoading ? (
             <ActivityIndicator size="small" color="rgba(255,255,255,0.8)" style={{ marginVertical: 8 }} />
           ) : (
             <>
               <View style={styles.updateRow}>
-                <Text style={styles.updateLabel}>Next CSE Exam:</Text>
-                <Text style={styles.updateValue}>
-                  {cseSchedule?.label ?? 'TBA'}
-                  {cseSchedule?.cycle ? `  (${cseSchedule.cycle})` : ''}
-                </Text>
+                <Text style={styles.updateLabel}>Next PhilNITS Exam:</Text>
+                <Text style={styles.updateValue}>{cseSchedule?.label ?? 'TBA'}</Text>
               </View>
+              {cseSchedule?.cycle && (
+                <View style={styles.updateRow}>
+                  <Text style={styles.updateLabel}>Exam Cycle:</Text>
+                  <Text style={styles.updateValue}>{cseSchedule.cycle}</Text>
+                </View>
+              )}
               {cseSchedule?.appPeriod && (
                 <View style={styles.updateRow}>
                   <Text style={styles.updateLabel}>Application Period:</Text>
@@ -898,19 +877,17 @@ export default function Home({ session, navigation }) {
                   {cseSchedule?.daysLeft ?? '—'} days
                 </Text>
               </View>
-              {cseSchedule?.source === 'official' && (
-                <Text style={styles.updateSourceNote}> Official dates from csc.gov.ph</Text>
-              )}
+              <Text style={styles.updateSourceNote}>Official semi-annual ITPEC cycle</Text>
             </>
           )}
 
           <TouchableOpacity
             style={styles.visitBtn}
             activeOpacity={0.85}
-            onPress={() => Linking.openURL('https://www.csc.gov.ph/')}
+            onPress={() => Linking.openURL('https://www.philnits.org/')}
           >
             <Feather name="external-link" size={14} color={NAVY} style={{ marginRight: 6 }} />
-            <Text style={styles.visitBtnText}>Visit CSC Page</Text>
+            <Text style={styles.visitBtnText}>Visit PhilNITS Page</Text>
           </TouchableOpacity>
         </View>
 
@@ -1286,7 +1263,7 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
 
-  // ── CSE Updates ──
+  // ── PhilNITS Updates ──
   updatesCard: {
     backgroundColor: ACCENT,
     borderRadius: 22,
@@ -1303,17 +1280,23 @@ const styles = StyleSheet.create({
   updateRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginBottom: 6,
+    alignItems: 'flex-start',
+    marginBottom: 8,
+    gap: 12,
   },
   updateLabel: {
     fontSize: 14,
     color: 'rgba(255,255,255,0.85)',
-    flex: 1,
+    fontWeight: '600',
+    flexShrink: 0,
   },
   updateValue: {
     fontSize: 14,
     fontWeight: '800',
     color: '#fff',
+    flex: 1,
+    flexShrink: 1,
+    textAlign: 'right',
   },
   visitBtn: {
     marginTop: 14,
