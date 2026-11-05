@@ -11,22 +11,62 @@ import { SkeletonItem } from '../../../components/Skeleton'
 // ─── Colours matching the image ────────────────────────────────
 const NAVY = '#0f2747'
 
-// ─── Practice type buttons (ordered as in image) ───────────────
-const PRACTICE_TYPES = [
-  { id: 'Flashcards',    label: 'FLASHCARDS',      bg: '#3B5BA5', text: '#fff'     },
-  { id: 'Matching',      label: 'MATCHING',         bg: '#E8967A', text: '#fff'     },
-  { id: 'TrueFalse',    label: 'TRUE OR FALSE',    bg: '#9B2335', text: '#fff'     },
-  { id: 'MultipleChoice',label: 'MULTIPLE CHOICE',  bg: '#B8D4EA', text: '#1e3a5f'  },
-  { id: 'MockExamHome',  label: 'MOCK EXAMINATION', bg: '#fff',    text: NAVY, outlined: true },
+// ─── 2x2 Practice Cards Definition ─────────────────────────────
+const PRACTICE_CARDS = [
+  {
+    id: 'Flashcards',
+    label: 'FLASHCARDS',
+    bg: '#3B5BA5',
+    text: '#fff',
+    icon: 'cards-outline',
+    iconBg: 'rgba(255, 255, 255, 0.22)',
+  },
+  {
+    id: 'Matching',
+    label: 'MATCHING',
+    bg: '#E8967A',
+    text: '#fff',
+    icon: 'puzzle-outline',
+    iconBg: 'rgba(255, 255, 255, 0.22)',
+  },
+  {
+    id: 'TrueFalse',
+    label: 'TRUE OR FALSE',
+    bg: '#9B2335',
+    text: '#fff',
+    icon: 'checkbox-marked-circle-outline',
+    iconBg: 'rgba(255, 255, 255, 0.22)',
+  },
+  {
+    id: 'MultipleChoice',
+    label: 'MULTIPLE CHOICE',
+    bg: '#B8D4EA',
+    text: '#1e3a5f',
+    icon: 'format-list-checks',
+    iconBg: 'rgba(30, 58, 95, 0.12)',
+  },
 ]
 
 // (Static RECENT array removed and replaced with dynamic supabase queries)
 
 
+const IP_SUBJECTS = ['Technology', 'Management', 'Strategy'];
+const FE_SUBJECTS = [
+  'Computer Systems & Architecture',
+  'Algorithms & Programming',
+  'Networks & Security',
+  'IT Management & Strategy',
+  'Databases & SQL',
+];
+
 // ─── Main component ───────────────────────────────────────────
+/**
+ * @param {{ navigation: any }} props
+ */
 export default function PracticeLibraryScreen({ navigation }) {
-  const [recentActivities, setRecentActivities] = useState([]);
+  const [recentActivities, setRecentActivities] = useState(/** @type {any[]} */ ([]));
   const [loading, setLoading] = useState(true);
+  const [userTargetExam, setUserTargetExam] = useState('IP');
 
   useEffect(() => {
     const unsubscribe = navigation.addListener('focus', () => {
@@ -38,12 +78,29 @@ export default function PracticeLibraryScreen({ navigation }) {
   const loadRecentActivity = async () => {
     try {
       setLoading(true);
-      const { data: { session } } = await supabase.auth.getSession();
-      const uid = session?.user?.id;
+      const { data: sessionData } = await supabase.auth.getSession();
+      const uid = sessionData?.session?.user?.id;
       if (!uid) {
         setLoading(false);
         return;
       }
+
+      // 1. Fetch user's registered target exam level
+      let targetTrack = 'IP';
+      const { data: pData } = await supabase
+        .from('personal_info')
+        .select('target_exam_level')
+        .eq('user_id', uid)
+        .maybeSingle();
+
+      if (pData?.target_exam_level) {
+        const lvl = pData.target_exam_level.toLowerCase();
+        targetTrack = (lvl.includes('fe') || lvl.includes('fundamental') || (lvl.includes('pro') && !lvl.includes('sub')))
+          ? 'FE'
+          : 'IP';
+      }
+      setUserTargetExam(targetTrack);
+      const validSubjects = targetTrack === 'FE' ? FE_SUBJECTS : IP_SUBJECTS;
 
       // Fetch MCQ results
       const { data: mcqRaw } = await supabase
@@ -69,13 +126,18 @@ export default function PracticeLibraryScreen({ navigation }) {
         .order('id', { ascending: false })
         .limit(5);
 
+      /** @type {any[]} */
       const activities = [];
 
       // Group MCQ by category name
       if (mcqRaw && mcqRaw.length > 0) {
+        /** @type {Record<string, { correct: number, total: number, date: any }>} */
         const mcqGroups = {};
         mcqRaw.forEach(item => {
-          const categoryName = item.multiple_choice_questions?.practice_categories?.name || 'General';
+          const qObj = /** @type {any} */ (item).multiple_choice_questions;
+          const catObj = Array.isArray(qObj) ? qObj[0]?.practice_categories : qObj?.practice_categories;
+          const categoryName = (Array.isArray(catObj) ? catObj[0]?.name : catObj?.name) || 'General';
+          if (!validSubjects.includes(categoryName)) return;
           if (!mcqGroups[categoryName]) {
             mcqGroups[categoryName] = { correct: 0, total: 0, date: item.answered_at };
           }
@@ -89,18 +151,22 @@ export default function PracticeLibraryScreen({ navigation }) {
             type: 'Multiple Choice',
             title: cat,
             subtitle: `${mcqGroups[cat].correct}/${mcqGroups[cat].total} Correct`,
-            timestamp: new Date(mcqGroups[cat].date).getTime(),
+            timestamp: mcqGroups[cat].date ? new Date(mcqGroups[cat].date).getTime() : Date.now(),
             route: 'PracticeOverview',
-            params: { typeId: 'MultipleChoice', subject: cat }
+            params: { typeId: 'MultipleChoice', subject: cat, targetExam: targetTrack }
           });
         });
       }
 
       // Group TF by category name
       if (tfRaw && tfRaw.length > 0) {
+        /** @type {Record<string, { correct: number, total: number, date: any }>} */
         const tfGroups = {};
         tfRaw.forEach(item => {
-          const categoryName = item.true_false_questions?.practice_categories?.name || 'General';
+          const qObj = /** @type {any} */ (item).true_false_questions;
+          const catObj = Array.isArray(qObj) ? qObj[0]?.practice_categories : qObj?.practice_categories;
+          const categoryName = (Array.isArray(catObj) ? catObj[0]?.name : catObj?.name) || 'General';
+          if (!validSubjects.includes(categoryName)) return;
           if (!tfGroups[categoryName]) {
             tfGroups[categoryName] = { correct: 0, total: 0, date: item.answered_at };
           }
@@ -114,9 +180,9 @@ export default function PracticeLibraryScreen({ navigation }) {
             type: 'True or False',
             title: cat,
             subtitle: `${tfGroups[cat].correct}/${tfGroups[cat].total} Correct`,
-            timestamp: new Date(tfGroups[cat].date).getTime(),
+            timestamp: tfGroups[cat].date ? new Date(tfGroups[cat].date).getTime() : Date.now(),
             route: 'PracticeOverview',
-            params: { typeId: 'TrueFalse', subject: cat }
+            params: { typeId: 'TrueFalse', subject: cat, targetExam: targetTrack }
           });
         });
       }
@@ -131,7 +197,7 @@ export default function PracticeLibraryScreen({ navigation }) {
             subtitle: item.completed ? `Completed · ${item.mistakes} Mistakes` : `Incomplete`,
             timestamp: Date.now() - idx * 60000,
             route: 'PracticeOverview',
-            params: { typeId: 'Matching', subject: item.set_title }
+            params: { typeId: 'Matching', subject: item.set_title, targetExam: targetTrack }
           });
         });
       }
@@ -153,10 +219,10 @@ export default function PracticeLibraryScreen({ navigation }) {
       {/* Sticky header */}
       <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingTop: 14, paddingBottom: 14, borderBottomWidth: 1, borderBottomColor: '#e8edf5', backgroundColor: '#fff' }}>
         <View style={{ width: 36 }} />
-        <Text style={{ fontSize: 18, fontWeight: '900', color: NAVY, letterSpacing: 2, textTransform: 'uppercase' }}>Practice</Text>
-        <TouchableOpacity style={styles.headerIcon} onPress={() => navigation.navigate('PracticeScreen')}>
-          <MaterialCommunityIcons name="folder-outline" size={22} color={NAVY} />
-        </TouchableOpacity>
+        <View style={{ alignItems: 'center', justifyContent: 'center' }}>
+          <Text style={{ fontSize: 18, fontWeight: '900', color: NAVY, letterSpacing: 2, textTransform: 'uppercase' }}>Practice</Text>
+        </View>
+        <View style={{ width: 36 }} />
       </View>
 
       <ScrollView
@@ -164,30 +230,44 @@ export default function PracticeLibraryScreen({ navigation }) {
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-        {/* ── Practice Type Buttons ── */}
+        {/* ── Practice Section ── */}
         <View style={styles.practiceSection}>
-          {PRACTICE_TYPES.map((pt) => (
-            <TouchableOpacity
-              key={pt.id}
-              activeOpacity={0.82}
-              style={[
-                styles.practiceBtn,
-                { backgroundColor: pt.bg },
-                pt.outlined && styles.practiceBtnOutlined,
-              ]}
-              onPress={() => {
-                if (pt.id === 'MockExamHome') {
-                  navigation.navigate('MockExamHome')
-                } else {
-                  navigation.navigate('PracticeOverview', { typeId: pt.id })
-                }
-              }}
-            >
-              <Text style={[styles.practiceBtnText, { color: pt.text }]}>
-                {pt.label}
-              </Text>
-            </TouchableOpacity>
-          ))}
+          {/* Mock Examination (as is, placed above 2x2 cards with small logo) */}
+          <TouchableOpacity
+            activeOpacity={0.85}
+            style={styles.mockExamBtn}
+            onPress={() => navigation.navigate('MockExamHome')}
+          >
+            <MaterialCommunityIcons
+              name="file-document-edit-outline"
+              size={20}
+              color={NAVY}
+              style={{ marginRight: 8 }}
+            />
+            <Text style={styles.mockExamText}>MOCK EXAMINATION</Text>
+          </TouchableOpacity>
+
+          {/* 2x2 Practice Cards Grid */}
+          <View style={styles.cardsGrid}>
+            {PRACTICE_CARDS.map((card) => (
+              <TouchableOpacity
+                key={card.id}
+                activeOpacity={0.85}
+                style={[styles.card, { backgroundColor: card.bg }]}
+                onPress={() => navigation.navigate('PracticeOverview', { typeId: card.id, targetExam: userTargetExam })}
+              >
+                <View style={[styles.cardIconWrap, { backgroundColor: card.iconBg }]}>
+                  <MaterialCommunityIcons name={/** @type {any} */ (card.icon)} size={26} color={card.text} />
+                </View>
+                <Text
+                  style={[styles.cardLabel, { color: card.text }]}
+                  numberOfLines={2}
+                >
+                  {card.label}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
         </View>
 
         {/* ── Recent Activity ── */}
@@ -269,15 +349,20 @@ const styles = StyleSheet.create({
   scroll: { flex: 1 },
   scrollContent: { paddingBottom: 16 },
 
-  // ── Practice Buttons ──
+  // ── Practice Section ──
   practiceSection: {
     paddingHorizontal: 20,
-    paddingTop: 22,
-    gap: 10,
+    paddingTop: 20,
+    gap: 14,
   },
-  practiceBtn: {
+  mockExamBtn: {
+    backgroundColor: '#fff',
+    borderWidth: 1.5,
+    borderColor: '#c8d4e0',
     borderRadius: 30,
-    paddingVertical: 15,
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     elevation: 1,
@@ -286,14 +371,45 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.08,
     shadowRadius: 3,
   },
-  practiceBtnOutlined: {
-    borderWidth: 1.5,
-    borderColor: '#c8d4e0',
-  },
-  practiceBtnText: {
+  mockExamText: {
+    color: NAVY,
     fontSize: 13,
     fontWeight: '800',
     letterSpacing: 0.8,
+  },
+  cardsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    rowGap: 12,
+  },
+  card: {
+    width: '48%',
+    height: 112,
+    borderRadius: 18,
+    paddingVertical: 14,
+    paddingHorizontal: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 4,
+  },
+  cardIconWrap: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cardLabel: {
+    fontSize: 12,
+    fontWeight: '800',
+    letterSpacing: 0.6,
+    textAlign: 'center',
   },
 
   // ── Recent Activity ──

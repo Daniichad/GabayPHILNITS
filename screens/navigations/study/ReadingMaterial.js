@@ -1,7 +1,11 @@
 import React from 'react'
-import { Platform, ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, View, ActivityIndicator, LayoutAnimation, UIManager } from 'react-native'
+import {
+  Platform, ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity,
+  View, ActivityIndicator, LayoutAnimation, UIManager, Modal, Linking
+} from 'react-native'
 import { Ionicons, Feather } from '@expo/vector-icons'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
+import { WebView } from 'react-native-webview'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { supabase } from '../../../supabase'
 import { SkeletonItem } from '../../../components/Skeleton'
@@ -73,17 +77,15 @@ export default function ReadingMaterial({ navigation, route }) {
   const [reviewSpeed, setReviewSpeed] = React.useState(incomingSpeed || null)
   const incomingObjective = route?.params?.learningObjective
   const [learningObjective, setLearningObjective] = React.useState(incomingObjective || null)
+  const incomingPdfUrl = route?.params?.pdfUrl
+  const [pdfUrl, setPdfUrl] = React.useState(incomingPdfUrl || null)
+  const [materialMeta, setMaterialMeta] = React.useState(null)
 
-  const [showOverview, setShowOverviewState] = React.useState(true)
+  const [showTocModal, setShowTocModal] = React.useState(false)
   const [chapters, setChapters] = React.useState([])
   const [loading, setLoading] = React.useState(true)
   const [selectedChapter, setSelectedChapterState] = React.useState('Chapter 1')
   const [hasRead, setHasRead] = React.useState(false)
-
-  const setShowOverview = (val) => {
-    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut)
-    setShowOverviewState(val)
-  }
 
   const setSelectedChapter = async (val) => {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut)
@@ -143,50 +145,70 @@ export default function ReadingMaterial({ navigation, route }) {
         return
       }
       try {
-        // Fetch material metadata (learning_objective, review_speed)
+        // 1. Fetch material record strictly from Supabase
+        let fetchedMat = null
         try {
-          const matCacheKey = `material_meta_${materialId}`
-          const cachedMeta = await getCache(matCacheKey)
-          if (cachedMeta) {
-            if (cachedMeta.review_speed) setReviewSpeed(cachedMeta.review_speed)
-            if (cachedMeta.learning_objective) setLearningObjective(cachedMeta.learning_objective)
-          } else {
-            const { data: matData } = await supabase
-              .from('reading_materials')
-              .select('review_speed, learning_objective')
-              .eq('id', materialId)
-              .maybeSingle()
-            if (matData) {
-              if (matData.review_speed) setReviewSpeed(matData.review_speed)
-              if (matData.learning_objective) setLearningObjective(matData.learning_objective)
-              await setCache(matCacheKey, matData)
-            }
+          const { data: matData, error: matErr } = await supabase
+            .from('reading_materials')
+            .select('*')
+            .eq('id', materialId)
+            .maybeSingle()
+          if (!matErr && matData) {
+            fetchedMat = matData
+            setMaterialMeta(matData)
+            if (matData.review_speed) setReviewSpeed(matData.review_speed)
+            if (matData.learning_objective) setLearningObjective(matData.learning_objective)
+            if (matData.pdf_url) setPdfUrl(matData.pdf_url)
+          } else if (matErr) {
+            console.warn('Note on reading_materials query:', matErr.message)
           }
         } catch (mErr) {
           console.warn('Error fetching material meta:', mErr)
         }
 
-        const cacheKey = `chapters_${materialId}`
-        const cached = await getCache(cacheKey)
-        if (cached && cached.length > 0) {
-          setChapters(cached)
-          setSelectedChapter(`Chapter ${cached[0].chapter_number}`)
-          setLoading(false)
-          return
+        // 2. Fetch chapters if table exists (backward compatibility fallback)
+        let chapData = null
+        try {
+          const { data: cData, error: chapErr } = await supabase
+            .from('reading_material_chapters')
+            .select('*')
+            .eq('reading_material_id', materialId)
+            .order('chapter_number', { ascending: true })
+
+          if (!chapErr && cData && cData.length > 0) {
+            chapData = cData
+          }
+        } catch (_) {
+          // Table dropped in favor of standalone PDF documents
         }
 
-        const { data, error } = await supabase
-          .from('reading_material_chapters')
-          .select('*')
-          .eq('reading_material_id', materialId)
-          .order('chapter_number', { ascending: true })
+        const rawContent = (fetchedMat?.description || fetchedMat?.subtitle || '').trim()
 
-        if (error) {
-          console.error('Error fetching chapters:', error)
-        } else if (data && data.length > 0) {
-          setChapters(data)
-          setSelectedChapter(`Chapter ${data[0].chapter_number}`)
-          await setCache(cacheKey, data)
+        if (chapData && chapData.length > 0) {
+          setChapters(chapData)
+          setSelectedChapter(`Chapter ${chapData[0].chapter_number}`)
+        } else if (rawContent) {
+          // Parse multi-page text if formatted with "--- Page X ---"
+          const pageChunks = rawContent.split(/---\s*Page\s*\d+\s*---/i).filter(p => p.trim().length > 0)
+          if (pageChunks.length > 1) {
+            const chapList = pageChunks.map((chunk, idx) => ({
+              id: `Page ${idx + 1}`,
+              chapter_number: idx + 1,
+              title: `${fetchedMat?.title || selectedTitle} — Page ${idx + 1}`,
+              content: chunk.trim(),
+            }))
+            setChapters(chapList)
+            setSelectedChapter('Page 1')
+          } else {
+            const directChap = [{
+              id: 'Chapter 1',
+              chapter_number: 1,
+              title: fetchedMat?.title || selectedTitle,
+              content: rawContent,
+            }]
+            setChapters(directChap)
+            setSelectedChapter('Chapter 1')
+          }
         }
       } catch (err) {
         console.error('Error in fetchChapters:', err)
@@ -252,211 +274,232 @@ export default function ReadingMaterial({ navigation, route }) {
           <View style={styles.rightSpacer} />
         </View>
 
-        <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-          {/* Skeleton for Learning Objectives Card */}
-          <View style={styles.skeletonObjectiveCard}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 14 }}>
-              <SkeletonItem width={28} height={28} borderRadius={8} />
-              <SkeletonItem width={130} height={16} style={{ marginLeft: 10 }} />
-            </View>
-            <SkeletonItem width="80%" height={12} style={{ marginBottom: 12 }} />
-            <SkeletonItem width="95%" height={12} style={{ marginBottom: 10 }} />
-            <SkeletonItem width="90%" height={12} style={{ marginBottom: 10 }} />
-            <SkeletonItem width="85%" height={12} />
-          </View>
-
-          {/* Skeleton for chapters header */}
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, marginTop: 4 }}>
-            <SkeletonItem width={90} height={18} />
-            <SkeletonItem width={70} height={18} borderRadius={9} />
-          </View>
-
-          <View style={styles.timelineContainer}>
-            {[1, 2, 3, 4, 5].map((item, index) => (
-              <View key={item} style={[styles.chapterItemRow, { alignItems: 'center' }]}>
-                <View style={styles.timelineLeftCol}>
-                  <SkeletonItem width={14} height={14} borderRadius={7} style={{ marginTop: 0 }} />
-                  {index < 4 && <View style={styles.timelineLine} />}
-                </View>
-                <View style={[styles.chapterTextCol, { gap: 6 }]}>
-                  <SkeletonItem width={80} height={14} />
-                  <SkeletonItem width={150} height={12} />
-                </View>
-              </View>
-            ))}
-          </View>
-
-          <SkeletonItem width="100%" height={48} borderRadius={24} style={{ marginTop: 10, marginBottom: 20 }} />
-        </ScrollView>
-      </View>
-    )
-  }
-
-  if (showOverview) {
-    const parsedObjectives = parseLearningObjectives(learningObjective)
-
-    return (
-      <View style={styles.screen}>
-        <StatusBar barStyle="dark-content" backgroundColor="#fff" />
-        <View style={[styles.topBar, { paddingTop: Math.max(insets.top, (StatusBar.currentHeight || 0), 28) + 8 }]}>
-          <TouchableOpacity
-            style={styles.backButton}
-            activeOpacity={0.7}
-            onPress={() => navigation?.goBack()}
-            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-          >
-            <Ionicons name="chevron-back" size={28} color="#13294b" />
-          </TouchableOpacity>
-          <View style={styles.titleContainer}>
-            <Text style={styles.title} numberOfLines={2}>{selectedTitle}</Text>
-          </View>
-          <View style={styles.rightSpacer} />
-        </View>
-
-        <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-          {/* Learning Objectives Card */}
-          {learningObjective && (parsedObjectives.items.length > 0 || parsedObjectives.intro) ? (
-            <View style={styles.objectiveCard}>
-              <View style={styles.objectiveCardHeader}>
-                <View style={styles.objectiveHeaderLeft}>
-                  <View style={styles.objectiveIconContainer}>
-                    <Feather name="target" size={16} color="#1d4ed8" />
-                  </View>
-                  <Text style={styles.objectiveCardTitle}>Learning Objectives</Text>
-                </View>
-                {parsedObjectives.items.length > 0 && (
-                  <View style={styles.objectiveCountBadge}>
-                    <Text style={styles.objectiveCountText}>
-                      {parsedObjectives.items.length} {parsedObjectives.items.length === 1 ? 'Objective' : 'Objectives'}
-                    </Text>
-                  </View>
-                )}
-              </View>
-
-              {parsedObjectives.intro ? (
-                <Text style={styles.objectiveIntroText}>
-                  {parsedObjectives.intro}
-                </Text>
-              ) : null}
-
-              <View style={styles.objectiveItemsList}>
-                {parsedObjectives.items.map((item, index) => (
-                  <View key={index} style={styles.objectiveItemRow}>
-                    <View style={styles.objectiveItemBullet}>
-                      <Ionicons name="checkmark" size={13} color="#2563eb" />
-                    </View>
-                    <Text style={styles.objectiveItemText}>{item}</Text>
-                  </View>
-                ))}
-              </View>
-            </View>
-          ) : null}
-
-          {/* Chapters Section Heading */}
-          <View style={styles.chaptersHeaderRow}>
-            <Text style={styles.chaptersSectionTitle}>Chapters</Text>
-            {chaptersList.length > 0 && (
-              <View style={styles.chaptersCountBadge}>
-                <Text style={styles.chaptersCountBadgeText}>
-                  {chaptersList.length} {chaptersList.length === 1 ? 'Chapter' : 'Chapters'}
-                </Text>
-              </View>
-            )}
-          </View>
-
-          {/* Timeline-style vertical list of chapters */}
-          <View style={styles.timelineContainer}>
-            {chaptersList.length === 0 ? (
-              <View style={{ paddingVertical: 32, alignItems: 'center' }}>
-                <Text style={{ fontSize: 14, color: '#64748b', fontWeight: '500' }}>No chapters found for this reading material.</Text>
-              </View>
-            ) : (
-              chaptersList.map((chap, index) => {
-                const isSelected = selectedChapter === chap.id
-                return (
-                  <TouchableOpacity
-                    key={chap.id}
-                    style={styles.chapterItemRow}
-                    activeOpacity={0.8}
-                    onPress={() => setSelectedChapter(chap.id)}
-                  >
-                    <View style={styles.timelineLeftCol}>
-                      <View style={[styles.timelineNode, isSelected && styles.timelineNodeActive]} />
-                      {index < chaptersList.length - 1 && <View style={styles.timelineLine} />}
-                    </View>
-                    <View style={styles.chapterTextCol}>
-                      <Text style={[styles.chapterLabelText, isSelected && styles.chapterLabelActive]}>
-                        {chap.id}
-                      </Text>
-                      <Text style={styles.chapterTitleText}>{chap.title}</Text>
-                    </View>
-                  </TouchableOpacity>
-                )
-              })
-            )}
-          </View>
-        </ScrollView>
-
-        <View style={[styles.continueButtonWrapper, { paddingBottom: insets.bottom > 0 ? insets.bottom + 12 : 20 }]}>
-          <TouchableOpacity
-            style={styles.continueButton}
-            activeOpacity={0.85}
-            onPress={() => setShowOverview(false)}
-            disabled={loading || chaptersList.length === 0}
-          >
-            <Text style={styles.continueButtonText}>
-              {hasRead ? 'Continue Reading' : 'Start Reading'}
-            </Text>
-          </TouchableOpacity>
+        <View style={{ flex: 1, padding: 18, justifyContent: 'center', alignItems: 'center' }}>
+          <ActivityIndicator size="large" color="#13294b" />
+          <Text style={{ marginTop: 14, fontSize: 13, fontWeight: '600', color: '#64748b' }}>
+            Opening Document…
+          </Text>
         </View>
       </View>
     )
   }
+
+  const parsedObjectives = parseLearningObjectives(learningObjective)
+  const currentChapterIndex = chaptersList.findIndex(chap => chap.id === selectedChapter)
 
   return (
     <View style={styles.screen}>
       <StatusBar barStyle="dark-content" backgroundColor="#fff" />
+
+      {/* ── Top Bar ── */}
       <View style={[styles.topBar, { paddingTop: Math.max(insets.top, (StatusBar.currentHeight || 0), 28) + 8 }]}>
         <TouchableOpacity
           style={styles.backButton}
           activeOpacity={0.7}
-          onPress={() => setShowOverview(true)}
+          onPress={() => navigation?.goBack()}
           hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
         >
           <Ionicons name="chevron-back" size={28} color="#13294b" />
         </TouchableOpacity>
-        <Text style={styles.title}>{selectedChapter}</Text>
-        <View style={styles.rightSpacer} />
+
+        <View style={styles.titleContainer}>
+          <Text style={styles.title} numberOfLines={1}>{selectedTitle}</Text>
+          {reviewSpeed ? (
+            <View style={styles.pdfTopPill}>
+              <Text style={styles.pdfTopPillText}>{reviewSpeed} Mode</Text>
+            </View>
+          ) : null}
+        </View>
+
+        <View style={styles.topBarActions}>
+          {pdfUrl ? (
+            <TouchableOpacity
+              style={styles.topBarIconBtn}
+              activeOpacity={0.7}
+              onPress={() => Linking.openURL(pdfUrl)}
+            >
+              <Feather name="external-link" size={17} color="#13294b" />
+            </TouchableOpacity>
+          ) : null}
+          <TouchableOpacity
+            style={styles.topBarIconBtn}
+            activeOpacity={0.7}
+            onPress={() => setShowTocModal(true)}
+          >
+            <Feather name="list" size={18} color="#13294b" />
+          </TouchableOpacity>
+        </View>
       </View>
 
-      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        <Text style={styles.sectionTitle}>
-          {activeChapterData?.title || 'No Title'}
-        </Text>
-
-        <View style={styles.contentCard}>
-          <Text style={styles.contentText}>
-            {activeChapterData?.body || 'No content found.'}
-          </Text>
+      {/* ── Direct PDF Display ── */}
+      {pdfUrl ? (
+        <View style={{ flex: 1, backgroundColor: '#f1f5f9' }}>
+          <WebView
+            source={{
+              uri: (Platform.OS === 'android' && typeof pdfUrl === 'string' && !pdfUrl.startsWith('data:'))
+                ? `https://docs.google.com/gview?embedded=true&url=${encodeURIComponent(pdfUrl)}`
+                : pdfUrl
+            }}
+            style={{ flex: 1 }}
+            startInLoadingState
+            renderLoading={() => (
+              <View style={styles.pdfLoadingContainer}>
+                <ActivityIndicator size="large" color="#13294b" />
+                <Text style={styles.pdfLoadingText}>Loading PDF Document…</Text>
+              </View>
+            )}
+          />
         </View>
-      </ScrollView>
+      ) : (
+        <View style={{ flex: 1, backgroundColor: '#f8fafc' }}>
+          <ScrollView
+            contentContainerStyle={styles.pdfDocumentScroll}
+            showsVerticalScrollIndicator={true}
+          >
+            {/* High-fidelity PDF Document Sheet */}
+            <View style={styles.pdfPaperSheet}>
+              <View style={styles.pdfSheetHeader}>
+                <Text style={styles.pdfSheetHeaderExam}>{materialMeta?.subject || route?.params?.subject || 'READING MATERIAL'}</Text>
+                {reviewSpeed ? <Text style={styles.pdfSheetHeaderPace}>{reviewSpeed} Mode</Text> : null}
+              </View>
+              <View style={styles.pdfSheetDivider} />
 
-      <View style={[styles.continueButtonWrapper, { paddingBottom: insets.bottom > 0 ? insets.bottom + 12 : 20 }]}>
-        <View style={styles.bottomActions}>
-          <TouchableOpacity style={styles.secondaryButton} activeOpacity={0.85} onPress={() => setShowOverview(true)}>
-            <Text style={styles.secondaryButtonText}>Back</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.primaryButton} activeOpacity={0.85} onPress={handleNextChapter}>
-            <Text style={styles.primaryButtonText}>
-              {chaptersList.findIndex(chap => chap.id === selectedChapter) === chaptersList.length - 1 ? 'Finish' : 'Next Chapter'}
-            </Text>
-          </TouchableOpacity>
+              <Text style={styles.pdfChapterTitle}>
+                {activeChapterData?.title || materialMeta?.title || selectedTitle}
+              </Text>
+
+              <Text style={styles.pdfChapterContent}>
+                {activeChapterData?.body || materialMeta?.description || materialMeta?.subtitle || 'No document content found.'}
+              </Text>
+
+              <View style={styles.pdfSheetFooter}>
+                <Text style={styles.pdfSheetFooterText}>
+                  {selectedChapter} • {materialMeta?.title || selectedTitle}
+                </Text>
+              </View>
+            </View>
+          </ScrollView>
+
+          {/* PDF Page Navigation Toolbar at Bottom */}
+          <View style={[styles.pdfBottomBar, { paddingBottom: insets.bottom > 0 ? insets.bottom + 8 : 14 }]}>
+            <TouchableOpacity
+              style={[styles.pdfNavBtn, currentChapterIndex <= 0 && styles.pdfNavBtnDisabled]}
+              disabled={currentChapterIndex <= 0}
+              onPress={() => {
+                if (currentChapterIndex > 0) setSelectedChapter(chaptersList[currentChapterIndex - 1].id)
+              }}
+            >
+              <Feather name="chevron-left" size={18} color="#13294b" />
+              <Text style={styles.pdfNavBtnText}>Prev</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.pdfChapterPill}
+              activeOpacity={0.8}
+              onPress={() => setShowTocModal(true)}
+            >
+              <Feather name="book-open" size={13} color="#2563eb" style={{ marginRight: 5 }} />
+              <Text style={styles.pdfChapterPillText}>
+                {selectedChapter} of {chaptersList.length || 1}
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.pdfNavBtnPrimary}
+              onPress={handleNextChapter}
+            >
+              <Text style={styles.pdfNavBtnPrimaryText}>
+                {currentChapterIndex === chaptersList.length - 1 ? 'Finish' : 'Next'}
+              </Text>
+              <Feather name="chevron-right" size={18} color="#ffffff" />
+            </TouchableOpacity>
+          </View>
         </View>
-      </View>
+      )}
 
-      <TouchableOpacity style={styles.fab} activeOpacity={0.85}>
-        <Feather name="settings" size={24} color="#fff" />
-      </TouchableOpacity>
+      {/* ── Table of Contents & Learning Objectives Modal ── */}
+      <Modal
+        visible={showTocModal}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => setShowTocModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <Feather name="bookmark" size={18} color="#13294b" />
+                <Text style={styles.modalTitle}>Document Contents</Text>
+              </View>
+              <TouchableOpacity
+                onPress={() => setShowTocModal(false)}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              >
+                <Feather name="x" size={20} color="#64748b" />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 20 }}>
+              {/* Learning Objectives if available */}
+              {learningObjective && (parsedObjectives.items.length > 0 || parsedObjectives.intro) ? (
+                <View style={styles.objectiveCard}>
+                  <View style={styles.objectiveCardHeader}>
+                    <View style={styles.objectiveHeaderLeft}>
+                      <View style={styles.objectiveIconContainer}>
+                        <Feather name="target" size={14} color="#1d4ed8" />
+                      </View>
+                      <Text style={styles.objectiveCardTitle}>Objectives</Text>
+                    </View>
+                  </View>
+                  {parsedObjectives.intro ? (
+                    <Text style={styles.objectiveIntroText}>{parsedObjectives.intro}</Text>
+                  ) : null}
+                  <View style={styles.objectiveItemsList}>
+                    {parsedObjectives.items.map((item, idx) => (
+                      <View key={idx} style={styles.objectiveItemRow}>
+                        <View style={styles.objectiveItemBullet}>
+                          <Ionicons name="checkmark" size={12} color="#2563eb" />
+                        </View>
+                        <Text style={styles.objectiveItemText}>{item}</Text>
+                      </View>
+                    ))}
+                  </View>
+                </View>
+              ) : null}
+
+              {/* Chapters list to jump between pages */}
+              <Text style={styles.chaptersSectionTitle}>Chapters</Text>
+              <View style={styles.timelineContainer}>
+                {chaptersList.map((chap, index) => {
+                  const isSelected = selectedChapter === chap.id
+                  return (
+                    <TouchableOpacity
+                      key={chap.id}
+                      style={styles.chapterItemRow}
+                      activeOpacity={0.8}
+                      onPress={() => {
+                        setSelectedChapter(chap.id)
+                        setShowTocModal(false)
+                      }}
+                    >
+                      <View style={styles.timelineLeftCol}>
+                        <View style={[styles.timelineNode, isSelected && styles.timelineNodeActive]} />
+                        {index < chaptersList.length - 1 && <View style={styles.timelineLine} />}
+                      </View>
+                      <View style={styles.chapterTextCol}>
+                        <Text style={[styles.chapterLabelText, isSelected && styles.chapterLabelActive]}>
+                          {chap.id}
+                        </Text>
+                        <Text style={styles.chapterTitleText} numberOfLines={2}>{chap.title}</Text>
+                      </View>
+                    </TouchableOpacity>
+                  )
+                })}
+              </View>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
     </View>
   )
 }
@@ -480,11 +523,209 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
   },
   title: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: '800',
     color: '#13294b',
     textAlign: 'center',
-    lineHeight: 24,
+    lineHeight: 22,
+  },
+  pdfTopPill: {
+    backgroundColor: '#eff6ff',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 6,
+    marginTop: 2,
+  },
+  pdfTopPillText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#2563eb',
+  },
+  topBarActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  topBarIconBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#f1f5f9',
+  },
+  pdfLoadingContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#f8fafc',
+  },
+  pdfLoadingText: {
+    marginTop: 12,
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#64748b',
+  },
+
+  // ── PDF Document View (Paper Canvas) ──
+  pdfDocumentScroll: {
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 110,
+  },
+  pdfPaperSheet: {
+    backgroundColor: '#ffffff',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    padding: 22,
+    minHeight: 520,
+    elevation: 3,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.08,
+    shadowRadius: 6,
+  },
+  pdfSheetHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  pdfSheetHeaderExam: {
+    fontSize: 10,
+    fontWeight: '900',
+    color: '#64748b',
+    letterSpacing: 1,
+  },
+  pdfSheetHeaderPace: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#2563eb',
+  },
+  pdfSheetDivider: {
+    height: 1.5,
+    backgroundColor: '#cbd5e1',
+    marginBottom: 18,
+  },
+  pdfChapterTitle: {
+    fontSize: 19,
+    fontWeight: '800',
+    color: '#13294b',
+    marginBottom: 14,
+    lineHeight: 26,
+  },
+  pdfChapterContent: {
+    fontSize: 15,
+    lineHeight: 25,
+    color: '#1e293b',
+  },
+  pdfSheetFooter: {
+    marginTop: 32,
+    paddingTop: 14,
+    borderTopWidth: 1,
+    borderTopColor: '#f1f5f9',
+    alignItems: 'center',
+  },
+  pdfSheetFooterText: {
+    fontSize: 11,
+    color: '#94a3b8',
+    fontWeight: '600',
+  },
+
+  // ── PDF Bottom Toolbar ──
+  pdfBottomBar: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: '#ffffff',
+    borderTopWidth: 1,
+    borderTopColor: '#e2e8f0',
+    paddingHorizontal: 18,
+    paddingTop: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    elevation: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 4,
+  },
+  pdfNavBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 20,
+    backgroundColor: '#f1f5f9',
+  },
+  pdfNavBtnDisabled: {
+    opacity: 0.35,
+  },
+  pdfNavBtnText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#13294b',
+    marginLeft: 2,
+  },
+  pdfChapterPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#eff6ff',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 20,
+  },
+  pdfChapterPillText: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#2563eb',
+  },
+  pdfNavBtnPrimary: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+    backgroundColor: '#13294b',
+  },
+  pdfNavBtnPrimaryText: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#ffffff',
+    marginRight: 2,
+  },
+
+  // ── Modal Styles ──
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.45)',
+    justifyContent: 'flex-end',
+  },
+  modalContent: {
+    backgroundColor: '#ffffff',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingHorizontal: 20,
+    paddingTop: 18,
+    paddingBottom: 32,
+    maxHeight: '82%',
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 16,
+    paddingBottom: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f1f5f9',
+  },
+  modalTitle: {
+    fontSize: 17,
+    fontWeight: '800',
+    color: '#13294b',
   },
   backButton: {
     width: 36,

@@ -1,9 +1,11 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import {
-  Modal, Platform, ScrollView, StatusBar, StyleSheet, Text,
+  ActivityIndicator, Modal, Platform, ScrollView, StatusBar, StyleSheet, Text,
   TouchableOpacity, View,
 } from 'react-native'
 import { Feather, Ionicons } from '@expo/vector-icons'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
+import { supabase } from '../../../supabase'
 
 const NAVY = '#0f2747'
 const ACCENT = '#d85e67'
@@ -41,14 +43,19 @@ const OVERVIEWS = {
   }
 }
 
-const SUBJECTS = [
+const IP_SUBJECTS = [
   'All',
   'Technology',
   'Management',
   'Strategy',
+]
+
+const FE_SUBJECTS = [
+  'All',
   'Computer Systems & Architecture',
   'Algorithms & Programming',
   'Networks & Security',
+  'IT Management & Strategy',
   'Databases & SQL',
 ]
 
@@ -56,10 +63,16 @@ const ITEM_COUNTS = [10, 20, 30, 40, 50]
 const SET_COUNTS = [1, 2, 3, 4, 5] // 1 set = 12 cards (6 pairs)
 
 export default function PracticeOverview({ navigation, route }) {
+  const insets = useSafeAreaInsets()
   const typeId = route?.params?.typeId || 'Flashcards'
   const info = OVERVIEWS[typeId] || OVERVIEWS.Flashcards
 
-  const [selectedSubject, setSelectedSubject] = useState('All')
+  const routeTargetExam = route?.params?.targetExam
+  const routeSubject = route?.params?.subject
+
+  const [userTargetExam, setUserTargetExam] = useState(routeTargetExam || null)
+  const [loadingExam, setLoadingExam] = useState(!routeTargetExam)
+  const [selectedSubject, setSelectedSubject] = useState(routeSubject || 'All')
   const [selectedLimit, setSelectedLimit] = useState(10)
   const [selectedSets, setSelectedSets] = useState(1)
 
@@ -67,12 +80,57 @@ export default function PracticeOverview({ navigation, route }) {
   const [limitPickerOpen, setLimitPickerOpen] = useState(false)
 
   const isMatching = typeId === 'Matching'
+  const subjectsList = userTargetExam === 'FE' ? FE_SUBJECTS : IP_SUBJECTS
+
+  useEffect(() => {
+    let isMounted = true
+    const fetchTargetExam = async () => {
+      try {
+        const { data: { user } } = await supabase.auth.getUser()
+        if (!user) {
+          if (isMounted) setLoadingExam(false)
+          return
+        }
+        const { data: pData } = await supabase
+          .from('personal_info')
+          .select('target_exam_level')
+          .eq('user_id', user.id)
+          .maybeSingle()
+
+        if (isMounted) {
+          if (pData?.target_exam_level) {
+            const lvl = pData.target_exam_level.toLowerCase()
+            const track = (lvl.includes('fe') || lvl.includes('fundamental') || (lvl.includes('pro') && !lvl.includes('sub')))
+              ? 'FE'
+              : 'IP'
+            setUserTargetExam(track)
+            const validSubs = track === 'FE' ? FE_SUBJECTS : IP_SUBJECTS
+            setSelectedSubject((curr) => (validSubs.includes(curr) ? curr : 'All'))
+          } else if (!userTargetExam) {
+            setUserTargetExam('IP')
+          }
+          setLoadingExam(false)
+        }
+      } catch (err) {
+        console.warn('Error fetching target exam in PracticeOverview:', err)
+        if (isMounted) setLoadingExam(false)
+      }
+    }
+
+    fetchTargetExam()
+    const unsubscribe = navigation?.addListener?.('focus', fetchTargetExam)
+    return () => {
+      isMounted = false
+      unsubscribe?.()
+    }
+  }, [navigation])
 
   const handleStart = () => {
     navigation.replace(typeId, {
       subject: selectedSubject === 'All' ? null : selectedSubject,
       limit: isMatching ? selectedSets * 6 : selectedLimit, // for Matching, 1 set = 6 pairs (12 cards)
       sets: selectedSets,
+      targetExam: userTargetExam || 'IP',
     })
   }
 
@@ -110,13 +168,25 @@ export default function PracticeOverview({ navigation, route }) {
 
         {/* Subject Area Dropdown selection card */}
         <View style={styles.flatSection}>
-          <Text style={styles.sectionHeader}>Subject Area</Text>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 }}>
+            <Text style={styles.sectionHeader}>Subject Area</Text>
+            {loadingExam ? (
+              <ActivityIndicator size="small" color="#2563eb" style={{ transform: [{ scale: 0.75 }] }} />
+            ) : (
+              <Text style={{ fontSize: 11.5, fontWeight: '700', color: '#2563eb' }}>
+                {userTargetExam === 'FE' ? 'Fundamental IT Engineer (FE)' : 'IT Passport (IP)'}
+              </Text>
+            )}
+          </View>
           <TouchableOpacity
             style={styles.pickerTrigger}
             activeOpacity={0.7}
+            disabled={loadingExam}
             onPress={() => setSubjectPickerOpen(true)}
           >
-            <Text style={styles.pickerTriggerText}>{selectedSubject}</Text>
+            <Text style={styles.pickerTriggerText}>
+              {loadingExam ? 'Loading...' : selectedSubject}
+            </Text>
             <Feather name="chevron-down" size={16} color={NAVY} />
           </TouchableOpacity>
         </View>
@@ -166,7 +236,7 @@ export default function PracticeOverview({ navigation, route }) {
               <Feather name="x" size={22} color={NAVY} />
             </TouchableOpacity>
           </View>
-          {SUBJECTS.map((sub) => (
+          {subjectsList.map((sub) => (
             <TouchableOpacity
               key={sub}
               style={[
@@ -245,7 +315,8 @@ export default function PracticeOverview({ navigation, route }) {
 
       {/* Start button pinned at bottom */}
       <TouchableOpacity
-        style={styles.startBtn}
+        style={[styles.startBtn, { marginBottom: Math.max(insets.bottom, 16) }, loadingExam && { opacity: 0.6 }]}
+        disabled={loadingExam}
         activeOpacity={0.85}
         onPress={handleStart}
       >

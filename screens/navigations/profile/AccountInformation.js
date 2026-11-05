@@ -5,6 +5,8 @@ import {
 } from 'react-native'
 import { Feather } from '@expo/vector-icons'
 import { supabase } from '../../../utils/supabase'
+import { saveUserSession } from '../../../utils/database'
+import { setCache } from '../../../utils/cache'
 
 const NAVY = '#0f2747'
 const ACCENT = '#d85e67'
@@ -191,10 +193,25 @@ export default function AccountInformation({ session: initialSession, navigation
         if (pData) {
           dbBirthdate = pData.birthdate || ''
           dbGender = pData.gender || ''
-          let rawExamLevel = pData.target_exam_level || ''
-          if (rawExamLevel === 'Professional') {
+          let rawExamLevel = (pData.target_exam_level || '').trim()
+          if (
+            rawExamLevel === 'Fundamental IT Engineer (FE)' ||
+            rawExamLevel === 'Professional' ||
+            rawExamLevel === 'FE' ||
+            rawExamLevel.toLowerCase().includes('fundamental') ||
+            rawExamLevel.toLowerCase().includes('(fe)')
+          ) {
             rawExamLevel = 'Fundamental IT Engineer (FE)'
-          } else if (rawExamLevel === 'Sub-Professional' || rawExamLevel === 'Sub-professional') {
+          } else if (
+            rawExamLevel === 'Information Technology Passport (IP)' ||
+            rawExamLevel === 'Sub-Professional' ||
+            rawExamLevel === 'Sub-professional' ||
+            rawExamLevel === 'IP' ||
+            rawExamLevel.toLowerCase().includes('passport') ||
+            rawExamLevel.toLowerCase().includes('(ip)')
+          ) {
+            rawExamLevel = 'Information Technology Passport (IP)'
+          } else if (rawExamLevel && !EXAM_LEVEL_OPTIONS.includes(rawExamLevel)) {
             rawExamLevel = 'Information Technology Passport (IP)'
           }
           dbExamLevel = rawExamLevel
@@ -286,22 +303,51 @@ export default function AccountInformation({ session: initialSession, navigation
       }
 
       // 2. Update personal_info
-      const { error: infoError } = await supabase
-        .from('personal_info')
-        .upsert(
-          {
-            user_id: user.id,
-            birthdate: birthdate || null,
-            contact_number: fullContactNumber,
-            gender: gender || null,
-            target_exam_level: examLevel || null,
-            highest_educational_attainment: education || null,
-            updated_at: new Date().toISOString(),
-          },
-          {
-            onConflict: 'user_id',
+      let calculatedAge = null
+      if (birthdate) {
+        const parts = birthdate.split('-')
+        if (parts.length === 3) {
+          const yr = parseInt(parts[0], 10)
+          const mo = parseInt(parts[1], 10) - 1
+          const dy = parseInt(parts[2], 10)
+          if (!isNaN(yr) && !isNaN(mo) && !isNaN(dy)) {
+            const birthDateObj = new Date(yr, mo, dy)
+            const today = new Date()
+            let a = today.getFullYear() - birthDateObj.getFullYear()
+            const m = today.getMonth() - birthDateObj.getMonth()
+            if (m < 0 || (m === 0 && today.getDate() < birthDateObj.getDate())) a--
+            calculatedAge = a >= 0 ? a : 0
           }
-        )
+        }
+      }
+
+      const infoPayload = {
+        user_id: user.id,
+        birthdate: birthdate || null,
+        contact_number: fullContactNumber,
+        gender: gender || null,
+        target_exam_level: examLevel || null,
+        highest_educational_attainment: education || null,
+        updated_at: new Date().toISOString(),
+      }
+
+      let { error: infoError } = await supabase
+        .from('personal_info')
+        .upsert(infoPayload, { onConflict: 'user_id' })
+
+      if (infoError) {
+        const errDetail = String(infoError.message || '') + ' ' + String(infoError.details || '')
+        if (errDetail.toLowerCase().includes('age') || infoError.code === '23502') {
+          const retryResult = await supabase.from('personal_info').upsert(
+            {
+              ...infoPayload,
+              ...(calculatedAge !== null ? { age: calculatedAge } : {}),
+            },
+            { onConflict: 'user_id' }
+          )
+          infoError = retryResult.error
+        }
+      }
 
       if (infoError) {
         showCustomAlert('Update Error', 'Could not update your account details. Please try again.')
@@ -315,6 +361,16 @@ export default function AccountInformation({ session: initialSession, navigation
           full_name: fullName.trim(),
         },
       })
+
+      // 4. Update local SQLite session & invalidate cached data for old target exam
+      try {
+        await saveUserSession(user, { target_exam_level: examLevel })
+        await setCache('library_target_exam', null)
+        await setCache('library_materials', null)
+        await setCache('library_videos', null)
+      } catch (cacheErr) {
+        console.warn('Note: Cache sync on examLevel update:', cacheErr)
+      }
 
       // Update baseline initial data
       setInitialData({

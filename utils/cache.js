@@ -4,11 +4,15 @@ import { getGenericCache, setGenericCache, getDb } from './database'
  * Get an item from the SQLite cache. Returns null if not found or expired.
  * @param {string} key 
  */
-export async function getCache(key) {
+export async function getCache(key, fallbackIfExpired = true) {
   const item = await getGenericCache(key);
   if (!item) return null;
   
   if (Date.now() > item.expiry) {
+    if (fallbackIfExpired) {
+      // Return cached content so offline mode never shows a blank screen
+      return item.data;
+    }
     await clearCache(key);
     return null;
   }

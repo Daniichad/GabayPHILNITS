@@ -5,6 +5,7 @@ import {
 } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { Ionicons, Feather, MaterialCommunityIcons } from '@expo/vector-icons'
+import Svg, { Circle, Line, Polygon, Path, Text as SvgText, G } from 'react-native-svg'
 import { supabase } from '../../../supabase'
 import { SkeletonItem } from '../../../components/Skeleton'
 
@@ -42,6 +43,27 @@ const SUBJECT_COLORS = {
   'Security & System Design': '#dc2626',
 }
 
+// Target number of practice attempts per domain for full confidence
+const DOMAIN_TARGET_ATTEMPTS = {
+  // IP Level
+  'Technology': 40,
+  'Management': 30,
+  'Strategy': 30,
+
+  // FE Subject A
+  'Computer Systems & Architecture': 30,
+  'Algorithms & Programming': 30,
+  'Networks & Security': 25,
+  'IT Management & Strategy': 25,
+
+  // FE Subject B
+  'Algorithms & Data Structures': 20,
+  'Security & System Design': 20,
+
+  // General fallback for CSE
+  'default': 30,
+}
+
 // ── Helpers ──────────────────────────────────────────────────────
 function pct(n, d) { return d > 0 ? Math.round((n / d) * 100) : 0 }
 
@@ -51,14 +73,24 @@ function fmtMins(mins) {
   return `${Math.floor(mins / 60)}h ${mins % 60}m`
 }
 
-function readinessLabel(p, benchmark = 60) {
+function readinessLabel(p, benchmark = 60, hasActivity = true, isLowData = false) {
+  if (!hasActivity || p === 0) {
+    if (isLowData) return 'Building Baseline'
+    return 'No Activity Yet'
+  }
+  if (isLowData) return 'Building Baseline'
   if (p >= benchmark + 15) return 'High Readiness'
   if (p >= benchmark) return 'Benchmark Met'
   if (p >= benchmark - 20) return 'Moderate Readiness'
   return 'Needs More Practice'
 }
 
-function readinessColor(p, benchmark = 60) {
+function readinessColor(p, benchmark = 60, hasActivity = true, isLowData = false) {
+  if (!hasActivity || p === 0) {
+    if (isLowData) return '#64748b'
+    return '#94a3b8'
+  }
+  if (isLowData) return '#64748b'
   if (p >= benchmark + 15) return '#16a34a'
   if (p >= benchmark) return '#2563eb'
   if (p >= benchmark - 20) return '#d97706'
@@ -100,27 +132,296 @@ function ProgressBar({ value, color = NAVY }) {
   )
 }
 
+// ── Domain Mastery Radar Chart (SVG) ──────────────────────────────
+function DomainRadarChart({ subjects = [], benchmark = 60 }) {
+  if (!subjects || subjects.length < 3) return null
+  const size = 300
+  const cx = size / 2
+  const cy = 135
+  const radius = 80
+  const n = subjects.length
+  const angleStep = (Math.PI * 2) / n
+  const startAngle = -Math.PI / 2
+
+  const getCoord = (index, value) => {
+    const angle = startAngle + index * angleStep
+    const r = (Math.min(Math.max(value, 0), 100) / 100) * radius
+    return {
+      x: cx + r * Math.cos(angle),
+      y: cy + r * Math.sin(angle),
+    }
+  }
+
+  const webLevels = [0.25, 0.5, 0.75, 1.0]
+
+  const userPoints = subjects.map((s, i) => {
+    const pt = getCoord(i, s.pct)
+    return `${pt.x},${pt.y}`
+  }).join(' ')
+
+  const benchmarkPoints = subjects.map((_, i) => {
+    const pt = getCoord(i, benchmark)
+    return `${pt.x},${pt.y}`
+  }).join(' ')
+
+  return (
+    <View style={styles.radarContainer}>
+      <Svg width={size} height={250} viewBox={`0 0 ${size} 250`}>
+        {/* Concentric webs */}
+        {webLevels.map((lvl) => {
+          const pts = subjects.map((_, i) => {
+            const pt = getCoord(i, lvl * 100)
+            return `${pt.x},${pt.y}`
+          }).join(' ')
+          return (
+            <Polygon
+              key={`web-${lvl}`}
+              points={pts}
+              fill="none"
+              stroke="#e2e8f0"
+              strokeWidth="1"
+            />
+          )
+        })}
+
+        {/* Axis lines */}
+        {subjects.map((_, i) => {
+          const outer = getCoord(i, 100)
+          return (
+            <Line
+              key={`axis-${i}`}
+              x1={cx}
+              y1={cy}
+              x2={outer.x}
+              y2={outer.y}
+              stroke="#cbd5e1"
+              strokeWidth="1"
+            />
+          )
+        })}
+
+        {/* 60% Passing benchmark dashed polygon */}
+        <Polygon
+          points={benchmarkPoints}
+          fill="none"
+          stroke="#eab308"
+          strokeWidth="1.5"
+          strokeDasharray="4, 3"
+        />
+
+        {/* User score polygon */}
+        <Polygon
+          points={userPoints}
+          fill="rgba(37, 99, 235, 0.22)"
+          stroke="#2563eb"
+          strokeWidth="2.5"
+        />
+
+        {/* Vertex dots */}
+        {subjects.map((s, i) => {
+          const pt = getCoord(i, s.pct)
+          return (
+            <Circle
+              key={`dot-${i}`}
+              cx={pt.x}
+              cy={pt.y}
+              r="4.5"
+              fill={s.color || '#2563eb'}
+              stroke="#fff"
+              strokeWidth="1.5"
+            />
+          )
+        })}
+
+        {/* Outer labels */}
+        {subjects.map((s, i) => {
+          const angle = startAngle + i * angleStep
+          const labelDist = radius + 22
+          const lx = cx + labelDist * Math.cos(angle)
+          const ly = cy + labelDist * Math.sin(angle)
+          const isTop = Math.sin(angle) < -0.5
+          const isBottom = Math.sin(angle) > 0.5
+          const isLeft = Math.cos(angle) < -0.2
+          const isRight = Math.cos(angle) > 0.2
+
+          let textAnchor = 'middle'
+          if (isLeft && !isTop && !isBottom) textAnchor = 'end'
+          if (isRight && !isTop && !isBottom) textAnchor = 'start'
+
+          const shortName = s.name.length > 18 ? s.name.split('&')[0].trim() : s.name
+
+          return (
+            <SvgText
+              key={`label-${i}`}
+              x={lx}
+              y={ly + (isTop ? -4 : isBottom ? 8 : 4)}
+              fontSize="10"
+              fontWeight="bold"
+              fill="#1e293b"
+              textAnchor={textAnchor}
+            >
+              {`${shortName} (${s.pct}%)`}
+            </SvgText>
+          )
+        })}
+      </Svg>
+
+      <View style={styles.radarLegendRow}>
+        <View style={styles.radarLegendItem}>
+          <View style={[styles.radarLegendDot, { backgroundColor: '#2563eb' }]} />
+          <Text style={styles.radarLegendText}>Your Domain Mastery</Text>
+        </View>
+        <View style={styles.radarLegendItem}>
+          <View style={[styles.radarLegendLine, { borderColor: '#eab308' }]} />
+          <Text style={styles.radarLegendText}>{benchmark}% Passing Benchmark</Text>
+        </View>
+      </View>
+    </View>
+  )
+}
+
+// ── Exam Trajectory Forecast Chart (SVG) ──────────────────────────
+function TrajectoryForecastChart({ mockHistory = [], projectedScore = 0, benchmark = 60, confidenceInterval = [0, 0] }) {
+  const width = 310
+  const height = 140
+  const paddingX = 35
+  const paddingY = 20
+  const chartW = width - paddingX * 2
+  const chartH = height - paddingY * 2
+
+  const historyPoints = mockHistory.map((m, idx) => ({
+    label: `M${idx + 1}`,
+    score: m.pct,
+    isProjected: false,
+  }))
+
+  const allPoints = [
+    ...historyPoints,
+    { label: 'Exam', score: projectedScore, isProjected: true },
+  ]
+
+  const getY = (val) => paddingY + chartH - ((Math.min(Math.max(val, 0), 100) / 100) * chartH)
+  const getX = (idx) => paddingX + (idx / Math.max(1, allPoints.length - 1)) * chartW
+
+  const benchmarkY = getY(benchmark)
+  const ciLowY = getY(confidenceInterval[0])
+  const ciHighY = getY(confidenceInterval[1])
+  const lastHistoryX = getX(Math.max(0, historyPoints.length - 1))
+  const examX = getX(allPoints.length - 1)
+
+  let historyPath = ''
+  if (historyPoints.length > 0) {
+    historyPath = historyPoints.map((pt, i) => `${i === 0 ? 'M' : 'L'} ${getX(i)} ${getY(pt.score)}`).join(' ')
+  }
+
+  const projPath = historyPoints.length > 0
+    ? `M ${lastHistoryX} ${getY(historyPoints[historyPoints.length - 1].score)} L ${examX} ${getY(projectedScore)}`
+    : `M ${getX(0)} ${getY(projectedScore)} L ${examX} ${getY(projectedScore)}`
+
+  return (
+    <View style={styles.trajectoryChartWrap}>
+      <Svg width={width} height={height} viewBox={`0 0 ${width} ${height}`}>
+        {/* Horizontal grid */}
+        {[20, 40, 60, 80].map((v) => {
+          const y = getY(v)
+          return (
+            <G key={`grid-${v}`}>
+              <Line x1={paddingX} y1={y} x2={width - paddingX} y2={y} stroke="#f1f5f9" strokeWidth="1" />
+              <SvgText x={paddingX - 6} y={y + 3} fontSize="9" fill="#94a3b8" textAnchor="end">{v}%</SvgText>
+            </G>
+          )
+        })}
+
+        {/* 95% Confidence Band */}
+        {historyPoints.length >= 1 && (
+          <Polygon
+            points={`${lastHistoryX},${getY(historyPoints[historyPoints.length - 1].score)} ${examX},${ciHighY} ${examX},${ciLowY}`}
+            fill="rgba(59, 130, 246, 0.15)"
+          />
+        )}
+
+        {/* 60% Benchmark Line */}
+        <Line
+          x1={paddingX}
+          y1={benchmarkY}
+          x2={width - paddingX}
+          y2={benchmarkY}
+          stroke="#16a34a"
+          strokeWidth="1.5"
+          strokeDasharray="4, 3"
+        />
+        <SvgText x={width - paddingX + 2} y={benchmarkY + 3} fontSize="9" fontWeight="bold" fill="#16a34a" textAnchor="start">
+          Pass
+        </SvgText>
+
+        {/* Historical line */}
+        {historyPath ? (
+          <Path d={historyPath} fill="none" stroke="#0f2747" strokeWidth="2.5" />
+        ) : null}
+
+        {/* Forecast trajectory line */}
+        <Path d={projPath} fill="none" stroke="#2563eb" strokeWidth="2.5" strokeDasharray="5, 3" />
+
+        {/* Historical markers */}
+        {historyPoints.map((pt, i) => {
+          const x = getX(i)
+          const y = getY(pt.score)
+          return (
+            <G key={`hdot-${i}`}>
+              <Circle cx={x} cy={y} r="4" fill="#0f2747" stroke="#fff" strokeWidth="1.5" />
+              <SvgText x={x} y={height - 4} fontSize="9" fill="#64748b" textAnchor="middle">{pt.label}</SvgText>
+            </G>
+          )
+        })}
+
+        {/* Projected target dot */}
+        <Circle cx={examX} cy={getY(projectedScore)} r="5.5" fill="#2563eb" stroke="#fff" strokeWidth="2" />
+        <SvgText x={examX} y={height - 4} fontSize="9" fontWeight="bold" fill="#2563eb" textAnchor="middle">Exam</SvgText>
+      </Svg>
+
+      <View style={styles.trajectoryLegendRow}>
+        <View style={styles.radarLegendItem}>
+          <View style={[styles.radarLegendDot, { backgroundColor: '#0f2747' }]} />
+          <Text style={styles.radarLegendText}>Mock Exams</Text>
+        </View>
+        <View style={styles.radarLegendItem}>
+          <View style={[styles.radarLegendLine, { borderColor: '#2563eb', borderStyle: 'dashed' }]} />
+          <Text style={styles.radarLegendText}>Forecast</Text>
+        </View>
+        <View style={styles.radarLegendItem}>
+          <View style={[styles.radarLegendLine, { borderColor: '#16a34a' }]} />
+          <Text style={styles.radarLegendText}>{benchmark}% Benchmark</Text>
+        </View>
+      </View>
+    </View>
+  )
+}
+
 // ── Metric Computation Engine ─────────────────────────────────────
 function normalizeCategory(cat, level) {
   if (!cat) return null
   const c = String(cat).trim()
   if (level === 'IP') {
-    if (c === 'Technology' || c.includes('Tech') || c.includes('Hardware') || c.includes('Software') || c.includes('Network') || c.includes('Database') || c.includes('Security') || c.includes('Algorithm')) return 'Technology'
-    if (c === 'Management' || c.includes('Manage') || c.includes('Project') || c.includes('Service') || c.includes('Audit')) return 'Management'
-    if (c === 'Strategy' || c.includes('Strat') || c.includes('Business') || c.includes('Legal') || c.includes('Corporate')) return 'Strategy'
-    return 'Technology'
+    if (c === 'Technology' || c.toLowerCase() === 'technology') return 'Technology'
+    if (c === 'Management' || c.toLowerCase() === 'management') return 'Management'
+    if (c === 'Strategy' || c.toLowerCase() === 'strategy') return 'Strategy'
+    if (c.includes('Hardware') || c.includes('Software') || c.includes('Database') || c.includes('Network') || c.includes('Security') || c.includes('Computer Systems')) return 'Technology'
+    if (c.includes('Project Management') || c.includes('IT Service Management') || c.includes('Audit')) return 'Management'
+    if (c.includes('Corporate Strategy') || c.includes('Business') || c.includes('Legal')) return 'Strategy'
+    return null
   } else if (level === 'FE Subject A') {
-    if (c.includes('Architecture') || c.includes('Hardware') || c.includes('Computer Systems') || c === 'Technology') return 'Computer Systems & Architecture'
-    if (c.includes('Algorithm') || c.includes('Program') || c.includes('Data Structure')) return 'Algorithms & Programming'
-    if (c.includes('Network') || c.includes('Security') || c.includes('Database')) return 'Networks & Security'
-    if (c.includes('Management') || c.includes('Strategy') || c.includes('Project')) return 'IT Management & Strategy'
-    return 'Computer Systems & Architecture'
+    if (c.includes('Architecture') || c.includes('Hardware') || c.includes('Computer Systems') || c === 'Subject A') return 'Computer Systems & Architecture'
+    if (c.includes('Algorithms & Programming') || c.includes('Programming') || (c.includes('Algorithm') && !c.includes('Data Structure'))) return 'Algorithms & Programming'
+    if (c.includes('Networks & Security') || c.includes('Network') || (c.includes('Security') && !c.includes('Design'))) return 'Networks & Security'
+    if (c.includes('IT Management & Strategy') || c.includes('Management & Strategy') || c.includes('IT Management') || c.includes('Strategy') || c.includes('Project')) return 'IT Management & Strategy'
+    if (c === 'Technology') return 'Computer Systems & Architecture'
+    return null
   } else if (level === 'FE Subject B') {
-    if (c.includes('Algorithm') || c.includes('Program') || c.includes('Data Structure')) return 'Algorithms & Data Structures'
-    if (c.includes('Security') || c.includes('System Design') || c.includes('Network')) return 'Security & System Design'
-    return 'Algorithms & Data Structures'
+    if (c.includes('Algorithms & Data Structures') || c.includes('Data Structure') || c.includes('Pseudo') || c.includes('Algorithm') || c === 'Subject B') return 'Algorithms & Data Structures'
+    if (c.includes('Security & System Design') || c.includes('System Design') || c.includes('Security Design')) return 'Security & System Design'
+    return null
   }
-  return c
+  return null
 }
 
 // ── Metric Computation Engine ─────────────────────────────────────
@@ -151,69 +452,108 @@ function computePerformanceData(level, rawData) {
     trackKey = 'fe_b'
   }
 
-  const { att = [], mcq = [], tf = [], ses = [], diag = null } = rawData
+  const { att = [], mcq = [], tf = [], ses = [], match = [] } = rawData
 
   const today = new Date()
   const week0 = new Date(today); week0.setDate(today.getDate() - 7)
 
-  // 1. Subject mapping strictly limited to active exam syllabus
+  // 1. Subject mapping strictly limited to active exam syllabus (no diagnostic/sample data injection)
   const subjectMap = {}
   allowedSubjects.forEach((s) => {
-    subjectMap[s] = { correct: 0, total: 0 }
+    subjectMap[s] = { correct: 0, total: 0, lastPracticed: null }
   })
 
-  // Tally from diagnostic assessment if available
-  if (diag?.category_scores) {
-    let catScores = diag.category_scores
-    if (typeof catScores === 'string') {
-      try { catScores = JSON.parse(catScores) } catch (e) { catScores = {} }
-    }
-    if (catScores && typeof catScores === 'object') {
-      Object.entries(catScores).forEach(([cat, scores]) => {
-        let normCat = normalizeCategory(cat, level)
-        if (normCat && subjectMap[normCat] !== undefined) {
-          if (scores && typeof scores === 'object') {
-            subjectMap[normCat].correct += scores.correct || 0
-            subjectMap[normCat].total += scores.total || 0
-          } else if (typeof scores === 'number') {
-            subjectMap[normCat].correct += scores
-            subjectMap[normCat].total += 10
-          }
-        }
-      })
-    }
-  }
-
-  // Tally from MCQ
+  // Tally strictly from real user practice answers (MCQ)
   mcq.forEach((r) => {
     let rawCat = r.multiple_choice_questions?.practice_categories?.name
     let cat = normalizeCategory(rawCat, level)
     if (cat && subjectMap[cat] !== undefined) {
       subjectMap[cat].total++
       if (r.is_correct) subjectMap[cat].correct++
+      if (r.answered_at) {
+        const d = new Date(r.answered_at)
+        if (!subjectMap[cat].lastPracticed || d > subjectMap[cat].lastPracticed) {
+          subjectMap[cat].lastPracticed = d
+        }
+      }
     }
   })
 
-  // Tally from TF
+  // Tally strictly from real user practice answers (TF)
   tf.forEach((r) => {
     let rawCat = r.true_false_questions?.practice_categories?.name
     let cat = normalizeCategory(rawCat, level)
     if (cat && subjectMap[cat] !== undefined) {
       subjectMap[cat].total++
       if (r.is_correct) subjectMap[cat].correct++
+      if (r.answered_at) {
+        const d = new Date(r.answered_at)
+        if (!subjectMap[cat].lastPracticed || d > subjectMap[cat].lastPracticed) {
+          subjectMap[cat].lastPracticed = d
+        }
+      }
     }
   })
 
+  // Tally from matching pairs if category matches domain
+  match.forEach((m) => {
+    let cat = normalizeCategory(m.set_title, level)
+    if (cat && subjectMap[cat] !== undefined) {
+      const pairAttempts = (m.pairs_matched || 0) + (m.mistakes || 0)
+      subjectMap[cat].total += pairAttempts
+      subjectMap[cat].correct += (m.pairs_matched || 0)
+    }
+  })
+
+  // Confidence-scaled domain competency score & Ebbinghaus Retention Decay
   const subjects = allowedSubjects.map((name) => {
-    const s = subjectMap[name] || { correct: 0, total: 0 }
-    const p = pct(s.correct, s.total)
+    const s = subjectMap[name] || { correct: 0, total: 0, lastPracticed: null }
+    const target = DOMAIN_TARGET_ATTEMPTS[name] || DOMAIN_TARGET_ATTEMPTS.default
+    const attempts = s.total
+    const correct = s.correct
+
+    const accuracy = attempts > 0 ? (correct / attempts) : 0
+    const confidence = Math.min(1, attempts / target)
+    const score = accuracy * confidence
+    const p = Math.round(score * 100)
+    const rawAccuracyPct = Math.round(accuracy * 100)
+
+    // Ebbinghaus Memory Retention: R = exp(-0.05 * delta_days)
+    let daysSince = null
+    let retentionPct = 100
+    let retentionStatus = 'Unassessed'
+    let retentionColor = '#94a3b8'
+
+    if (s.lastPracticed) {
+      daysSince = Math.max(0, Math.round((today - s.lastPracticed) / (1000 * 60 * 60 * 24)))
+      retentionPct = Math.round(Math.exp(-0.05 * daysSince) * 100)
+      if (daysSince <= 7) {
+        retentionStatus = 'Fresh'
+        retentionColor = '#16a34a'
+      } else if (daysSince <= 14) {
+        retentionStatus = 'Review Soon'
+        retentionColor = '#d97706'
+      } else {
+        retentionStatus = 'Decayed'
+        retentionColor = '#dc2626'
+      }
+    }
+
     return {
       name,
       pct: p,
-      correct: s.correct,
-      total: s.total,
+      rawAccuracyPct,
+      correct,
+      total: attempts,
+      target,
+      confidence,
       color: SUBJECT_COLORS[name] || NAVY,
-      isPassing: p >= passBenchmark,
+      isPassing: attempts >= Math.round(target * 0.4) && p >= passBenchmark,
+      daysSince,
+      retentionPct,
+      retentionStatus,
+      retentionColor,
+      lastPracticed: s.lastPracticed,
     }
   })
 
@@ -226,51 +566,79 @@ function computePerformanceData(level, rawData) {
     return false
   })
   const activeAttempts = levelAttempts.length > 0 ? levelAttempts : []
+  const mocksTaken = activeAttempts.length
 
-  const avgMockPct = activeAttempts.length > 0
-    ? Math.round(activeAttempts.reduce((s, a) => s + pct(a.correct_count, a.total_questions), 0) / activeAttempts.length)
-    : 0
-
-  // 3. Quiz accuracy restricted to allowed subjects
-  const levelQuizItems = []
-  mcq.forEach((r) => {
-    let rawCat = r.multiple_choice_questions?.practice_categories?.name
-    let cat = normalizeCategory(rawCat, level)
-    if (cat && subjectMap[cat] !== undefined) levelQuizItems.push(r.is_correct)
+  // 3. Four Practice Types with Confidence Scaling
+  // MCQ: Weight 0.35, Target 100
+  const levelMcq = mcq.filter((r) => {
+    let cat = normalizeCategory(r.multiple_choice_questions?.practice_categories?.name, level)
+    return cat && subjectMap[cat] !== undefined
   })
-  tf.forEach((r) => {
-    let rawCat = r.true_false_questions?.practice_categories?.name
-    let cat = normalizeCategory(rawCat, level)
-    if (cat && subjectMap[cat] !== undefined) levelQuizItems.push(r.is_correct)
-  })
-  const quizPct = pct(levelQuizItems.filter(Boolean).length, levelQuizItems.length)
+  const mcqAttempts = levelMcq.length
+  const mcqCorrect = levelMcq.filter((r) => r.is_correct).length
+  const mcqAccuracy = mcqAttempts > 0 ? (mcqCorrect / mcqAttempts) : 0
+  const mcqConfidence = Math.min(1, mcqAttempts / 100)
+  const mcqScore = mcqAccuracy * mcqConfidence
 
-  // 4. Combined Readiness
-  let readiness = 0
-  if (activeAttempts.length > 0) {
-    readiness = Math.round(avgMockPct * 0.6 + quizPct * 0.4)
-  } else if (levelQuizItems.length > 0) {
-    readiness = quizPct
-  } else if (diag?.score_percent) {
-    readiness = Math.round(diag.score_percent)
+  // Matching: Weight 0.20, Target 40 pairs
+  const matchAttempts = match.reduce((sum, m) => sum + (m.pairs_matched || m.pairs_total || 0), 0)
+  const matchCorrect = match.reduce((sum, m) => sum + (m.pairs_matched || 0), 0)
+  const matchMistakes = match.reduce((sum, m) => sum + (m.mistakes || 0), 0)
+  const matchTrials = matchCorrect + matchMistakes
+  const matchAccuracy = matchTrials > 0 ? (matchCorrect / matchTrials) : (matchAttempts > 0 ? 1 : 0)
+  const matchConfidence = Math.min(1, matchAttempts / 40)
+  const matchScore = matchAccuracy * matchConfidence
+
+  // True / False: Weight 0.20, Target 60
+  const levelTf = tf.filter((r) => {
+    let cat = normalizeCategory(r.true_false_questions?.practice_categories?.name, level)
+    return cat && subjectMap[cat] !== undefined
+  })
+  const tfAttempts = levelTf.length
+  const tfCorrect = levelTf.filter((r) => r.is_correct).length
+  const tfAccuracy = tfAttempts > 0 ? (tfCorrect / tfAttempts) : 0
+  const tfConfidence = Math.min(1, tfAttempts / 60)
+  const tfScore = tfAccuracy * tfConfidence
+
+  // Flashcards: Weight 0.25, Target 80 cards
+  const fcAttempts = ses.reduce((sum, s) => sum + (s.cards_seen || (s.completed ? (s.cards_total || 10) : 0)), 0)
+  const fcAccuracy = fcAttempts > 0 ? 1.0 : 0
+  const fcConfidence = Math.min(1, fcAttempts / 80)
+  const fcScore = fcAccuracy * fcConfidence
+
+  // Weighted practice score (0..1)
+  const practiceScore = (
+    0.35 * mcqScore +
+    0.20 * matchScore +
+    0.20 * tfScore +
+    0.25 * fcScore
+  )
+
+  // 4. Mock Score: Average of last 3 mock exams scaled by confidence (0..1)
+  let mockScore = 0
+  let avgRecentMockScore = 0
+  if (mocksTaken > 0) {
+    const recentMocks = activeAttempts.slice(0, 3)
+    avgRecentMockScore = recentMocks.reduce((sum, a) => sum + pct(a.correct_count, a.total_questions), 0) / recentMocks.length
+    const mockConfidence = Math.min(1, mocksTaken / 3)
+    mockScore = (avgRecentMockScore / 100) * mockConfidence
   }
 
-  // 5. Activity counts
-  const quizTaken = [...new Set([
-    ...mcq.filter((m) => {
-      let cat = normalizeCategory(m.multiple_choice_questions?.practice_categories?.name, level)
-      return cat && subjectMap[cat] !== undefined
-    }).map((r) => r.answered_at?.slice(0, 10)),
-    ...tf.filter((t) => {
-      let cat = normalizeCategory(t.true_false_questions?.practice_categories?.name, level)
-      return cat && subjectMap[cat] !== undefined
-    }).map((r) => r.answered_at?.slice(0, 10)),
-  ])].filter(Boolean).length
+  // 5. Combined Exam Readiness (0..100)
+  // readiness = 0.40 * practiceScore + 0.60 * mockScore
+  const readiness = Math.round((0.40 * practiceScore + 0.60 * mockScore) * 100)
 
-  const mockCount = activeAttempts.length
-  const studyMins = Math.round(ses.reduce((s, s2) => s + (s2.duration_seconds ?? 0), 0) / 60)
+  // 6. Activity counts & Low-data state determination
+  const totalPracticeAttempts = mcqAttempts + matchAttempts + tfAttempts + fcAttempts
+  const isLowData = totalPracticeAttempts < 20 && mocksTaken === 0
+  const hasActivity = totalPracticeAttempts > 0 || mocksTaken > 0
 
-  // 6. Weekly trends
+  const quizTaken = mcqAttempts + tfAttempts
+  const mockCount = mocksTaken
+  const studyMins = Math.round(ses.reduce((s, s2) => s + (s2.duration_seconds ?? 0), 0) / 60) +
+    Math.round(activeAttempts.reduce((s, a) => s + (a.duration_seconds ?? 0), 0) / 60)
+
+  // 7. Weekly trends
   const weeks = [4, 3, 2, 1].map((w) => {
     const from = new Date(today); from.setDate(today.getDate() - w * 7)
     const to = new Date(today); to.setDate(today.getDate() - (w - 1) * 7)
@@ -298,46 +666,98 @@ function computePerformanceData(level, rawData) {
     }
   })
 
-  // 7. Summary
+  // 8. Quiz & Exam Breakdown Summary
   const summary = [
     ...activeAttempts.slice(0, 3).map((a) => ({
       label: a.mock_exam_configs?.title ?? `${level} Mock Exam`,
       pct: pct(a.correct_count, a.total_questions),
+      sub: `${a.correct_count}/${a.total_questions} items (${pct(a.correct_count, a.total_questions)}%)`,
     })),
-    {
+    ...(mcqAttempts > 0 ? [{
       label: `Multiple Choice (${level})`,
-      pct: pct(
-        mcq.filter((r) => {
-          let cat = normalizeCategory(r.multiple_choice_questions?.practice_categories?.name, level)
-          return cat && subjectMap[cat] !== undefined && r.is_correct
-        }).length,
-        mcq.filter((r) => {
-          let cat = normalizeCategory(r.multiple_choice_questions?.practice_categories?.name, level)
-          return cat && subjectMap[cat] !== undefined
-        }).length
-      ),
-    },
-    {
+      pct: pct(mcqCorrect, mcqAttempts),
+      sub: `${mcqAttempts}/100 target attempts • ${Math.round(mcqConfidence * 100)}% confidence`,
+    }] : []),
+    ...(tfAttempts > 0 ? [{
       label: `True or False (${level})`,
-      pct: pct(
-        tf.filter((r) => {
-          let cat = normalizeCategory(r.true_false_questions?.practice_categories?.name, level)
-          return cat && subjectMap[cat] !== undefined && r.is_correct
-        }).length,
-        tf.filter((r) => {
-          let cat = normalizeCategory(r.true_false_questions?.practice_categories?.name, level)
-          return cat && subjectMap[cat] !== undefined
-        }).length
-      ),
-    },
-  ].filter((s) => s.pct > 0).slice(0, 5)
+      pct: pct(tfCorrect, tfAttempts),
+      sub: `${tfAttempts}/60 target attempts • ${Math.round(tfConfidence * 100)}% confidence`,
+    }] : []),
+    ...(matchAttempts > 0 ? [{
+      label: 'Matching Pairs',
+      pct: Math.round(matchAccuracy * 100),
+      sub: `${matchAttempts}/40 target pairs • ${Math.round(matchConfidence * 100)}% confidence`,
+    }] : []),
+    ...(fcAttempts > 0 ? [{
+      label: 'Flashcards Reviewed',
+      pct: Math.min(Math.round((fcAttempts / 80) * 100), 100),
+      sub: `${fcAttempts}/80 target cards • ${Math.round(fcConfidence * 100)}% confidence`,
+    }] : []),
+  ].slice(0, 6)
 
-  // 8. Predictive Pass Probability
-  const passProbability = readiness > 0
-    ? Math.min(Math.round(readiness * 0.92 + (activeAttempts.length >= 2 ? 6 : 0)), 99)
+  // 9. Chronological Mock History & Trajectory Projection
+  const chronologicalMocks = [...activeAttempts].reverse().map((a, i) => ({
+    label: `M${i + 1}`,
+    title: a.mock_exam_configs?.title || `${level} Mock #${i + 1}`,
+    pct: pct(a.correct_count, a.total_questions),
+    correct: a.correct_count,
+    total: a.total_questions,
+    completed_at: a.completed_at,
+    isPassed: pct(a.correct_count, a.total_questions) >= passBenchmark,
+  }))
+
+  let projectedScore = readiness
+  let ciMargin = 8
+  let trendSlope = 0
+
+  if (chronologicalMocks.length >= 2) {
+    const n = chronologicalMocks.length
+    const xVals = chronologicalMocks.map((_, i) => i)
+    const yVals = chronologicalMocks.map((m) => m.pct)
+    const meanX = (n - 1) / 2
+    const meanY = yVals.reduce((a, b) => a + b, 0) / n
+
+    let num = 0
+    let den = 0
+    for (let i = 0; i < n; i++) {
+      num += (xVals[i] - meanX) * (yVals[i] - meanY)
+      den += Math.pow(xVals[i] - meanX, 2)
+    }
+    trendSlope = den > 0 ? num / den : 0
+    const intercept = meanY - trendSlope * meanX
+
+    const rawProj = intercept + trendSlope * n
+    projectedScore = Math.min(Math.max(Math.round(rawProj), 15), 98)
+
+    const residuals = yVals.map((y, i) => y - (intercept + trendSlope * xVals[i]))
+    const variance = residuals.reduce((sum, r) => sum + r * r, 0) / Math.max(1, n - 2)
+    const stdErr = Math.sqrt(Math.max(variance, 4))
+    ciMargin = Math.round(1.96 * stdErr)
+    ciMargin = Math.max(4, Math.min(ciMargin, 16))
+  } else if (chronologicalMocks.length === 1) {
+    projectedScore = Math.round(0.4 * (practiceScore * 100) + 0.6 * chronologicalMocks[0].pct)
+    ciMargin = 10
+  } else {
+    projectedScore = readiness > 0 ? Math.round(readiness * 1.05) : 0
+    ciMargin = 12
+  }
+
+  const confidenceInterval = [
+    Math.max(0, projectedScore - ciMargin),
+    Math.min(100, projectedScore + ciMargin),
+  ]
+
+  // Pass probability based on readiness & projected score
+  const passProbability = hasActivity && !isLowData && projectedScore > 0
+    ? Math.min(Math.max(Math.round(((projectedScore - passBenchmark + 20) / 40) * 100), 5), 98)
     : 0
 
-  // 9. Mock readiness history
+  // Prescriptive study strategy
+  const dailyQuestionTarget = readiness < 45 ? 35 : readiness < 70 ? 25 : 15
+  const studyPace = readiness < 45 ? 'Accelerated' : readiness < 70 ? 'Standard' : 'Maintenance'
+  const decayedSubjects = subjects.filter((s) => s.retentionStatus === 'Decayed' || s.retentionStatus === 'Review Soon')
+
+  // 10. Mock readiness history (most recent first)
   const mockReadiness = activeAttempts.slice(0, 5).map((a, i) => ({
     label: a.mock_exam_configs?.title || `${level} Mock Exam #${i + 1}`,
     pct: pct(a.correct_count, a.total_questions),
@@ -346,19 +766,20 @@ function computePerformanceData(level, rawData) {
     isPassed: pct(a.correct_count, a.total_questions) >= passBenchmark,
   }))
 
-  // 10. Weakest subject for Prescriptive
+  // 11. Weakest subject for Prescriptive
   const sortedSubjects = [...subjects].sort((a, b) => {
-    if (a.total === 0 && b.total > 0) return -1
-    if (b.total === 0 && a.total > 0) return 1
+    if (a.total === 0 && b.total > 0) return 1
+    if (b.total === 0 && a.total > 0) return -1
     return a.pct - b.pct
   })
   const weakestSubject = sortedSubjects[0] || subjects[0]
 
-  // 11. Prescriptive study streak & time
+  // 12. Prescriptive study streak & time
   const activityDays = new Set([
-    ...ses.map((s) => s.created_at?.slice(0, 10)),
+    ...ses.map((s) => (s.completed_at || s.started_at)?.slice(0, 10)),
     ...mcq.map((r) => r.answered_at?.slice(0, 10)),
     ...tf.map((r) => r.answered_at?.slice(0, 10)),
+    ...(att || []).map((m) => (m.completed_at || m.started_at)?.slice(0, 10)),
   ].filter(Boolean))
   let streak = 0
   for (let i = 0; i < 30; i++) {
@@ -369,21 +790,34 @@ function computePerformanceData(level, rawData) {
   }
 
   const todayKey = today.toISOString().slice(0, 10)
-  const todayMins = Math.round(ses.filter((s) => s.created_at?.slice(0, 10) === todayKey)
-    .reduce((s, x) => s + (x.duration_seconds ?? 0), 0) / 60)
-  const weekMins = Math.round(ses.filter((s) => new Date(s.created_at) >= week0)
-    .reduce((s, x) => s + (x.duration_seconds ?? 0), 0) / 60)
+  const sesToday = ses.filter((s) => (s.completed_at || s.started_at)?.slice(0, 10) === todayKey)
+    .reduce((s, x) => s + (x.duration_seconds ?? 0), 0)
+  const attToday = activeAttempts.filter((a) => (a.completed_at || a.started_at)?.slice(0, 10) === todayKey)
+    .reduce((s, x) => s + (x.duration_seconds ?? 0), 0)
+  const todayMins = Math.round((sesToday + attToday) / 60)
+
+  const sesWeek = ses.filter((s) => new Date(s.completed_at || s.started_at || 0) >= week0)
+    .reduce((s, x) => s + (x.duration_seconds ?? 0), 0)
+  const attWeek = activeAttempts.filter((a) => new Date(a.completed_at || a.started_at || 0) >= week0)
+    .reduce((s, x) => s + (x.duration_seconds ?? 0), 0)
+  const weekMins = Math.round((sesWeek + attWeek) / 60)
+
   const dailyAvg = activityDays.size > 0 ? Math.round(studyMins / activityDays.size) : 0
 
   return {
     level,
     trackKey,
+    hasActivity,
+    isLowData,
+    totalPracticeAttempts,
+    practiceScore,
+    mockScore,
     targetItems,
     minPassItems,
     examDuration,
     passBenchmark,
     readiness,
-    readinessLabel: readinessLabel(readiness, passBenchmark),
+    readinessLabel: readinessLabel(readiness, passBenchmark, hasActivity, isLowData),
     quizTaken,
     mockCount,
     studyMins,
@@ -391,6 +825,12 @@ function computePerformanceData(level, rawData) {
     weeks,
     summary,
     passProbability,
+    projectedScore,
+    confidenceInterval,
+    chronologicalMocks,
+    dailyQuestionTarget,
+    studyPace,
+    decayedSubjects,
     mockReadiness,
     weakestSubject,
     streak,
@@ -408,6 +848,7 @@ export default function Performance({ navigation }) {
   const [tab, setTab] = useState(0)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
+  const [userTargetExam, setUserTargetExam] = useState('IP')
   const [examLevel, setExamLevel] = useState('IP')
   const [data, setData] = useState(null)
 
@@ -417,6 +858,7 @@ export default function Performance({ navigation }) {
     mcq: [],
     tf: [],
     ses: [],
+    match: [],
     diag: null,
   })
 
@@ -438,6 +880,7 @@ export default function Performance({ navigation }) {
 
       // 1. Fetch user's registered target exam level from personal_info
       let currentLevel = 'IP'
+      let targetType = 'IP'
       const { data: pData } = await supabase
         .from('personal_info')
         .select('target_exam_level')
@@ -446,14 +889,15 @@ export default function Performance({ navigation }) {
 
       if (pData?.target_exam_level) {
         const lvl = pData.target_exam_level.toLowerCase()
-        if (lvl.includes('fe_b') || lvl.includes('subject b')) {
-          currentLevel = 'FE Subject B'
-        } else if (lvl.includes('fe') || lvl.includes('fundamental')) {
+        if (lvl.includes('fe') || lvl.includes('fundamental') || (lvl.includes('pro') && !lvl.includes('sub'))) {
+          targetType = 'FE'
           currentLevel = 'FE Subject A'
         } else {
+          targetType = 'IP'
           currentLevel = 'IP'
         }
       }
+      setUserTargetExam(targetType)
       setExamLevel(currentLevel)
 
       // 2. Mock exam attempts
@@ -478,26 +922,23 @@ export default function Performance({ navigation }) {
       // 5. Flashcard sessions
       const { data: sessions } = await supabase
         .from('flashcard_sessions')
-        .select('duration_seconds, created_at, completed_at, completed')
+        .select('cards_total, cards_seen, duration_seconds, started_at, completed_at, completed')
         .eq('user_id', uid)
 
-      // 6. Latest Diagnostic Assessment attempt
-      const { data: diagAttempt } = await supabase
-        .from('diagnostic_assessment_attempts')
-        .select('score_percent, category_scores, level, completed_at')
+      // 6. Matching results
+      const { data: matchRaw } = await supabase
+        .from('matching_results')
+        .select('set_title, pairs_total, pairs_matched, mistakes, completed, duration_seconds')
         .eq('user_id', uid)
-        .order('completed_at', { ascending: false })
-        .limit(1)
-        .maybeSingle()
 
-      // Cache raw data in ref for fast level toggling
+      // Cache raw data in ref for fast level toggling (no fake/diagnostic data)
       rawDataRef.current = {
         uid,
         att: attempts ?? [],
         mcq: mcqRaw ?? [],
         tf: tfRaw ?? [],
         ses: sessions ?? [],
-        diag: diagAttempt ?? null,
+        match: matchRaw ?? [],
       }
 
       // Compute metrics tailored to user's exam track
@@ -511,29 +952,15 @@ export default function Performance({ navigation }) {
     }
   }
 
-  // ── Switch exam track on-demand ──────────────────────────────
-  const handleTrackSwitch = async (newLevel) => {
+  // ── Switch exam paper on-demand (only between papers for user's target exam) ──
+  const handleTrackSwitch = (newLevel) => {
     if (newLevel === examLevel) return
     setExamLevel(newLevel)
 
-    // Instantly recompute metrics for selected track
-    const computed = computePerformanceData(newLevel, rawDataRef.current)
-    setData(computed)
-
-    // Persist choice to Supabase personal_info
-    const uid = rawDataRef.current.uid
-    if (uid) {
-      try {
-        await supabase
-          .from('personal_info')
-          .upsert({
-            user_id: uid,
-            target_exam_level: newLevel,
-            updated_at: new Date().toISOString(),
-          }, { onConflict: 'user_id' })
-      } catch (err) {
-        console.warn('Error syncing target exam level:', err)
-      }
+    // Instantly recompute metrics for selected paper
+    if (rawDataRef.current) {
+      const computed = computePerformanceData(newLevel, rawDataRef.current)
+      setData(computed)
     }
   }
 
@@ -605,15 +1032,19 @@ export default function Performance({ navigation }) {
         <View style={styles.trackBadge}>
           <Ionicons name="ribbon" size={13} color="#2563eb" />
           <Text style={styles.trackBadgeText}>
-            {data.level} Track • {data.targetItems} Items • {data.examDuration}
+            {data.targetItems} Items • {data.examDuration}
           </Text>
         </View>
         <Text style={styles.readinessCardTitle}>Exam Readiness{'\n'}Prediction Score</Text>
         <Text style={styles.readinessCardDate}>Updated: {data.today}</Text>
-        <Text style={[styles.readinessPct, { color: readinessColor(data.readiness, data.passBenchmark) }]}>{data.readiness}%</Text>
-        <Text style={[styles.readinessLabel, { color: readinessColor(data.readiness, data.passBenchmark) }]}>{data.readinessLabel}</Text>
+        <Text style={[styles.readinessPct, { color: readinessColor(data.readiness, data.passBenchmark, data.hasActivity, data.isLowData) }]}>{data.readiness}%</Text>
+        <Text style={[styles.readinessLabel, { color: readinessColor(data.readiness, data.passBenchmark, data.hasActivity, data.isLowData) }]}>{data.readinessLabel}</Text>
         <Text style={styles.readinessNote}>
-          Based on {data.mockCount} {data.level} mock exam{data.mockCount === 1 ? '' : 's'} & active quizzes
+          {data.isLowData
+            ? `Baseline building: ${data.totalPracticeAttempts}/20 practice attempts completed. Answer 20 questions or take 1 mock exam for confident readiness scoring.`
+            : data.hasActivity
+              ? `Practice score: ${Math.round(data.practiceScore * 100)}% (40% weight) • Mock score: ${Math.round(data.mockScore * 100)}% (60% weight)`
+              : `No mock exams or practice activity answered yet`}
         </Text>
       </View>
 
@@ -621,7 +1052,7 @@ export default function Performance({ navigation }) {
       <View style={styles.statsRow}>
         {[
           { value: data.quizTaken, label: 'Quiz Taken' },
-          { value: data.mockCount, label: `${data.level} Mocks` },
+          { value: data.mockCount, label: 'Mock Exams' },
           { value: fmtMins(data.studyMins), label: 'Study Time' },
         ].map((s) => (
           <View key={s.label} style={styles.statItem}>
@@ -631,6 +1062,17 @@ export default function Performance({ navigation }) {
         ))}
       </View>
 
+      {/* Domain Mastery Radar Chart (Visual Multi-Axis Polygon) */}
+      <View style={styles.section}>
+        <View style={styles.sectionHeaderRow}>
+          <Text style={styles.sectionTitle}>Domain Mastery Radar</Text>
+          <Text style={styles.sectionSubBadge}>{data.level}</Text>
+        </View>
+        <View style={styles.sectionCard}>
+          <DomainRadarChart subjects={data.subjects} benchmark={data.passBenchmark} />
+        </View>
+      </View>
+
       {/* Performance by Subject strictly tailored */}
       <View style={styles.section}>
         <View style={styles.sectionHeaderRow}>
@@ -638,20 +1080,39 @@ export default function Performance({ navigation }) {
           <Text style={styles.sectionSubBadge}>{data.level}</Text>
         </View>
         <View style={styles.sectionCard}>
-          {data.subjects.map((sub) => (
-            <View key={sub.name} style={styles.subjectRow}>
-              <View style={styles.subjectLabelRow}>
-                <Text style={styles.subjectName}>{sub.name}</Text>
-                <Text style={[styles.subjectPct, { color: sub.total > 0 ? readinessColor(sub.pct, data.passBenchmark) : '#94a3b8' }]}>
-                  {sub.total > 0 ? `${sub.pct}% (${sub.correct}/${sub.total})` : '0%'}
-                </Text>
+          {data.subjects.map((sub) => {
+            const isLowAttempts = sub.total > 0 && sub.total < Math.round(sub.target * 0.35)
+            return (
+              <View key={sub.name} style={styles.subjectRow}>
+                <View style={styles.subjectLabelRow}>
+                  <Text style={styles.subjectName}>{sub.name}</Text>
+                  <Text style={[styles.subjectPct, { color: sub.total > 0 ? readinessColor(sub.pct, data.passBenchmark, data.hasActivity, isLowAttempts) : '#94a3b8' }]}>
+                    {sub.total > 0 ? `${sub.pct}%` : '0%'}
+                  </Text>
+                </View>
+                <ProgressBar value={sub.pct} color={sub.color} />
+                <View style={styles.domainMetaRow}>
+                  <Text style={styles.subjectHint}>
+                    {sub.total === 0 ? (
+                      'No practice answered yet'
+                    ) : sub.total < sub.target ? (
+                      `${sub.total}/${sub.target} target • ${sub.rawAccuracyPct}% acc`
+                    ) : (
+                      `Target met (${sub.total}) • ${sub.rawAccuracyPct}% acc`
+                    )}
+                  </Text>
+                  {sub.retentionStatus !== 'Unassessed' && (
+                    <View style={[styles.retentionPill, { backgroundColor: sub.retentionColor + '18', borderColor: sub.retentionColor }]}>
+                      <View style={[styles.retentionDot, { backgroundColor: sub.retentionColor }]} />
+                      <Text style={[styles.retentionText, { color: sub.retentionColor }]}>
+                        {sub.retentionStatus} ({sub.retentionPct}%)
+                      </Text>
+                    </View>
+                  )}
+                </View>
               </View>
-              <ProgressBar value={sub.pct} color={sub.color} />
-              {sub.total === 0 && (
-                <Text style={styles.subjectHint}>No practice answered yet for this domain</Text>
-              )}
-            </View>
-          ))}
+            )
+          })}
         </View>
       </View>
 
@@ -672,14 +1133,18 @@ export default function Performance({ navigation }) {
             {data.weeks.map((w) => (
               <View key={w.label} style={styles.barGroup}>
                 <View style={styles.barPair}>
-                  <View style={[styles.bar, { height: Math.max(w.quiz, 4), backgroundColor: '#3B5BA5' }]} />
-                  <View style={[styles.bar, { height: Math.max(w.mock, 4), backgroundColor: '#9B2335' }]} />
+                  <View style={[styles.bar, { height: w.quiz > 0 ? Math.max((w.quiz / 100) * 70, 6) : 2, backgroundColor: w.quiz > 0 ? '#3B5BA5' : '#e2e8f0' }]} />
+                  <View style={[styles.bar, { height: w.mock > 0 ? Math.max((w.mock / 100) * 70, 6) : 2, backgroundColor: w.mock > 0 ? '#9B2335' : '#e2e8f0' }]} />
                 </View>
                 <Text style={styles.barLabel}>{w.label}</Text>
               </View>
             ))}
           </View>
-          <Text style={styles.trendNote}>Evaluated against {data.level} PhilNITS/ITPEC syllabus requirements</Text>
+          <Text style={styles.trendNote}>
+            {data.hasActivity
+              ? `Evaluated against ${data.level} PhilNITS/ITPEC syllabus requirements`
+              : `No weekly exam or quiz activity recorded yet`}
+          </Text>
         </View>
       </View>
 
@@ -690,7 +1155,10 @@ export default function Performance({ navigation }) {
           <View style={styles.sectionCard}>
             {data.summary.map((s) => (
               <View key={s.label} style={styles.summaryRow}>
-                <Text style={styles.summaryLabel}>{s.label}</Text>
+                <View style={{ flex: 1, paddingRight: 8 }}>
+                  <Text style={styles.summaryLabel}>{s.label}</Text>
+                  {s.sub ? <Text style={styles.summarySub}>{s.sub}</Text> : null}
+                </View>
                 <Text style={[styles.summaryPct, { color: readinessColor(s.pct, data.passBenchmark) }]}>{s.pct}%</Text>
               </View>
             ))}
@@ -708,14 +1176,60 @@ export default function Performance({ navigation }) {
       <View style={styles.readinessCard}>
         <View style={styles.trackBadge}>
           <Ionicons name="sparkles" size={13} color="#2563eb" />
-          <Text style={styles.trackBadgeText}>{data.level} Track</Text>
+          <Text style={styles.trackBadgeText}>Predictive Preparedness</Text>
         </View>
         <Text style={styles.readinessCardTitle}>Exam Readiness{'\n'}Prediction</Text>
-        <Text style={[styles.readinessPct, { color: readinessColor(data.passProbability, data.passBenchmark) }]}>{data.passProbability}%</Text>
-        <Text style={styles.readinessLabel}>Estimated Preparedness</Text>
-        <Text style={styles.readinessNote}>
-          {data.level} ({data.targetItems} Items • Benchmark: {data.passBenchmark}%)
+        <Text style={[styles.readinessPct, { color: readinessColor(data.passProbability, data.passBenchmark, data.hasActivity, data.isLowData) }]}>
+          {data.isLowData ? '—' : `${data.passProbability}%`}
         </Text>
+        <Text style={styles.readinessLabel}>
+          {data.isLowData ? 'Building Baseline' : data.hasActivity ? 'Estimated Preparedness' : 'No Activity Yet'}
+        </Text>
+        <Text style={styles.readinessNote}>
+          {data.isLowData
+            ? `Confidence building (${data.totalPracticeAttempts}/20 items completed)`
+            : data.hasActivity
+              ? `${data.level} (${data.targetItems} Items • Benchmark: ${data.passBenchmark}%)`
+              : `No activity recorded yet • Benchmark: ${data.passBenchmark}%`}
+        </Text>
+      </View>
+
+      {/* Trajectory Forecast Chart (Linear Regression & 95% Confidence Band) */}
+      <View style={styles.section}>
+        <View style={styles.sectionHeaderRow}>
+          <Text style={styles.sectionTitle}>Exam Trajectory & Forecast</Text>
+          <Text style={styles.sectionSubBadge}>Projection</Text>
+        </View>
+        <View style={styles.sectionCard}>
+          <TrajectoryForecastChart
+            mockHistory={data.chronologicalMocks}
+            projectedScore={data.projectedScore}
+            benchmark={data.passBenchmark}
+            confidenceInterval={data.confidenceInterval}
+          />
+          <View style={styles.trajectoryStatsGrid}>
+            <View style={styles.trajectoryStatBox}>
+              <Text style={styles.trajectoryStatLabel}>Projected Score</Text>
+              <Text style={[styles.trajectoryStatVal, { color: data.projectedScore >= data.passBenchmark ? '#16a34a' : '#2563eb' }]}>
+                {data.projectedScore}%
+              </Text>
+              <Text style={styles.trajectoryStatSub}>
+                95% CI: {data.confidenceInterval[0]}% - {data.confidenceInterval[1]}%
+              </Text>
+            </View>
+            <View style={styles.trajectoryStatBox}>
+              <Text style={styles.trajectoryStatLabel}>Pass Probability</Text>
+              <Text style={[styles.trajectoryStatVal, { color: data.passProbability >= 60 ? '#16a34a' : '#d97706' }]}>
+                {data.passProbability}%
+              </Text>
+              <Text style={styles.trajectoryStatSub}>
+                {data.projectedScore >= data.passBenchmark
+                  ? 'Meets Standard'
+                  : `Gap: +${data.passBenchmark - data.projectedScore}% needed`}
+              </Text>
+            </View>
+          </View>
+        </View>
       </View>
 
       {/* Official PhilNITS Passing Benchmark Card */}
@@ -742,20 +1256,24 @@ export default function Performance({ navigation }) {
           </View>
 
           <View style={[styles.benchmarkStatusBox, {
-            backgroundColor: data.passProbability >= data.passBenchmark ? '#ecfdf5' : '#fefce8',
-            borderColor: data.passProbability >= data.passBenchmark ? '#a7f3d0' : '#fef08a'
+            backgroundColor: !data.hasActivity ? '#f8fafc' : data.isLowData ? '#f1f5f9' : (data.passProbability >= data.passBenchmark ? '#ecfdf5' : '#fefce8'),
+            borderColor: !data.hasActivity ? '#e2e8f0' : data.isLowData ? '#cbd5e1' : (data.passProbability >= data.passBenchmark ? '#a7f3d0' : '#fef08a')
           }]}>
             <Ionicons
-              name={data.passProbability >= data.passBenchmark ? 'checkmark-circle' : 'alert-circle'}
+              name={!data.hasActivity ? 'information-circle-outline' : data.isLowData ? 'timer-outline' : (data.passProbability >= data.passBenchmark ? 'checkmark-circle' : 'alert-circle')}
               size={18}
-              color={data.passProbability >= data.passBenchmark ? '#059669' : '#d97706'}
+              color={!data.hasActivity ? '#64748b' : data.isLowData ? '#475569' : (data.passProbability >= data.passBenchmark ? '#059669' : '#d97706')}
             />
             <Text style={[styles.benchmarkStatusText, {
-              color: data.passProbability >= data.passBenchmark ? '#065f46' : '#92400e'
+              color: !data.hasActivity ? '#64748b' : data.isLowData ? '#334155' : (data.passProbability >= data.passBenchmark ? '#065f46' : '#92400e')
             }]}>
-              {data.passProbability >= data.passBenchmark
-                ? `You meet the ${data.passBenchmark}% practice readiness target for ${data.level}!`
-                : `Score gap: +${data.passBenchmark - data.passProbability}% required to reach the ${data.passBenchmark}% practice benchmark.`}
+              {data.isLowData
+                ? `Building readiness baseline (${data.totalPracticeAttempts}/20 practice attempts). Complete at least 20 questions or 1 mock exam to calculate a reliable pass probability.`
+                : data.hasActivity
+                  ? (data.passProbability >= data.passBenchmark
+                      ? `You meet the ${data.passBenchmark}% practice readiness target for ${data.level}!`
+                      : `Score gap: +${data.passBenchmark - data.passProbability}% required to reach the ${data.passBenchmark}% practice benchmark.`)
+                  : `No activity recorded yet for ${data.level}. Complete mock exams or quizzes to calculate your pass probability.`}
             </Text>
           </View>
         </View>
@@ -765,25 +1283,44 @@ export default function Performance({ navigation }) {
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Domain Readiness Checklist</Text>
         <View style={styles.sectionCard}>
-          {data.subjects.map((sub) => (
-            <View key={sub.name} style={styles.checklistRow}>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.checklistName}>{sub.name}</Text>
-                <Text style={styles.checklistScore}>
-                  {sub.total > 0 ? `${sub.pct}% accuracy (${sub.correct}/${sub.total} items)` : 'No attempts yet'}
-                </Text>
-              </View>
-              <View style={[styles.checklistBadge, {
-                backgroundColor: sub.total === 0 ? '#f1f5f9' : (sub.isPassing ? '#dcfce7' : '#fee2e2')
-              }]}>
-                <Text style={[styles.checklistBadgeText, {
-                  color: sub.total === 0 ? '#64748b' : (sub.isPassing ? '#15803d' : '#b91c1c')
+          {data.subjects.map((sub) => {
+            const isLowAttempts = sub.total > 0 && sub.total < Math.round(sub.target * 0.4)
+            return (
+              <View key={sub.name} style={styles.checklistRow}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.checklistName}>{sub.name}</Text>
+                  <Text style={styles.checklistScore}>
+                    {sub.total === 0
+                      ? 'No attempts yet'
+                      : isLowAttempts
+                      ? `Building baseline • ${sub.total}/${sub.target} target attempts (${sub.pct}% readiness)`
+                      : `${sub.pct}% domain readiness • ${sub.total}/${sub.target} target attempts`}
+                  </Text>
+                </View>
+                <View style={[styles.checklistBadge, {
+                  backgroundColor: sub.total === 0
+                    ? '#f1f5f9'
+                    : isLowAttempts
+                    ? '#fef3c7'
+                    : (sub.isPassing ? '#dcfce7' : '#fee2e2')
                 }]}>
-                  {sub.total === 0 ? 'Pending' : (sub.isPassing ? `Ready (≥${data.passBenchmark}%)` : 'Needs Review')}
-                </Text>
+                  <Text style={[styles.checklistBadgeText, {
+                    color: sub.total === 0
+                      ? '#64748b'
+                      : isLowAttempts
+                      ? '#d97706'
+                      : (sub.isPassing ? '#15803d' : '#b91c1c')
+                  }]}>
+                    {sub.total === 0
+                      ? 'Pending'
+                      : isLowAttempts
+                      ? 'Low Data'
+                      : (sub.isPassing ? `Ready (≥${data.passBenchmark}%)` : 'Needs Practice')}
+                  </Text>
+                </View>
               </View>
-            </View>
-          ))}
+            )
+          })}
         </View>
       </View>
 
@@ -851,13 +1388,40 @@ export default function Performance({ navigation }) {
             </View>
           </View>
 
+          {/* Prescriptive Pace & Daily Targets */}
+          <View style={styles.paceRow}>
+            <View style={styles.paceItem}>
+              <Text style={styles.paceLabel}>STUDY PACE</Text>
+              <Text style={styles.paceValue}>{data.studyPace}</Text>
+            </View>
+            <View style={[styles.paceItem, { borderLeftWidth: 1, borderLeftColor: '#e2e8f0' }]}>
+              <Text style={styles.paceLabel}>DAILY TARGET</Text>
+              <Text style={styles.paceValue}>{data.dailyQuestionTarget} items/day</Text>
+            </View>
+          </View>
+
           <Text style={styles.prescriptiveAdvice}>
-            {getSubjectTip(data.weakestSubject?.name)}
+            {data.hasActivity
+              ? getSubjectTip(data.weakestSubject?.name)
+              : `No activity recorded yet for ${data.level}. Start answering practice questions or take a mock exam to receive personalized study recommendations.`}
           </Text>
+
+          {/* Memory Decay Warning if any domain has elapsed > 7 days */}
+          {data.decayedSubjects && data.decayedSubjects.length > 0 && (
+            <View style={styles.decayAlertBox}>
+              <View style={styles.decayAlertTitleRow}>
+                <Ionicons name="warning-outline" size={16} color="#d97706" />
+                <Text style={styles.decayAlertTitle}>Memory Retention Alert (Ebbinghaus)</Text>
+              </View>
+              <Text style={styles.decayAlertText}>
+                {data.decayedSubjects.map(s => `${s.name} (${s.daysSince}d ago - ${s.retentionPct}% retained)`).join(', ')}. Review these domains soon to prevent retention loss.
+              </Text>
+            </View>
+          )}
 
           <TouchableOpacity
             style={styles.practiceFocusBtn}
-            onPress={() => navigation?.navigate('PracticeLibraryScreen')}
+            onPress={() => navigation?.navigate('PracticeLibrary')}
           >
             <Feather name="play-circle" size={16} color="#fff" />
             <Text style={styles.practiceFocusBtnText}>Practice {data.weakestSubject?.name}</Text>
@@ -893,9 +1457,11 @@ export default function Performance({ navigation }) {
             <View style={[styles.barFill, { width: `${data.goalPct}%`, backgroundColor: '#2563eb' }]} />
           </View>
           <Text style={styles.goalNote}>
-            {data.goalPct >= 100
-              ? "🎉 Daily goal achieved!"
-              : `${fmtMins(data.dailyGoalMins - data.todayMins)} remaining to hit your ${data.level} daily goal`}
+            {data.todayMins > 0
+              ? (data.goalPct >= 100
+                  ? "🎉 Daily goal achieved!"
+                  : `${fmtMins(data.dailyGoalMins - data.todayMins)} remaining to hit your ${data.level} daily goal`)
+              : `0m completed today. Start practicing to reach your ${data.level} daily goal.`}
           </Text>
         </View>
       </View>
@@ -913,55 +1479,42 @@ export default function Performance({ navigation }) {
         <Text style={styles.headerTitle}>PERFORMANCE</Text>
       </View>
 
-      {/* Exam Track Switcher Bar */}
-      <View style={styles.trackBar}>
-        <View style={styles.trackSegment}>
-          <TouchableOpacity
-            style={[styles.trackBtn, examLevel === 'IP' && styles.trackBtnActive]}
-            onPress={() => handleTrackSwitch('IP')}
-            activeOpacity={0.7}
-          >
-            <MaterialCommunityIcons
-              name="school"
-              size={14}
-              color={examLevel === 'IP' ? '#fff' : '#64748b'}
-            />
-            <Text style={[styles.trackBtnText, examLevel === 'IP' && styles.trackBtnTextActive]}>
-              IP
-            </Text>
-          </TouchableOpacity>
+      {/* FE Paper Switcher (Subject A / Subject B) without redundant target exam text */}
+      {userTargetExam === 'FE' && (
+        <View style={[styles.trackBar, { paddingVertical: 6 }]}>
+          <View style={styles.trackSegment}>
+            <TouchableOpacity
+              style={[styles.trackBtn, examLevel === 'FE Subject A' && styles.trackBtnActive]}
+              onPress={() => handleTrackSwitch('FE Subject A')}
+              activeOpacity={0.7}
+            >
+              <MaterialCommunityIcons
+                name="laptop"
+                size={14}
+                color={examLevel === 'FE Subject A' ? '#fff' : '#64748b'}
+              />
+              <Text style={[styles.trackBtnText, examLevel === 'FE Subject A' && styles.trackBtnTextActive]}>
+                Subject A (Morning)
+              </Text>
+            </TouchableOpacity>
 
-          <TouchableOpacity
-            style={[styles.trackBtn, examLevel === 'FE Subject A' && styles.trackBtnActive]}
-            onPress={() => handleTrackSwitch('FE Subject A')}
-            activeOpacity={0.7}
-          >
-            <MaterialCommunityIcons
-              name="laptop"
-              size={14}
-              color={examLevel === 'FE Subject A' ? '#fff' : '#64748b'}
-            />
-            <Text style={[styles.trackBtnText, examLevel === 'FE Subject A' && styles.trackBtnTextActive]}>
-              FE Subj A
-            </Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[styles.trackBtn, examLevel === 'FE Subject B' && styles.trackBtnActive]}
-            onPress={() => handleTrackSwitch('FE Subject B')}
-            activeOpacity={0.7}
-          >
-            <MaterialCommunityIcons
-              name="code-braces"
-              size={14}
-              color={examLevel === 'FE Subject B' ? '#fff' : '#64748b'}
-            />
-            <Text style={[styles.trackBtnText, examLevel === 'FE Subject B' && styles.trackBtnTextActive]}>
-              FE Subj B
-            </Text>
-          </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.trackBtn, examLevel === 'FE Subject B' && styles.trackBtnActive]}
+              onPress={() => handleTrackSwitch('FE Subject B')}
+              activeOpacity={0.7}
+            >
+              <MaterialCommunityIcons
+                name="code-braces"
+                size={14}
+                color={examLevel === 'FE Subject B' ? '#fff' : '#64748b'}
+              />
+              <Text style={[styles.trackBtnText, examLevel === 'FE Subject B' && styles.trackBtnTextActive]}>
+                Subject B (Afternoon)
+              </Text>
+            </TouchableOpacity>
+          </View>
         </View>
-      </View>
+      )}
 
       {/* Tabs */}
       <View style={styles.tabRow}>
@@ -1061,6 +1614,40 @@ const styles = StyleSheet.create({
   trackBtnTextActive: {
     color: '#fff',
     fontWeight: '800',
+  },
+  singleTrackCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#eff6ff',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#bfdbfe',
+    width: '100%',
+  },
+  singleTrackTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#1d4ed8',
+  },
+  singleTrackSub: {
+    fontSize: 11,
+    fontWeight: '500',
+    color: '#3b82f6',
+    marginTop: 2,
+  },
+  feTrackHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 8,
+    gap: 6,
+  },
+  feTrackHeaderText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#1d4ed8',
   },
 
   tabRow: { flexDirection: 'row', borderBottomWidth: 1, borderBottomColor: '#e8edf5' },
@@ -1188,4 +1775,159 @@ const styles = StyleSheet.create({
   goalSlash: { fontSize: 18, color: '#94a3b8' },
   goalTotal: { fontSize: 18, fontWeight: '700', color: '#94a3b8' },
   goalNote: { fontSize: 12, color: '#64748b', marginTop: 10, textAlign: 'center' },
+
+  // Radar Chart styles
+  radarContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 10,
+  },
+  radarLegendRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 16,
+    marginTop: 10,
+  },
+  radarLegendItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  radarLegendDot: {
+    width: 9,
+    height: 9,
+    borderRadius: 4.5,
+  },
+  radarLegendLine: {
+    width: 14,
+    height: 0,
+    borderTopWidth: 2,
+  },
+  radarLegendText: {
+    fontSize: 11,
+    color: '#64748b',
+    fontWeight: '600',
+  },
+
+  // Retention pills
+  domainMetaRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 5,
+  },
+  retentionPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 6,
+    borderWidth: 1,
+  },
+  retentionDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
+  retentionText: {
+    fontSize: 10,
+    fontWeight: '700',
+  },
+
+  // Trajectory styles
+  trajectoryChartWrap: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 10,
+  },
+  trajectoryLegendRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 12,
+    marginTop: 8,
+  },
+  trajectoryStatsGrid: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 14,
+    borderTopWidth: 1,
+    borderTopColor: '#f1f5f9',
+    paddingTop: 12,
+  },
+  trajectoryStatBox: {
+    flex: 1,
+    backgroundColor: '#f8fafc',
+    borderRadius: 12,
+    padding: 10,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+  },
+  trajectoryStatLabel: {
+    fontSize: 11,
+    color: '#64748b',
+    fontWeight: '700',
+  },
+  trajectoryStatVal: {
+    fontSize: 20,
+    fontWeight: '900',
+    marginVertical: 2,
+  },
+  trajectoryStatSub: {
+    fontSize: 10,
+    color: '#94a3b8',
+    textAlign: 'center',
+  },
+
+  // Prescriptive target badges
+  paceRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    backgroundColor: '#f8fafc',
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+  },
+  paceItem: {
+    alignItems: 'center',
+    flex: 1,
+  },
+  paceLabel: {
+    fontSize: 10,
+    color: '#64748b',
+    fontWeight: '700',
+    marginBottom: 2,
+  },
+  paceValue: {
+    fontSize: 14,
+    fontWeight: '900',
+    color: NAVY,
+  },
+  decayAlertBox: {
+    backgroundColor: '#fffbeb',
+    borderRadius: 12,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: '#fef08a',
+    marginBottom: 12,
+  },
+  decayAlertTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 6,
+  },
+  decayAlertTitle: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#92400e',
+  },
+  decayAlertText: {
+    fontSize: 11,
+    color: '#78350f',
+    lineHeight: 16,
+  },
 })

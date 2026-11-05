@@ -1,11 +1,12 @@
 import React, { useEffect, useState, useRef } from 'react'
-import { Modal, View, Text, TextInput, TouchableOpacity, Alert, StyleSheet, Animated, Image, KeyboardAvoidingView, Platform, ActivityIndicator, ScrollView } from 'react-native'
+import { Modal, View, Text, TextInput, TouchableOpacity, Alert, StyleSheet, Animated, Image, KeyboardAvoidingView, Platform, ActivityIndicator, ScrollView, StatusBar, Linking } from 'react-native'
 import { Feather, Ionicons } from '@expo/vector-icons'
 import * as WebBrowser from 'expo-web-browser'
 import * as QueryParams from 'expo-auth-session'
 import { supabase } from '../../supabase'
 import { sendEmailJsOtp } from '../../utils/emailjs'
-import { saveUserCache } from '../../utils/database'
+import { saveUserCache, saveUserSession } from '../../utils/database'
+import { precachePracticeContent } from '../../utils/syncManager'
 
 WebBrowser.maybeCompleteAuthSession()
 
@@ -54,6 +55,7 @@ export default function Login({ navigation }) {
       .maybeSingle()
 
     if (personalInfoError || !personalInfoData) {
+      await saveUserSession({ id: userId, email: effectiveEmail }, {})
       navigation?.replace('PersonalInfo')
       return
     }
@@ -67,6 +69,7 @@ export default function Login({ navigation }) {
       .maybeSingle()
 
     if (diagnosticError || !diagnosticData) {
+      await saveUserSession({ id: userId, email: effectiveEmail }, {})
       navigation?.replace('DiagnosticAssessment')
       return
     }
@@ -80,8 +83,12 @@ export default function Login({ navigation }) {
 
     const hasPin = Boolean(pinData?.pin_hash && String(pinData.pin_hash).trim().length > 0)
 
-    // Sync to local cache
+    // Sync to local cache & session
     await saveUserCache(userId, hasPin ? pinData.pin_hash : null, true, true)
+    await saveUserSession({ id: userId, email: effectiveEmail }, {
+      pin_hash: hasPin ? pinData.pin_hash : null,
+    })
+    precachePracticeContent().catch(() => {})
 
     if (hasPin) {
       navigation?.replace('PinAuth')
@@ -107,6 +114,205 @@ export default function Login({ navigation }) {
   const [generatedForgotOtp, setGeneratedForgotOtp] = useState(null)
   const forgotOtpInputRef = useRef(null)
   const [isForgotOtpFocused, setIsForgotOtpFocused] = useState(false)
+
+  // Validation error states
+  const [emailError, setEmailError] = useState('')
+  const [passwordError, setPasswordError] = useState('')
+
+  // Debounce refs for login fields
+  const emailDebounceRef = useRef(null)
+  const passwordDebounceRef = useRef(null)
+
+  // Forgot password error states
+  const [forgotEmailError, setForgotEmailError] = useState('')
+  const [forgotOtpError, setForgotOtpError] = useState('')
+  const [forgotNewPasswordError, setForgotNewPasswordError] = useState('')
+  const [forgotConfirmPasswordError, setForgotConfirmPasswordError] = useState('')
+
+  // Debounce refs for forgot password fields
+  const forgotEmailDebounceRef = useRef(null)
+  const forgotOtpDebounceRef = useRef(null)
+  const forgotNewPasswordDebounceRef = useRef(null)
+  const forgotConfirmPasswordDebounceRef = useRef(null)
+
+  // Clear debounce timers on unmount
+  useEffect(() => {
+    return () => {
+      if (emailDebounceRef.current) clearTimeout(emailDebounceRef.current)
+      if (passwordDebounceRef.current) clearTimeout(passwordDebounceRef.current)
+      if (forgotEmailDebounceRef.current) clearTimeout(forgotEmailDebounceRef.current)
+      if (forgotOtpDebounceRef.current) clearTimeout(forgotOtpDebounceRef.current)
+      if (forgotNewPasswordDebounceRef.current) clearTimeout(forgotNewPasswordDebounceRef.current)
+      if (forgotConfirmPasswordDebounceRef.current) clearTimeout(forgotConfirmPasswordDebounceRef.current)
+    }
+  }, [])
+
+  // Validation helper functions
+  const validateEmail = (val) => {
+    const trimmed = (val || '').trim()
+    if (!trimmed) return 'Email is required'
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+    if (!emailRegex.test(trimmed)) return 'Please enter a valid email address'
+    return ''
+  }
+
+  const validateLoginPassword = (val) => {
+    if (!val) return 'Password is required'
+    const missing = []
+    if (val.length < 8) missing.push('at least 8 characters')
+    if (!/[A-Z]/.test(val)) missing.push('an uppercase letter')
+    if (!/[a-z]/.test(val)) missing.push('a lowercase letter')
+    if (!/\d/.test(val)) missing.push('a number')
+    if (!/[@$!%*?&#]/.test(val)) missing.push('a special character (@$!%*?&#)')
+
+    if (missing.length === 0) return ''
+    if (missing.length >= 4) {
+      return 'Must be at least 8 characters with uppercase, lowercase, number, and special character (@$!%*?&#)'
+    }
+    return 'Must include: ' + missing.join(', ')
+  }
+
+  const validateForgotEmail = (val) => {
+    const trimmed = (val || '').trim()
+    if (!trimmed) return 'Email is required'
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+    if (!emailRegex.test(trimmed)) return 'Please enter a valid email address'
+    return ''
+  }
+
+  const validateForgotOtp = (val) => {
+    const trimmed = (val || '').trim()
+    if (!trimmed) return 'Verification code is required'
+    if (trimmed.length < 4) return 'Please enter the complete 4-digit code'
+    return ''
+  }
+
+  const validateForgotNewPassword = (val) => {
+    if (!val) return 'Password is required'
+    const missing = []
+    if (val.length < 8) missing.push('at least 8 characters')
+    if (!/[A-Z]/.test(val)) missing.push('an uppercase letter')
+    if (!/[a-z]/.test(val)) missing.push('a lowercase letter')
+    if (!/\d/.test(val)) missing.push('a number')
+    if (!/[@$!%*?&#]/.test(val)) missing.push('a special character (@$!%*?&#)')
+
+    if (missing.length === 0) return ''
+    if (missing.length >= 4) {
+      return 'Must be at least 8 characters with uppercase, lowercase, number, and special character (@$!%*?&#)'
+    }
+    return 'Must include: ' + missing.join(', ')
+  }
+
+  const validateForgotConfirmPassword = (val, original) => {
+    if (!val) return 'Please confirm your password'
+    if (val !== original) return 'Passwords do not match'
+    return ''
+  }
+
+  // Field change and blur handlers
+  const handleEmailChange = (text) => {
+    setEmail(text)
+    if (text) handleFocus(emailAnim)
+    if (emailError) setEmailError('')
+
+    if (emailDebounceRef.current) clearTimeout(emailDebounceRef.current)
+    emailDebounceRef.current = setTimeout(() => {
+      setEmailError(validateEmail(text))
+    }, 600)
+  }
+
+  const handleEmailBlur = () => {
+    setEmailFocused(false)
+    handleBlur(emailAnim, email)
+    if (emailDebounceRef.current) clearTimeout(emailDebounceRef.current)
+    setEmailError(validateEmail(email))
+  }
+
+  const handlePasswordChange = (text) => {
+    setPassword(text)
+    if (text) handleFocus(passAnim)
+    if (passwordError) setPasswordError('')
+
+    if (passwordDebounceRef.current) clearTimeout(passwordDebounceRef.current)
+    passwordDebounceRef.current = setTimeout(() => {
+      setPasswordError(validateLoginPassword(text))
+    }, 600)
+  }
+
+  const handlePasswordBlur = () => {
+    setPassFocused(false)
+    handleBlur(passAnim, password)
+    if (passwordDebounceRef.current) clearTimeout(passwordDebounceRef.current)
+    setPasswordError(validateLoginPassword(password))
+  }
+
+  const handleForgotEmailChange = (text) => {
+    setForgotEmail(text)
+    if (forgotEmailError) setForgotEmailError('')
+
+    if (forgotEmailDebounceRef.current) clearTimeout(forgotEmailDebounceRef.current)
+    forgotEmailDebounceRef.current = setTimeout(() => {
+      setForgotEmailError(validateForgotEmail(text))
+    }, 600)
+  }
+
+  const handleForgotEmailBlur = () => {
+    if (forgotEmailDebounceRef.current) clearTimeout(forgotEmailDebounceRef.current)
+    setForgotEmailError(validateForgotEmail(forgotEmail))
+  }
+
+  const handleForgotOtpChange = (text) => {
+    const cleaned = text.replace(/[^0-9]/g, '').slice(0, 4)
+    setForgotOtp(cleaned)
+    if (forgotOtpError) setForgotOtpError('')
+
+    if (forgotOtpDebounceRef.current) clearTimeout(forgotOtpDebounceRef.current)
+    forgotOtpDebounceRef.current = setTimeout(() => {
+      setForgotOtpError(validateForgotOtp(cleaned))
+    }, 600)
+  }
+
+  const handleForgotOtpBlur = () => {
+    setIsForgotOtpFocused(false)
+    if (forgotOtpDebounceRef.current) clearTimeout(forgotOtpDebounceRef.current)
+    setForgotOtpError(validateForgotOtp(forgotOtp))
+  }
+
+  const handleForgotNewPasswordChange = (text) => {
+    setForgotNewPassword(text)
+    if (forgotNewPasswordError) setForgotNewPasswordError('')
+
+    if (forgotNewPasswordDebounceRef.current) clearTimeout(forgotNewPasswordDebounceRef.current)
+    forgotNewPasswordDebounceRef.current = setTimeout(() => {
+      setForgotNewPasswordError(validateForgotNewPassword(text))
+      if (forgotConfirmPassword) {
+        setForgotConfirmPasswordError(validateForgotConfirmPassword(forgotConfirmPassword, text))
+      }
+    }, 600)
+  }
+
+  const handleForgotNewPasswordBlur = () => {
+    if (forgotNewPasswordDebounceRef.current) clearTimeout(forgotNewPasswordDebounceRef.current)
+    setForgotNewPasswordError(validateForgotNewPassword(forgotNewPassword))
+    if (forgotConfirmPassword) {
+      setForgotConfirmPasswordError(validateForgotConfirmPassword(forgotConfirmPassword, forgotNewPassword))
+    }
+  }
+
+  const handleForgotConfirmPasswordChange = (text) => {
+    setForgotConfirmPassword(text)
+    if (forgotConfirmPasswordError) setForgotConfirmPasswordError('')
+
+    if (forgotConfirmPasswordDebounceRef.current) clearTimeout(forgotConfirmPasswordDebounceRef.current)
+    forgotConfirmPasswordDebounceRef.current = setTimeout(() => {
+      setForgotConfirmPasswordError(validateForgotConfirmPassword(text, forgotNewPassword))
+    }, 600)
+  }
+
+  const handleForgotConfirmPasswordBlur = () => {
+    if (forgotConfirmPasswordDebounceRef.current) clearTimeout(forgotConfirmPasswordDebounceRef.current)
+    setForgotConfirmPasswordError(validateForgotConfirmPassword(forgotConfirmPassword, forgotNewPassword))
+  }
 
   useEffect(() => {
     if (forgotVisible && forgotStep === 'verify') {
@@ -156,11 +362,116 @@ export default function Login({ navigation }) {
     return () => clearTimeout(timer)
   }, [resetCooldown])
 
+  const isAuthenticatingRef = useRef(false)
+
+  // Universal handler for OAuth callback URL (from WebBrowser or Linking)
+  const handleAuthUrl = async (url) => {
+    if (!url) return false
+    if (isAuthenticatingRef.current) return false
+
+    // Check for error parameters in redirect
+    const errorParam = url.match(/[?&#]error=([^&]+)/)?.[1]
+    const errorDesc = url.match(/[?&#]error_description=([^&]+)/)?.[1]
+    if (errorParam || errorDesc) {
+      const msg = decodeURIComponent((errorDesc || errorParam).replace(/\+/g, ' '))
+      showCustomAlert('Login Error', msg)
+      setLoading(false)
+      return false
+    }
+
+    isAuthenticatingRef.current = true
+    setLoading(true)
+
+    try {
+      // 1. Check for PKCE authorization code (?code=... or #code=... or &code=...)
+      const code = url.match(/[?&#]code=([^&]+)/)?.[1]
+      if (code) {
+        console.log('Found PKCE auth code, exchanging for session...')
+        const { data: sessionData, error: sessionError } = await supabase.auth.exchangeCodeForSession(code)
+        if (sessionError) {
+          console.error('exchangeCodeForSession error:', sessionError)
+          showCustomAlert('Login Error', sessionError.message || 'Failed to authenticate session. Please try again.')
+          isAuthenticatingRef.current = false
+          setLoading(false)
+          return false
+        }
+        const activeUser = sessionData?.user || sessionData?.session?.user
+        if (activeUser) {
+          await checkUserRedirects(activeUser.id, activeUser.email)
+          return true
+        }
+      }
+
+      // 2. Check for Implicit access token (#access_token=... or ?access_token=...)
+      const accessToken = url.match(/[?&#]access_token=([^&]+)/)?.[1]
+      const refreshToken = url.match(/[?&#]refresh_token=([^&]+)/)?.[1]
+      if (accessToken) {
+        console.log('Found access token, setting session...')
+        const { data: sessionData, error: sessionError } = await supabase.auth.setSession({
+          access_token: accessToken,
+          refresh_token: refreshToken || '',
+        })
+        if (sessionError) {
+          console.error('setSession error:', sessionError)
+          showCustomAlert('Login Error', sessionError.message || 'Failed to authenticate session. Please try again.')
+          isAuthenticatingRef.current = false
+          setLoading(false)
+          return false
+        }
+        const activeUser = sessionData?.user || sessionData?.session?.user
+        if (activeUser) {
+          await checkUserRedirects(activeUser.id, activeUser.email)
+          return true
+        }
+      }
+
+      // 3. Fallback: check if session is already established in Supabase
+      const { data: { session } } = await supabase.auth.getSession()
+      if (session?.user) {
+        await checkUserRedirects(session.user.id, session.user.email)
+        return true
+      }
+    } catch (err) {
+      console.error('Auth callback handling error:', err)
+      showCustomAlert('Login Error', 'Failed to complete Google login. Please try again.')
+    } finally {
+      isAuthenticatingRef.current = false
+      setLoading(false)
+    }
+
+    return false
+  }
+
+  // Deep-link listener for incoming OAuth redirects from browser
+  useEffect(() => {
+    const handleUrlEvent = async (event) => {
+      if (event?.url && (event.url.includes('code=') || event.url.includes('access_token=') || event.url.includes('error='))) {
+        try {
+          WebBrowser.dismissAuthSession()
+        } catch (_) {}
+        await handleAuthUrl(event.url)
+      }
+    }
+
+    const sub = Linking.addEventListener('url', handleUrlEvent)
+
+    Linking.getInitialURL().then((url) => {
+      if (url && (url.includes('code=') || url.includes('access_token=') || url.includes('error='))) {
+        handleAuthUrl(url)
+      }
+    }).catch(() => {})
+
+    return () => {
+      sub.remove()
+    }
+  }, [])
+
   const handleGoogleSignIn = async () => {
     setLoading(true)
     try {
       const redirectUrl = QueryParams.makeRedirectUri({
-        scheme: 'gabay-philnits',
+        scheme: 'gabayphilcse',
+        native: 'gabayphilcse://',
       })
 
       const { data, error } = await supabase.auth.signInWithOAuth({
@@ -172,7 +483,8 @@ export default function Login({ navigation }) {
       })
 
       if (error) {
-        showCustomAlert('Login Error', 'Google sign-in could not be completed. Please try again.')
+        showCustomAlert('Login Error', error.message || 'Google sign-in could not be completed. Please try again.')
+        setLoading(false)
         return
       }
 
@@ -180,49 +492,41 @@ export default function Login({ navigation }) {
         const result = await WebBrowser.openAuthSessionAsync(data.url, redirectUrl)
 
         if (result.type === 'success' && result.url) {
-          // Parse dynamic hash parameters from return URI
-          const parsed = QueryParams.parseQueryParams(result.url)
-          const accessToken = parsed.access_token || result.url.match(/access_token=([^&]+)/)?.[1]
-          const refreshToken = parsed.refresh_token || result.url.match(/refresh_token=([^&]+)/)?.[1]
-
-          if (accessToken) {
-            const { data: sessionData, error: sessionError } = await supabase.auth.setSession({
-              access_token: accessToken,
-              refresh_token: refreshToken || '',
-            })
-
-            if (sessionError) {
-              showCustomAlert('Login Error', 'Failed to authenticate session. Please try again.')
-              return
+          await handleAuthUrl(result.url)
+        } else if (result.type === 'cancel' || result.type === 'dismiss') {
+          // If browser dismissed, check if Linking or session already processed it
+          setTimeout(async () => {
+            const { data: { session } } = await supabase.auth.getSession()
+            if (session?.user) {
+              await checkUserRedirects(session.user.id, session.user.email)
+            } else {
+              setLoading(false)
             }
-
-            const activeUser = sessionData?.user || sessionData?.session?.user
-            if (activeUser) {
-              await checkUserRedirects(activeUser.id, activeUser.email)
-            }
-          }
+          }, 600)
+        } else {
+          setLoading(false)
         }
+      } else {
+        setLoading(false)
       }
     } catch (err) {
+      console.error('Google sign in error:', err)
       showCustomAlert('Login Error', 'Google sign-in could not be completed. Please try again.')
-    } finally {
       setLoading(false)
     }
   }
 
   const handleLogin = async () => {
+    const emailErr = validateEmail(email)
+    const passErr = validateLoginPassword(password)
+    setEmailError(emailErr)
+    setPasswordError(passErr)
+
+    if (emailErr || passErr) {
+      return
+    }
+
     const trimmedEmail = email.trim()
-    if (!trimmedEmail || !password) {
-      showCustomAlert('Validation Error', 'Please fill in both email and password.')
-      return
-    }
-
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
-    if (!emailRegex.test(trimmedEmail)) {
-      showCustomAlert('Validation Error', 'Please enter a valid email address.')
-      return
-    }
-
     setLoading(true)
     try {
       const { data, error } = await supabase.auth.signInWithPassword({
@@ -244,8 +548,9 @@ export default function Login({ navigation }) {
   }
 
   const handleSendResetCode = async () => {
-    if (!forgotEmail.trim()) {
-      showCustomAlert('Validation Error', 'Please enter your email address.')
+    const err = validateForgotEmail(forgotEmail)
+    setForgotEmailError(err)
+    if (err) {
       return
     }
 
@@ -264,7 +569,7 @@ export default function Login({ navigation }) {
         .maybeSingle()
 
       if (userError || !userData) {
-        showCustomAlert('Reset Error', 'No account found with this email address.')
+        setForgotEmailError('No account found with this email address.')
         return
       }
 
@@ -277,6 +582,7 @@ export default function Login({ navigation }) {
 
       setForgotStep('verify')
       setForgotOtp('')
+      setForgotOtpError('')
       setResetCooldown(60)
     } catch (err) {
       showCustomAlert('Reset Error', 'Could not send verification code. Please try again.')
@@ -287,37 +593,29 @@ export default function Login({ navigation }) {
 
   const handleVerifyResetCode = async () => {
     const code = getForgotOtpString()
-    if (code.length < 4) {
-      showCustomAlert('Validation Error', 'Please enter the complete 4-digit code.')
+    const err = validateForgotOtp(code)
+    setForgotOtpError(err)
+    if (err) {
       return
     }
 
     if (code !== generatedForgotOtp) {
-      showCustomAlert('Verification Error', 'Invalid verification code. Please try again.')
+      setForgotOtpError('Invalid verification code. Please try again.')
       return
     }
 
     setForgotStep('reset')
+    setForgotNewPasswordError('')
+    setForgotConfirmPasswordError('')
   }
 
   const handleResetPassword = async () => {
-    if (!forgotNewPassword.trim()) {
-      showCustomAlert('Validation Error', 'Please enter a new password.')
-      return
-    }
+    const newPassErr = validateForgotNewPassword(forgotNewPassword)
+    const confirmErr = validateForgotConfirmPassword(forgotConfirmPassword, forgotNewPassword)
+    setForgotNewPasswordError(newPassErr)
+    setForgotConfirmPasswordError(confirmErr)
 
-    if (forgotNewPassword !== forgotConfirmPassword) {
-      showCustomAlert('Validation Error', 'Passwords do not match.')
-      return
-    }
-
-    // Password strength check (8+ characters, 1 upper, 1 lower, 1 number, 1 special char)
-    const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&#])[A-Za-z\d@$!%*?&#]{8,}$/
-    if (!passwordRegex.test(forgotNewPassword)) {
-      showCustomAlert(
-        'Weak Password',
-        'Password must be at least 8 characters long and include at least one uppercase letter, one lowercase letter, one number, and one special character (e.g., @$!%*?&).'
-      )
+    if (newPassErr || confirmErr) {
       return
     }
 
@@ -341,25 +639,45 @@ export default function Login({ navigation }) {
       setForgotEmail('')
       setForgotOtp('')
       setForgotNewPassword('')
+      setForgotConfirmPassword('')
+      setForgotEmailError('')
+      setForgotOtpError('')
+      setForgotNewPasswordError('')
+      setForgotConfirmPasswordError('')
     } catch (err) {
       showCustomAlert('Reset Error', 'An unexpected error occurred. Please try again.')
     } finally {
       setForgotLoading(false)
     }
   }
-  const isLoginFormValid = email.trim() !== '' && password.trim() !== '' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
-  const isLoginDisabled = loading || !isLoginFormValid;
+  const isLoginFormValid =
+    email.trim() !== '' &&
+    password.trim() !== '' &&
+    /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()) &&
+    validateLoginPassword(password) === '' &&
+    !emailError &&
+    !passwordError;
+  const isLoginDisabled = loading;
 
-  const isForgotEmailValid = forgotEmail.trim() !== '' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(forgotEmail.trim());
-  const isSendOtpDisabled = forgotLoading || resetCooldown > 0 || !isForgotEmailValid;
+  const isForgotEmailValid =
+    forgotEmail.trim() !== '' &&
+    /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(forgotEmail.trim()) &&
+    !forgotEmailError;
+  const isSendOtpDisabled = forgotLoading || resetCooldown > 0;
 
-  const isVerifyOtpDisabled = forgotLoading || getForgotOtpString().length < 4;
+  const isVerifyOtpDisabled = forgotLoading;
 
-  const isResetPasswordValid = forgotNewPassword !== '' && /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&#])[A-Za-z\d@$!%*?&#]{8,}$/.test(forgotNewPassword) && forgotNewPassword === forgotConfirmPassword;
-  const isResetPasswordDisabled = forgotLoading || !isResetPasswordValid;
+  const isResetPasswordValid =
+    forgotNewPassword !== '' &&
+    /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&#])[A-Za-z\d@$!%*?&#]{8,}$/.test(forgotNewPassword) &&
+    forgotNewPassword === forgotConfirmPassword &&
+    !forgotNewPasswordError &&
+    !forgotConfirmPasswordError;
+  const isResetPasswordDisabled = forgotLoading;
 
   return (
     <View style={styles.container}>
+      <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
       <View style={styles.content}>
         {/* Logo */}
         <View style={styles.logoContainer}>
@@ -391,7 +709,13 @@ export default function Login({ navigation }) {
           <View style={styles.divider} />
 
           {/* Email Input */}
-          <View style={[styles.inputContainer, emailFocused && styles.inputContainerFocused]}>
+          <View
+            style={[
+              styles.inputContainer,
+              emailFocused && styles.inputContainerFocused,
+              emailError ? styles.inputContainerError : null,
+            ]}
+          >
             <Animated.Text
               style={[
                 styles.floatingLabel,
@@ -421,26 +745,30 @@ export default function Login({ navigation }) {
             </Animated.Text>
             <TextInput
               value={email}
-              onChangeText={(text) => {
-                setEmail(text)
-                if (text) handleFocus(emailAnim)
-              }}
+              onChangeText={handleEmailChange}
               onFocus={() => {
                 setEmailFocused(true)
                 handleFocus(emailAnim)
               }}
-              onBlur={() => {
-                setEmailFocused(false)
-                handleBlur(emailAnim, email)
-              }}
+              onBlur={handleEmailBlur}
               autoCapitalize="none"
               keyboardType="email-address"
               style={styles.floatingInput}
             />
           </View>
+          {emailError ? (
+            <Text style={styles.errorText}>{emailError}</Text>
+          ) : null}
 
           {/* Password Input */}
-          <View style={[styles.inputContainer, passFocused && styles.inputContainerFocused, { marginTop: 14 }]}>
+          <View
+            style={[
+              styles.inputContainer,
+              passFocused && styles.inputContainerFocused,
+              passwordError ? styles.inputContainerError : null,
+              { marginTop: emailError ? 10 : 14 },
+            ]}
+          >
             <Animated.Text
               style={[
                 styles.floatingLabel,
@@ -471,37 +799,43 @@ export default function Login({ navigation }) {
             <View style={styles.passwordRow}>
               <TextInput
                 value={password}
-                onChangeText={(text) => {
-                  setPassword(text)
-                  if (text) handleFocus(passAnim)
-                }}
+                onChangeText={handlePasswordChange}
                 onFocus={() => {
                   setPassFocused(true)
                   handleFocus(passAnim)
                 }}
-                onBlur={() => {
-                  setPassFocused(false)
-                  handleBlur(passAnim, password)
-                }}
+                onBlur={handlePasswordBlur}
                 secureTextEntry={!showPassword}
                 style={styles.passwordInput}
               />
               <TouchableOpacity style={styles.eyeButton} onPress={() => setShowPassword((value) => !value)}>
-                <Feather name={showPassword ? 'eye-off' : 'eye'} size={18} color="#9CA3AF" />
+                <Feather name={showPassword ? 'eye' : 'eye-off'} size={18} color="#9CA3AF" />
               </TouchableOpacity>
             </View>
           </View>
+          {passwordError ? (
+            <Text style={styles.errorText}>{passwordError}</Text>
+          ) : null}
 
           {/* Forgot Password */}
-          <TouchableOpacity activeOpacity={0.8} onPress={() => setForgotVisible(true)}>
-            <Text style={styles.forgotPassword}>Forgot the password?</Text>
+          <TouchableOpacity
+            activeOpacity={0.8}
+            onPress={() => {
+              setForgotEmailError('')
+              setForgotOtpError('')
+              setForgotNewPasswordError('')
+              setForgotConfirmPasswordError('')
+              setForgotVisible(true)
+            }}
+          >
+            <Text style={[styles.forgotPassword, { marginTop: passwordError ? 8 : 8 }]}>Forgot the password?</Text>
           </TouchableOpacity>
 
           {/* Login Button */}
           <TouchableOpacity
-            style={[styles.loginButton, { backgroundColor: isLoginDisabled ? '#f1999d' : '#c14954' }]}
+            style={[styles.loginButton, { backgroundColor: isLoginFormValid ? '#3c64b4' : '#a7aabc' }]}
             onPress={handleLogin}
-            disabled={isLoginDisabled}
+            disabled={loading}
           >
             <Text style={styles.loginButtonText}>{loading ? 'Signing in...' : 'Login'}</Text>
           </TouchableOpacity>
@@ -575,12 +909,22 @@ export default function Login({ navigation }) {
                   <TextInput
                     placeholder="Enter your email"
                     value={forgotEmail}
-                    onChangeText={setForgotEmail}
+                    onChangeText={handleForgotEmailChange}
+                    onBlur={handleForgotEmailBlur}
                     autoCapitalize="none"
                     keyboardType="email-address"
-                    style={styles.fpSingleInput}
+                    style={[
+                      styles.fpSingleInput,
+                      forgotEmailError ? styles.inputContainerError : null,
+                      forgotEmailError ? { marginBottom: 4 } : null,
+                    ]}
                     placeholderTextColor="#94A3B8"
                   />
+                  {forgotEmailError ? (
+                    <Text style={[styles.errorText, { alignSelf: 'flex-start', marginLeft: 8, marginBottom: 14 }]}>
+                      {forgotEmailError}
+                    </Text>
+                  ) : null}
 
                   <TouchableOpacity
                     style={[
@@ -623,7 +967,7 @@ export default function Login({ navigation }) {
                   <TouchableOpacity
                     activeOpacity={1}
                     onPress={() => forgotOtpInputRef.current?.focus()}
-                    style={styles.otpBoxesRow}
+                    style={[styles.otpBoxesRow, forgotOtpError ? { marginBottom: 10 } : null]}
                   >
                     {[0, 1, 2, 3].map((index) => {
                       const digit = forgotOtp[index] || ''
@@ -635,6 +979,7 @@ export default function Login({ navigation }) {
                             styles.otpBox,
                             digit ? styles.otpBoxFilled : null,
                             isCurrent && isForgotOtpFocused ? styles.otpBoxActive : null,
+                            forgotOtpError ? styles.otpBoxError : null,
                           ]}
                         >
                           <Text style={styles.otpDigitText}>{digit}</Text>
@@ -644,18 +989,20 @@ export default function Login({ navigation }) {
                     <TextInput
                       ref={forgotOtpInputRef}
                       value={forgotOtp}
-                      onChangeText={(text) => {
-                        const cleaned = text.replace(/[^0-9]/g, '').slice(0, 4)
-                        setForgotOtp(cleaned)
-                      }}
+                      onChangeText={handleForgotOtpChange}
                       onFocus={() => setIsForgotOtpFocused(true)}
-                      onBlur={() => setIsForgotOtpFocused(false)}
+                      onBlur={handleForgotOtpBlur}
                       keyboardType="number-pad"
                       maxLength={4}
                       style={styles.hiddenOtpInput}
                       caretHidden={true}
                     />
                   </TouchableOpacity>
+                  {forgotOtpError ? (
+                    <Text style={[styles.errorText, { textAlign: 'center', marginBottom: 14 }]}>
+                      {forgotOtpError}
+                    </Text>
+                  ) : null}
 
                   {/* Verify Code Button */}
                   <TouchableOpacity
@@ -726,11 +1073,18 @@ export default function Login({ navigation }) {
                   </Text>
 
                   {/* New Password */}
-                  <View style={styles.fpInputRow}>
+                  <View
+                    style={[
+                      styles.fpInputRow,
+                      forgotNewPasswordError ? styles.inputContainerError : null,
+                      forgotNewPasswordError ? { marginBottom: 4 } : null,
+                    ]}
+                  >
                     <TextInput
                       placeholder="Enter new password"
                       value={forgotNewPassword}
-                      onChangeText={setForgotNewPassword}
+                      onChangeText={handleForgotNewPasswordChange}
+                      onBlur={handleForgotNewPasswordBlur}
                       secureTextEntry={!showResetPassword}
                       style={styles.fpInputText}
                       placeholderTextColor="#94A3B8"
@@ -739,16 +1093,28 @@ export default function Login({ navigation }) {
                       onPress={() => setShowResetPassword((prev) => !prev)}
                       hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                     >
-                      <Feather name={showResetPassword ? 'eye-off' : 'eye'} size={18} color="#94A3B8" />
+                      <Feather name={showResetPassword ? 'eye' : 'eye-off'} size={18} color="#94A3B8" />
                     </TouchableOpacity>
                   </View>
+                  {forgotNewPasswordError ? (
+                    <Text style={[styles.errorText, { alignSelf: 'flex-start', marginLeft: 8, marginBottom: 10 }]}>
+                      {forgotNewPasswordError}
+                    </Text>
+                  ) : null}
 
                   {/* Confirm Password */}
-                  <View style={styles.fpInputRow}>
+                  <View
+                    style={[
+                      styles.fpInputRow,
+                      forgotConfirmPasswordError ? styles.inputContainerError : null,
+                      forgotConfirmPasswordError ? { marginBottom: 4 } : null,
+                    ]}
+                  >
                     <TextInput
                       placeholder="Confirm new password"
                       value={forgotConfirmPassword}
-                      onChangeText={setForgotConfirmPassword}
+                      onChangeText={handleForgotConfirmPasswordChange}
+                      onBlur={handleForgotConfirmPasswordBlur}
                       secureTextEntry={!showResetConfirmPassword}
                       style={styles.fpInputText}
                       placeholderTextColor="#94A3B8"
@@ -757,9 +1123,14 @@ export default function Login({ navigation }) {
                       onPress={() => setShowResetConfirmPassword((prev) => !prev)}
                       hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                     >
-                      <Feather name={showResetConfirmPassword ? 'eye-off' : 'eye'} size={18} color="#94A3B8" />
+                      <Feather name={showResetConfirmPassword ? 'eye' : 'eye-off'} size={18} color="#94A3B8" />
                     </TouchableOpacity>
                   </View>
+                  {forgotConfirmPasswordError ? (
+                    <Text style={[styles.errorText, { alignSelf: 'flex-start', marginLeft: 8, marginBottom: 14 }]}>
+                      {forgotConfirmPasswordError}
+                    </Text>
+                  ) : null}
 
                   <TouchableOpacity
                     style={[
@@ -888,7 +1259,7 @@ export default function Login({ navigation }) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0f1e35',
+    backgroundColor: '#FFFFFF',
     justifyContent: 'center',
     alignItems: 'center',
     paddingHorizontal: 20,
@@ -910,10 +1281,19 @@ const styles = StyleSheet.create({
   },
   formContainer: {
     width: '100%',
-    backgroundColor: '#fff',
+    backgroundColor: '#FFFFFF',
     borderRadius: 24,
     padding: 24,
-    marginBottom: 40,
+    marginBottom: 36,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    // Shadow for iOS
+    shadowColor: '#0F2747',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.12,
+    shadowRadius: 18,
+    // Elevation for Android
+    elevation: 8,
   },
   heading: {
     fontSize: 20,
@@ -956,6 +1336,18 @@ const styles = StyleSheet.create({
   },
   inputContainerFocused: {
     borderColor: '#3B82B8',
+  },
+  inputContainerError: {
+    borderColor: '#EF4444',
+  },
+  errorText: {
+    color: '#EF4444',
+    fontSize: 12,
+    marginTop: 4,
+    marginLeft: 4,
+    fontWeight: '500',
+    alignSelf: 'flex-start',
+    textAlign: 'left',
   },
   floatingLabel: {
     position: 'absolute',
@@ -1001,7 +1393,7 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   loginButton: {
-    backgroundColor: '#D9989E',
+    backgroundColor: '#3c64b4',
     borderRadius: 12,
     paddingVertical: 14,
     alignItems: 'center',
@@ -1027,10 +1419,11 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   bottomText: {
-    color: '#fff',
+    color: '#64748B',
     fontSize: 14,
     textAlign: 'center',
-    marginTop: 20,
+    marginTop: 16,
+    fontWeight: '500',
   },
   modalOverlay: {
     flex: 1,
@@ -1070,7 +1463,7 @@ const styles = StyleSheet.create({
     color: '#111827',
   },
   modalButton: {
-    backgroundColor: '#D9989E',
+    backgroundColor: '#3c64b4',
     borderRadius: 12,
     paddingVertical: 13,
     alignItems: 'center',
@@ -1094,7 +1487,7 @@ const styles = StyleSheet.create({
   // ── Forgot Password & Reset Modal Styles ──
   verifyModalContainer: {
     flex: 1,
-    backgroundColor: '#0F2238',
+    backgroundColor: '#FFFFFF',
   },
   verifyKeyboardAvoid: {
     flex: 1,
@@ -1125,10 +1518,12 @@ const styles = StyleSheet.create({
     paddingBottom: 32,
     paddingHorizontal: 24,
     alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 12 },
-    shadowOpacity: 0.16,
-    shadowRadius: 20,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    shadowColor: '#0F2747',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.14,
+    shadowRadius: 18,
     elevation: 8,
   },
   fpHeaderRow: {
@@ -1174,7 +1569,7 @@ const styles = StyleSheet.create({
   },
   fpPrimaryBtn: {
     width: '100%',
-    backgroundColor: '#B8464E',
+    backgroundColor: '#3c64b4',
     borderRadius: 26,
     paddingVertical: 14,
     alignItems: 'center',
@@ -1182,8 +1577,8 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   fpPrimaryBtnDisabled: {
-    backgroundColor: '#E79DA2',
-    opacity: 0.7,
+    backgroundColor: '#a7aabc',
+    opacity: 0.9,
   },
   fpPrimaryBtnText: {
     color: '#FFFFFF',
@@ -1364,6 +1759,9 @@ const styles = StyleSheet.create({
   otpBoxActive: {
     borderColor: '#B8464E',
     backgroundColor: '#FFF7F7',
+  },
+  otpBoxError: {
+    borderColor: '#EF4444',
   },
   otpDigitText: {
     fontSize: 24,

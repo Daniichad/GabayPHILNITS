@@ -1,27 +1,50 @@
 import NetInfo from '@react-native-community/netinfo'
-import { getPendingSyncItems, markSyncItemCompleted, markSyncItemFailed, getUnsyncedPoints, markPointsSynced } from './database'
+import {
+    getPendingSyncItems, markSyncItemCompleted, markSyncItemFailed,
+    getUnsyncedPoints, markPointsSynced, cacheQuestionsLocally
+} from './database'
 import { supabase } from './supabase'
 
 let isSyncing = false
+const syncListeners = new Set()
+
+export const addSyncListener = (cb) => {
+    syncListeners.add(cb)
+    return () => syncListeners.delete(cb)
+}
+
+const notifySyncListeners = (status, count = 0) => {
+    syncListeners.forEach(cb => {
+        try { cb({ status, count, isSyncing }) } catch (_) {}
+    })
+}
 
 export const processSyncQueue = async () => {
     // Prevent multiple sync processes running at the same time
     if (isSyncing) return
     isSyncing = true
+    notifySyncListeners('STARTING', 0)
 
     try {
         const state = await NetInfo.fetch()
         if (!state.isConnected) {
             isSyncing = false
+            notifySyncListeners('IDLE', 0)
             return
         }
 
         const pendingItems = await getPendingSyncItems()
         if (pendingItems.length === 0) {
-            isSyncing = false
-            return
+            // Also check points
+            const unsyncedPts = await getUnsyncedPoints()
+            if (unsyncedPts.length === 0) {
+                isSyncing = false
+                notifySyncListeners('COMPLETED', 0)
+                return
+            }
         }
 
+        notifySyncListeners('SYNCING', pendingItems.length)
         console.log(`Found ${pendingItems.length} items to sync. Starting sync...`)
 
         for (const item of pendingItems) {
@@ -34,10 +57,14 @@ export const processSyncQueue = async () => {
                         .from(item.table_name)
                         .insert(payload)
                     error = insertError
+                } else if (item.action === 'UPSERT') {
+                    const onConflict = payload.id ? 'id' : (payload.user_id ? 'user_id' : undefined)
+                    const { error: upsertError } = await supabase
+                        .from(item.table_name)
+                        .upsert(payload, onConflict ? { onConflict } : undefined)
+                    error = upsertError
                 } else if (item.action === 'UPDATE') {
                     // Assuming updates provide an 'id' or other primary key in the payload.
-                    // A robust generic update needs to know the where clause.
-                    // For now, if we have an id, we use it.
                     if (payload.id) {
                         const { error: updateError } = await supabase
                             .from(item.table_name)
@@ -69,8 +96,6 @@ export const processSyncQueue = async () => {
 
                 if (error) {
                     console.error(`Failed to sync item ${item.id} (${item.table_name}):`, error)
-                    // Depending on the error, we might want to fail it or keep it pending.
-                    // If it's a conflict or hard error, maybe fail it. Let's just fail for now.
                     await markSyncItemFailed(item.id)
                 } else {
                     console.log(`Successfully synced item ${item.id}`)
@@ -90,19 +115,37 @@ export const processSyncQueue = async () => {
             // Get current user session
             const { data: { session } } = await supabase.auth.getSession()
             if (session?.user?.id) {
-                const payload = unsyncedPoints.map(p => ({
-                    user_id: session.user.id,
-                    category: p.category,
-                    points: p.points,
-                    metadata: p.metadata ? JSON.parse(p.metadata) : null,
-                    created_at: p.created_at
-                }))
+                const userFullName = session.user.user_metadata?.full_name || session.user.user_metadata?.fullName || ''
+                const payload = unsyncedPoints.map(p => {
+                    let metaObj = p.metadata ? (typeof p.metadata === 'string' ? JSON.parse(p.metadata) : p.metadata) : {}
+                    if (userFullName && !metaObj.user_name) {
+                        metaObj.user_name = userFullName
+                    }
+                    return {
+                        user_id: session.user.id,
+                        category: p.category,
+                        points: p.points,
+                        metadata: metaObj,
+                        created_at: p.created_at
+                    }
+                })
 
+                let syncSucceeded = false
                 const { error: rpcError } = await supabase.rpc('sync_points_ledger', { payload })
                 
                 if (rpcError) {
-                    console.error("Failed to sync points to Supabase:", rpcError)
+                    console.warn("RPC sync_points_ledger unavailable or failed, trying direct table insert fallback:", rpcError?.message || rpcError)
+                    const { error: insertError } = await supabase.from('points_ledger').insert(payload)
+                    if (insertError) {
+                        console.error("Failed to sync points to Supabase points_ledger:", insertError?.message || insertError)
+                    } else {
+                        syncSucceeded = true
+                    }
                 } else {
+                    syncSucceeded = true
+                }
+
+                if (syncSucceeded) {
                     const idsToMark = unsyncedPoints.map(p => p.id)
                     await markPointsSynced(idsToMark)
                     console.log(`Successfully synced ${idsToMark.length} points entries.`)
@@ -114,7 +157,90 @@ export const processSyncQueue = async () => {
 
     } catch (error) {
         console.error('Error during sync process:', error)
+        notifySyncListeners('ERROR', 0)
     } finally {
         isSyncing = false
+        notifySyncListeners('COMPLETED', 0)
     }
 }
+
+/**
+ * Pre-cache published practice questions, true/false, and flashcards into SQLite
+ * so offline mode immediately has questions ready without needing prior visits.
+ */
+export const precachePracticeContent = async () => {
+    try {
+        const state = await NetInfo.fetch()
+        if (!state.isConnected) return
+
+        console.log('Pre-caching practice questions for offline use...')
+
+        // 1. Multiple Choice Questions
+        const { data: mcqs } = await supabase
+            .from('multiple_choice_questions')
+            .select('*, practice_categories!inner(name)')
+            .eq('is_published', true)
+            .limit(150)
+        if (mcqs && mcqs.length > 0) {
+            await cacheQuestionsLocally('mcq', 'all', mcqs)
+            // Also index by category name for targeted subject practice
+            const byCategory = {}
+            mcqs.forEach(q => {
+                const catName = q.practice_categories?.name
+                if (catName) {
+                    if (!byCategory[catName]) byCategory[catName] = []
+                    byCategory[catName].push(q)
+                }
+            })
+            for (const [catName, catQs] of Object.entries(byCategory)) {
+                await cacheQuestionsLocally('mcq', catName, catQs)
+            }
+        }
+
+        // 2. True / False Questions
+        const { data: tfs } = await supabase
+            .from('true_false_questions')
+            .select('*, practice_categories!inner(name)')
+            .eq('is_published', true)
+            .limit(150)
+        if (tfs && tfs.length > 0) {
+            await cacheQuestionsLocally('tf', 'all', tfs)
+            const byCategory = {}
+            tfs.forEach(q => {
+                const catName = q.practice_categories?.name
+                if (catName) {
+                    if (!byCategory[catName]) byCategory[catName] = []
+                    byCategory[catName].push(q)
+                }
+            })
+            for (const [catName, catQs] of Object.entries(byCategory)) {
+                await cacheQuestionsLocally('tf', catName, catQs)
+            }
+        }
+
+        // 3. Flashcards
+        const { data: fcs } = await supabase
+            .from('flashcards')
+            .select('*, flashcard_decks!inner(category_id, practice_categories!inner(name))')
+            .limit(150)
+        if (fcs && fcs.length > 0) {
+            await cacheQuestionsLocally('flashcard', 'all', fcs)
+            const byCategory = {}
+            fcs.forEach(c => {
+                const catName = c.flashcard_decks?.practice_categories?.name
+                if (catName) {
+                    if (!byCategory[catName]) byCategory[catName] = []
+                    byCategory[catName].push(c)
+                }
+            })
+            for (const [catName, catCards] of Object.entries(byCategory)) {
+                await cacheQuestionsLocally('flashcard', catName, catCards)
+            }
+        }
+
+        console.log('Pre-caching practice content complete.')
+    } catch (e) {
+        console.warn('Precache error:', e?.message || e)
+    }
+}
+

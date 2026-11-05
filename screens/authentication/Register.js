@@ -13,6 +13,7 @@ import {
   Platform,
   Animated,
   Image,
+  StatusBar,
 } from 'react-native'
 import { Feather, Ionicons } from '@expo/vector-icons'
 import { supabase } from '../../utils/supabase'
@@ -91,6 +92,172 @@ export default function Register({ navigation }) {
   const otpInputRef = useRef(null)
   const [isOtpFocused, setIsOtpFocused] = useState(false)
 
+  // Validation error states
+  const [nameError, setNameError] = useState('')
+  const [emailError, setEmailError] = useState('')
+  const [passwordError, setPasswordError] = useState('')
+  const [confirmPasswordError, setConfirmPasswordError] = useState('')
+  const [otpError, setOtpError] = useState('')
+
+  // Debounce refs
+  const nameDebounceRef = useRef(null)
+  const emailDebounceRef = useRef(null)
+  const passwordDebounceRef = useRef(null)
+  const confirmPasswordDebounceRef = useRef(null)
+  const otpDebounceRef = useRef(null)
+
+  // Clear debounce timers on unmount
+  useEffect(() => {
+    return () => {
+      if (nameDebounceRef.current) clearTimeout(nameDebounceRef.current)
+      if (emailDebounceRef.current) clearTimeout(emailDebounceRef.current)
+      if (passwordDebounceRef.current) clearTimeout(passwordDebounceRef.current)
+      if (confirmPasswordDebounceRef.current) clearTimeout(confirmPasswordDebounceRef.current)
+      if (otpDebounceRef.current) clearTimeout(otpDebounceRef.current)
+    }
+  }, [])
+
+  // Validation helper functions
+  const validateFullName = (val) => {
+    const trimmed = (val || '').trim()
+    if (!trimmed) return 'Full name is required'
+    if (trimmed.length < 2) return 'Full name must be at least 2 characters'
+    return ''
+  }
+
+  const validateRegisterEmail = (val) => {
+    const trimmed = (val || '').trim()
+    if (!trimmed) return 'Email is required'
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+    if (!emailRegex.test(trimmed)) return 'Please enter a valid email address'
+    return ''
+  }
+
+  const validateRegisterPassword = (val) => {
+    if (!val) return 'Password is required'
+    const missing = []
+    if (val.length < 8) missing.push('at least 8 characters')
+    if (!/[A-Z]/.test(val)) missing.push('an uppercase letter')
+    if (!/[a-z]/.test(val)) missing.push('a lowercase letter')
+    if (!/\d/.test(val)) missing.push('a number')
+    if (!/[@$!%*?&#]/.test(val)) missing.push('a special character (@$!%*?&#)')
+
+    if (missing.length === 0) return ''
+    if (missing.length >= 4) {
+      return 'Must be at least 8 characters with uppercase, lowercase, number, and special character (@$!%*?&#)'
+    }
+    return 'Must include: ' + missing.join(', ')
+  }
+
+  const validateRegisterConfirmPassword = (val, original) => {
+    if (!val) return 'Please confirm your password'
+    if (val !== original) return 'Passwords do not match'
+    return ''
+  }
+
+  const validateOtp = (val) => {
+    const trimmed = (val || '').trim()
+    if (!trimmed) return 'Verification code is required'
+    if (trimmed.length < 4) return 'Please enter the complete 4-digit code'
+    return ''
+  }
+
+  // Field change and blur handlers
+  const handleNameChange = (text) => {
+    setFullName(text)
+    if (text) handleFocus(nameAnim)
+    if (nameError) setNameError('')
+
+    if (nameDebounceRef.current) clearTimeout(nameDebounceRef.current)
+    nameDebounceRef.current = setTimeout(() => {
+      setNameError(validateFullName(text))
+    }, 600)
+  }
+
+  const handleNameBlur = () => {
+    setNameFocused(false)
+    handleBlur(nameAnim, fullName)
+    if (nameDebounceRef.current) clearTimeout(nameDebounceRef.current)
+    setNameError(validateFullName(fullName))
+  }
+
+  const handleEmailChange = (text) => {
+    setEmail(text)
+    if (text) handleFocus(emailAnim)
+    if (emailError) setEmailError('')
+
+    if (emailDebounceRef.current) clearTimeout(emailDebounceRef.current)
+    emailDebounceRef.current = setTimeout(() => {
+      setEmailError(validateRegisterEmail(text))
+    }, 600)
+  }
+
+  const handleEmailBlur = () => {
+    setEmailFocused(false)
+    handleBlur(emailAnim, email)
+    if (emailDebounceRef.current) clearTimeout(emailDebounceRef.current)
+    setEmailError(validateRegisterEmail(email))
+  }
+
+  const handlePasswordChange = (text) => {
+    setPassword(text)
+    if (text) handleFocus(passAnim)
+    if (passwordError) setPasswordError('')
+
+    if (passwordDebounceRef.current) clearTimeout(passwordDebounceRef.current)
+    passwordDebounceRef.current = setTimeout(() => {
+      setPasswordError(validateRegisterPassword(text))
+      if (confirmPassword) {
+        setConfirmPasswordError(validateRegisterConfirmPassword(confirmPassword, text))
+      }
+    }, 600)
+  }
+
+  const handlePasswordBlur = () => {
+    setPassFocused(false)
+    handleBlur(passAnim, password)
+    if (passwordDebounceRef.current) clearTimeout(passwordDebounceRef.current)
+    setPasswordError(validateRegisterPassword(password))
+    if (confirmPassword) {
+      setConfirmPasswordError(validateRegisterConfirmPassword(confirmPassword, password))
+    }
+  }
+
+  const handleConfirmPasswordChange = (text) => {
+    setConfirmPassword(text)
+    if (text) handleFocus(confirmAnim)
+    if (confirmPasswordError) setConfirmPasswordError('')
+
+    if (confirmPasswordDebounceRef.current) clearTimeout(confirmPasswordDebounceRef.current)
+    confirmPasswordDebounceRef.current = setTimeout(() => {
+      setConfirmPasswordError(validateRegisterConfirmPassword(text, password))
+    }, 600)
+  }
+
+  const handleConfirmPasswordBlur = () => {
+    setConfirmFocused(false)
+    handleBlur(confirmAnim, confirmPassword)
+    if (confirmPasswordDebounceRef.current) clearTimeout(confirmPasswordDebounceRef.current)
+    setConfirmPasswordError(validateRegisterConfirmPassword(confirmPassword, password))
+  }
+
+  const handleOtpChange = (text) => {
+    const cleaned = text.replace(/[^0-9]/g, '').slice(0, 4)
+    setOtp(cleaned)
+    if (otpError) setOtpError('')
+
+    if (otpDebounceRef.current) clearTimeout(otpDebounceRef.current)
+    otpDebounceRef.current = setTimeout(() => {
+      setOtpError(validateOtp(cleaned))
+    }, 600)
+  }
+
+  const handleOtpBlur = () => {
+    setIsOtpFocused(false)
+    if (otpDebounceRef.current) clearTimeout(otpDebounceRef.current)
+    setOtpError(validateOtp(otp))
+  }
+
   useEffect(() => {
     if (verifyVisible) {
       const timer = setTimeout(() => {
@@ -115,36 +282,17 @@ export default function Register({ navigation }) {
 
   // ─── Register ─────────────────────────────────────────────────
   const handleRegister = async () => {
-    const trimmedName = fullName.trim()
-    const trimmedEmail = email.trim()
+    const nameErr = validateFullName(fullName)
+    const emailErr = validateRegisterEmail(email)
+    const passErr = validateRegisterPassword(password)
+    const confirmErr = validateRegisterConfirmPassword(confirmPassword, password)
 
-    if (!trimmedName || !trimmedEmail || !password || !confirmPassword) {
-      showCustomAlert('Validation Error', 'Please fill in all fields.')
-      return
-    }
+    setNameError(nameErr)
+    setEmailError(emailErr)
+    setPasswordError(passErr)
+    setConfirmPasswordError(confirmErr)
 
-    if (trimmedName.length < 2) {
-      showCustomAlert('Validation Error', 'Full Name must be at least 2 characters.')
-      return
-    }
-
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
-    if (!emailRegex.test(trimmedEmail)) {
-      showCustomAlert('Validation Error', 'Please enter a valid email address.')
-      return
-    }
-
-    const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&#])[A-Za-z\d@$!%*?&#]{8,}$/
-    if (!passwordRegex.test(password)) {
-      showCustomAlert(
-        'Weak Password',
-        'Password must be at least 8 characters long and include at least one uppercase letter, one lowercase letter, one number, and one special character (e.g., @$!%*?&).'
-      )
-      return
-    }
-
-    if (password !== confirmPassword) {
-      showCustomAlert('Validation Error', 'Passwords do not match.')
+    if (nameErr || emailErr || passErr || confirmErr) {
       return
     }
 
@@ -153,6 +301,8 @@ export default function Register({ navigation }) {
       return
     }
 
+    const trimmedName = fullName.trim()
+    const trimmedEmail = email.trim()
     setLoading(true)
     try {
       // 1. Check if email is already registered
@@ -181,6 +331,7 @@ export default function Register({ navigation }) {
 
       // 3. Open Verification Modal
       setOtp('')
+      setOtpError('')
       setVerifyVisible(true)
       startResendCooldown()
     } catch (err) {
@@ -193,13 +344,14 @@ export default function Register({ navigation }) {
   // ─── Verify OTP ───────────────────────────────────────────────
   const handleVerifyEmail = async () => {
     const code = getOtpString()
-    if (code.length < 4) {
-      showCustomAlert('Validation Error', 'Please enter the complete 4-digit code.')
+    const err = validateOtp(code)
+    setOtpError(err)
+    if (err) {
       return
     }
 
     if (code !== generatedOtp) {
-      showCustomAlert('Verification Error', 'Invalid verification code. Please try again.')
+      setOtpError('Invalid verification code. Please try again.')
       return
     }
 
@@ -280,17 +432,24 @@ export default function Register({ navigation }) {
 
   const isRegisterFormValid =
     fullName.trim().length >= 2 &&
-    email.trim() !== '' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()) &&
-    password !== '' && /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&#])[A-Za-z\d@$!%*?&#]{8,}$/.test(password) &&
+    email.trim() !== '' &&
+    /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()) &&
+    password !== '' &&
+    /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&#])[A-Za-z\d@$!%*?&#]{8,}$/.test(password) &&
     password === confirmPassword &&
-    agreeTerms;
-  const isRegisterDisabled = loading || !isRegisterFormValid;
+    agreeTerms &&
+    !nameError &&
+    !emailError &&
+    !passwordError &&
+    !confirmPasswordError;
+  const isRegisterDisabled = loading;
 
   return (
     <KeyboardAvoidingView
       style={styles.container}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
+      <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
       <ScrollView
         contentContainerStyle={styles.scrollContent}
         keyboardShouldPersistTaps="handled"
@@ -310,7 +469,13 @@ export default function Register({ navigation }) {
           <Text style={styles.heading}>Create your account</Text>
 
           {/* Full Name */}
-          <View style={[styles.inputContainer, nameFocused && styles.inputContainerFocused]}>
+          <View
+            style={[
+              styles.inputContainer,
+              nameFocused && styles.inputContainerFocused,
+              nameError ? styles.inputContainerError : null,
+            ]}
+          >
             <Animated.Text
               style={[
                 styles.floatingLabel,
@@ -340,24 +505,28 @@ export default function Register({ navigation }) {
             </Animated.Text>
             <TextInput
               value={fullName}
-              onChangeText={(text) => {
-                setFullName(text)
-                if (text) handleFocus(nameAnim)
-              }}
+              onChangeText={handleNameChange}
               onFocus={() => {
                 setNameFocused(true)
                 handleFocus(nameAnim)
               }}
-              onBlur={() => {
-                setNameFocused(false)
-                handleBlur(nameAnim, fullName)
-              }}
+              onBlur={handleNameBlur}
               style={styles.floatingInput}
             />
           </View>
+          {nameError ? (
+            <Text style={styles.errorText}>{nameError}</Text>
+          ) : null}
 
           {/* Email */}
-          <View style={[styles.inputContainer, emailFocused && styles.inputContainerFocused, { marginTop: 14 }]}>
+          <View
+            style={[
+              styles.inputContainer,
+              emailFocused && styles.inputContainerFocused,
+              emailError ? styles.inputContainerError : null,
+              { marginTop: nameError ? 10 : 14 },
+            ]}
+          >
             <Animated.Text
               style={[
                 styles.floatingLabel,
@@ -387,26 +556,30 @@ export default function Register({ navigation }) {
             </Animated.Text>
             <TextInput
               value={email}
-              onChangeText={(text) => {
-                setEmail(text)
-                if (text) handleFocus(emailAnim)
-              }}
+              onChangeText={handleEmailChange}
               onFocus={() => {
                 setEmailFocused(true)
                 handleFocus(emailAnim)
               }}
-              onBlur={() => {
-                setEmailFocused(false)
-                handleBlur(emailAnim, email)
-              }}
+              onBlur={handleEmailBlur}
               autoCapitalize="none"
               keyboardType="email-address"
               style={styles.floatingInput}
             />
           </View>
+          {emailError ? (
+            <Text style={styles.errorText}>{emailError}</Text>
+          ) : null}
 
           {/* Password */}
-          <View style={[styles.inputContainer, passFocused && styles.inputContainerFocused, { marginTop: 14 }]}>
+          <View
+            style={[
+              styles.inputContainer,
+              passFocused && styles.inputContainerFocused,
+              passwordError ? styles.inputContainerError : null,
+              { marginTop: emailError ? 10 : 14 },
+            ]}
+          >
             <Animated.Text
               style={[
                 styles.floatingLabel,
@@ -437,18 +610,12 @@ export default function Register({ navigation }) {
             <View style={styles.passwordRow}>
               <TextInput
                 value={password}
-                onChangeText={(text) => {
-                  setPassword(text)
-                  if (text) handleFocus(passAnim)
-                }}
+                onChangeText={handlePasswordChange}
                 onFocus={() => {
                   setPassFocused(true)
                   handleFocus(passAnim)
                 }}
-                onBlur={() => {
-                  setPassFocused(false)
-                  handleBlur(passAnim, password)
-                }}
+                onBlur={handlePasswordBlur}
                 secureTextEntry={!showPassword}
                 style={styles.passwordInput}
               />
@@ -456,13 +623,23 @@ export default function Register({ navigation }) {
                 style={styles.eyeButton}
                 onPress={() => setShowPassword((v) => !v)}
               >
-                <Feather name={showPassword ? 'eye-off' : 'eye'} size={18} color="#9CA3AF" />
+                <Feather name={showPassword ? 'eye' : 'eye-off'} size={18} color="#9CA3AF" />
               </TouchableOpacity>
             </View>
           </View>
+          {passwordError ? (
+            <Text style={styles.errorText}>{passwordError}</Text>
+          ) : null}
 
           {/* Confirm Password */}
-          <View style={[styles.inputContainer, confirmFocused && styles.inputContainerFocused, { marginTop: 14 }]}>
+          <View
+            style={[
+              styles.inputContainer,
+              confirmFocused && styles.inputContainerFocused,
+              confirmPasswordError ? styles.inputContainerError : null,
+              { marginTop: passwordError ? 10 : 14 },
+            ]}
+          >
             <Animated.Text
               style={[
                 styles.floatingLabel,
@@ -493,18 +670,12 @@ export default function Register({ navigation }) {
             <View style={styles.passwordRow}>
               <TextInput
                 value={confirmPassword}
-                onChangeText={(text) => {
-                  setConfirmPassword(text)
-                  if (text) handleFocus(confirmAnim)
-                }}
+                onChangeText={handleConfirmPasswordChange}
                 onFocus={() => {
                   setConfirmFocused(true)
                   handleFocus(confirmAnim)
                 }}
-                onBlur={() => {
-                  setConfirmFocused(false)
-                  handleBlur(confirmAnim, confirmPassword)
-                }}
+                onBlur={handleConfirmPasswordBlur}
                 secureTextEntry={!showPassword}
                 style={styles.passwordInput}
               />
@@ -512,13 +683,16 @@ export default function Register({ navigation }) {
                 style={styles.eyeButton}
                 onPress={() => setShowPassword((v) => !v)}
               >
-                <Feather name={showPassword ? 'eye-off' : 'eye'} size={18} color="#9CA3AF" />
+                <Feather name={showPassword ? 'eye' : 'eye-off'} size={18} color="#9CA3AF" />
               </TouchableOpacity>
             </View>
           </View>
+          {confirmPasswordError ? (
+            <Text style={styles.errorText}>{confirmPasswordError}</Text>
+          ) : null}
 
           {/* Terms Checkbox */}
-          <View style={styles.checkboxContainer}>
+          <View style={[styles.checkboxContainer, { marginTop: confirmPasswordError ? 12 : 16 }]}>
             <TouchableOpacity
               style={[styles.checkbox, agreeTerms && styles.checkboxChecked]}
               onPress={() => setAgreeTerms(!agreeTerms)}
@@ -533,9 +707,9 @@ export default function Register({ navigation }) {
 
           {/* Create Account Button */}
           <TouchableOpacity
-            style={[styles.createButton, { backgroundColor: isRegisterDisabled ? '#f1999d' : '#c14954' }]}
+            style={[styles.createButton, { backgroundColor: isRegisterFormValid ? '#3c64b4' : '#a7aabc' }]}
             onPress={handleRegister}
-            disabled={isRegisterDisabled}
+            disabled={loading}
           >
             {loading ? (
               <ActivityIndicator color="#fff" />
@@ -639,7 +813,7 @@ export default function Register({ navigation }) {
                 <TouchableOpacity
                   activeOpacity={1}
                   onPress={() => otpInputRef.current?.focus()}
-                  style={styles.otpBoxesRow}
+                  style={[styles.otpBoxesRow, otpError ? { marginBottom: 10 } : null]}
                 >
                   {[0, 1, 2, 3].map((index) => {
                     const digit = otp[index] || ''
@@ -651,6 +825,7 @@ export default function Register({ navigation }) {
                           styles.otpBox,
                           digit ? styles.otpBoxFilled : null,
                           isCurrent && isOtpFocused ? styles.otpBoxActive : null,
+                          otpError ? styles.otpBoxError : null,
                         ]}
                       >
                         <Text style={styles.otpDigitText}>{digit}</Text>
@@ -660,18 +835,20 @@ export default function Register({ navigation }) {
                   <TextInput
                     ref={otpInputRef}
                     value={otp}
-                    onChangeText={(text) => {
-                      const cleaned = text.replace(/[^0-9]/g, '').slice(0, 4)
-                      setOtp(cleaned)
-                    }}
+                    onChangeText={handleOtpChange}
                     onFocus={() => setIsOtpFocused(true)}
-                    onBlur={() => setIsOtpFocused(false)}
+                    onBlur={handleOtpBlur}
                     keyboardType="number-pad"
                     maxLength={4}
                     style={styles.hiddenOtpInput}
                     caretHidden={true}
                   />
                 </TouchableOpacity>
+                {otpError ? (
+                  <Text style={[styles.errorText, { textAlign: 'center', marginBottom: 14 }]}>
+                    {otpError}
+                  </Text>
+                ) : null}
 
                 {/* Verify Account Button */}
                 <TouchableOpacity
@@ -774,7 +951,7 @@ export default function Register({ navigation }) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0f1e35',
+    backgroundColor: '#FFFFFF',
   },
   scrollContent: {
     flexGrow: 1,
@@ -796,10 +973,19 @@ const styles = StyleSheet.create({
   },
   formContainer: {
     width: '100%',
-    backgroundColor: '#fff',
+    backgroundColor: '#FFFFFF',
     borderRadius: 24,
     padding: 24,
     marginBottom: 32,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    // Shadow for iOS
+    shadowColor: '#0F2747',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.12,
+    shadowRadius: 18,
+    // Elevation for Android
+    elevation: 8,
   },
   heading: {
     fontSize: 20,
@@ -820,6 +1006,18 @@ const styles = StyleSheet.create({
   },
   inputContainerFocused: {
     borderColor: '#3B82B8',
+  },
+  inputContainerError: {
+    borderColor: '#EF4444',
+  },
+  errorText: {
+    color: '#EF4444',
+    fontSize: 12,
+    marginTop: 4,
+    marginLeft: 4,
+    fontWeight: '500',
+    alignSelf: 'flex-start',
+    textAlign: 'left',
   },
   floatingLabel: {
     position: 'absolute',
@@ -892,7 +1090,7 @@ const styles = StyleSheet.create({
     textDecorationLine: 'underline',
   },
   createButton: {
-    backgroundColor: '#D9989E',
+    backgroundColor: '#3c64b4',
     borderRadius: 12,
     paddingVertical: 14,
     alignItems: 'center',
@@ -928,9 +1126,10 @@ const styles = StyleSheet.create({
     fontSize: 32,
   },
   bottomText: {
-    color: '#ffffff99',
+    color: '#64748B',
     fontSize: 13,
     textAlign: 'center',
+    fontWeight: '500',
   },
 
   // ── Modals ──
@@ -980,7 +1179,7 @@ const styles = StyleSheet.create({
   // ── Verify Modal Overlay & Container ──
   verifyModalContainer: {
     flex: 1,
-    backgroundColor: '#0F2238',
+    backgroundColor: '#FFFFFF',
   },
   verifyKeyboardAvoid: {
     flex: 1,
@@ -1011,10 +1210,12 @@ const styles = StyleSheet.create({
     paddingBottom: 34,
     paddingHorizontal: 24,
     alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 12 },
-    shadowOpacity: 0.16,
-    shadowRadius: 20,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    shadowColor: '#0F2747',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.14,
+    shadowRadius: 18,
     elevation: 8,
   },
   verifyTitle: {
@@ -1065,6 +1266,9 @@ const styles = StyleSheet.create({
     borderColor: '#B8464E',
     backgroundColor: '#FFF7F7',
   },
+  otpBoxError: {
+    borderColor: '#EF4444',
+  },
   otpDigitText: {
     fontSize: 24,
     fontWeight: '700',
@@ -1083,7 +1287,7 @@ const styles = StyleSheet.create({
   // ── Verify Button ──
   verifyButton: {
     width: '100%',
-    backgroundColor: '#B8464E',
+    backgroundColor: '#3c64b4',
     borderRadius: 26,
     paddingVertical: 14,
     alignItems: 'center',
@@ -1091,8 +1295,8 @@ const styles = StyleSheet.create({
     marginBottom: 18,
   },
   verifyButtonDisabled: {
-    backgroundColor: '#E79DA2',
-    opacity: 0.7,
+    backgroundColor: '#a7aabc',
+    opacity: 0.9,
   },
   verifyButtonText: {
     color: '#FFFFFF',

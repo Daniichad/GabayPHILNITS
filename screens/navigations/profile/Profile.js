@@ -7,6 +7,7 @@ import { Ionicons, Feather, MaterialCommunityIcons } from '@expo/vector-icons'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import * as ImagePicker from 'expo-image-picker'
 import { supabase } from '../../../utils/supabase'
+import { clearUserSession } from '../../../utils/database'
 
 const NAVY = '#0f2747'
 const ACCENT = '#d85e67'
@@ -80,6 +81,7 @@ export default function Profile({ session: initialSession, navigation }) {
 
   const handleLogout = async () => {
     setLogoutVisible(false)
+    await clearUserSession()
     const { error } = await supabase.auth.signOut()
     if (error) Alert.alert('Error', error.message)
   }

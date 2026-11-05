@@ -15,7 +15,7 @@ import {
 } from 'react-native'
 import { Feather } from '@expo/vector-icons'
 import { supabase } from '../../utils/supabase'
-import { getUserCache, saveUserCache } from '../../utils/database'
+import { getUserCache, saveUserCache, getActiveUserSession } from '../../utils/database'
 import { sendEmailJsOtp } from '../../utils/emailjs'
 
 const NAVY = '#0f1e35'
@@ -111,8 +111,19 @@ export default function PinAuth({ navigation }) {
 
     const loadPin = async () => {
       try {
-        const { data: { session } } = await supabase.auth.getSession()
-        const user = session?.user || (await supabase.auth.getUser()).data?.user
+        let user = null
+        try {
+          const { data: { session } } = await supabase.auth.getSession()
+          user = session?.user || (await supabase.auth.getUser()).data?.user
+        } catch (_) {}
+
+        if (!user) {
+          const localSession = await getActiveUserSession()
+          if (localSession?.user_id) {
+            user = { id: localSession.user_id, email: localSession.email }
+          }
+        }
+
         if (!user) {
           if (isMounted) navigation.replace('Login')
           return
@@ -335,24 +346,23 @@ export default function PinAuth({ navigation }) {
   if (loading) {
     return (
       <View style={styles.centered}>
-        <ActivityIndicator size="large" color="#fff" />
+        <ActivityIndicator size="large" color={BLUE} />
       </View>
     )
   }
 
   return (
     <View style={styles.screen}>
-      <StatusBar barStyle="light-content" backgroundColor={NAVY} />
+      <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
 
       <View style={styles.topSection}>
         <View style={styles.logoContainer}>
           <Image 
-            source={require('../../assets/loading.png')} 
+            source={require('../../assets/logo_text_dark.png')} 
             style={styles.logoImage} 
             resizeMode="contain"
           />
         </View>
-        <Text style={styles.appName}>Gabay PhilNITS</Text>
       </View>
 
       <View style={styles.formContainer}>
@@ -367,9 +377,11 @@ export default function PinAuth({ navigation }) {
 
         {!locked && <PinDots pin={pin} shakeAnim={shakeAnim} />}
 
-        {error !== '' && (
-          <Text style={styles.errorText}>{error}</Text>
-        )}
+        <View style={styles.errorContainer}>
+          {error !== '' ? (
+            <Text style={styles.errorText}>{error}</Text>
+          ) : null}
+        </View>
 
         <View style={styles.numpadContainer}>
           {locked ? (
@@ -517,14 +529,14 @@ export default function PinAuth({ navigation }) {
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: NAVY,
+    backgroundColor: '#FFFFFF',
     justifyContent: 'flex-end',
   },
   centered: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: NAVY,
+    backgroundColor: '#FFFFFF',
   },
   topSection: {
     alignItems: 'center',
@@ -532,21 +544,14 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   logoContainer: {
-    width: 80,
+    width: 260,
     height: 80,
-    marginBottom: 16,
     justifyContent: 'center',
     alignItems: 'center',
   },
   logoImage: {
-    width: '100%',
-    height: '100%',
-  },
-  appName: {
-    fontSize: 24,
-    fontWeight: '700',
-    color: '#fff',
-    letterSpacing: 1,
+    width: 260,
+    height: 260,
   },
 
   // Form Container
@@ -554,11 +559,19 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     borderTopLeftRadius: 32,
     borderTopRightRadius: 32,
-    paddingTop: 36,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    paddingTop: 28,
     paddingHorizontal: 24,
-    paddingBottom: Platform.OS === 'ios' ? 40 : 24,
+    paddingBottom: Platform.OS === 'ios' ? 36 : 20,
     alignItems: 'center',
-    minHeight: '60%',
+    width: '100%',
+    // Standout drop shadow
+    shadowColor: '#0F2747',
+    shadowOffset: { width: 0, height: -6 },
+    shadowOpacity: 0.12,
+    shadowRadius: 18,
+    elevation: 12,
   },
   title: {
     fontSize: 22,
@@ -570,14 +583,14 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: '#64748b',
     textAlign: 'center',
-    marginBottom: 28,
+    marginBottom: 18,
   },
 
   // Dots
   dotsRow: {
     flexDirection: 'row',
     gap: 16,
-    marginBottom: 12,
+    marginBottom: 4,
   },
   dot: {
     width: 16,
@@ -594,13 +607,19 @@ const styles = StyleSheet.create({
   },
 
   // Error
+  errorContainer: {
+    minHeight: 28,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginVertical: 4,
+    paddingHorizontal: 16,
+  },
   errorText: {
     color: '#ef4444',
-    fontSize: 14,
+    fontSize: 13.5,
     fontWeight: '500',
-    marginTop: 8,
     textAlign: 'center',
-    minHeight: 20,
+    lineHeight: 18,
   },
 
   // Locked state
@@ -637,23 +656,23 @@ const styles = StyleSheet.create({
   // Numpad
   numpadContainer: {
     width: '100%',
-    marginTop: 12,
-    flex: 1,
-    justifyContent: 'flex-end',
+    marginTop: 4,
+    alignItems: 'center',
   },
   numpad: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     justifyContent: 'center',
     gap: 0,
-    rowGap: 8,
+    rowGap: 4,
+    width: '100%',
   },
   numKey: {
     width: '33.33%',
-    height: 64,
+    height: 60,
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: 32,
+    borderRadius: 30,
   },
   numKeyText: {
     fontSize: 28,
@@ -666,8 +685,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
-    marginTop: 12,
-    paddingVertical: 8,
+    marginTop: 8,
+    paddingVertical: 6,
     gap: 12,
   },
   footerLinkText: {

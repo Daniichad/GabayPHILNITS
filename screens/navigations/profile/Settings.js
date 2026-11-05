@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react'
 import {
-  ActivityIndicator, Alert, Modal, Platform, ScrollView, StatusBar,
+  ActivityIndicator, Alert, Animated, Modal, Platform, ScrollView, StatusBar,
   StyleSheet, Switch, Text, TextInput, TouchableOpacity, View,
 } from 'react-native'
 import { Feather } from '@expo/vector-icons'
@@ -77,6 +77,7 @@ export default function Settings({ navigation }) {
   // PIN state
   const [hasPin, setHasPin] = useState(false)
   const [pinLoading, setPinLoading] = useState(true)
+  const [pinOptionsModalOpen, setPinOptionsModalOpen] = useState(false)
   const [pinAuthModalOpen, setPinAuthModalOpen] = useState(false)
   const [pinAuthAction, setPinAuthAction] = useState('change') // 'change' | 'remove'
   const [pinAuthStep, setPinAuthStep] = useState('send') // 'send' | 'verify'
@@ -184,50 +185,70 @@ export default function Settings({ navigation }) {
     }
   }
 
-  // ── PIN handlers ──────────────────────────────────────────────
+  // ── PIN handlers & Animations ─────────────────────────────────
+  const pinOptionsSlideAnim = useRef(new Animated.Value(300)).current
+  const pinAuthSlideAnim = useRef(new Animated.Value(300)).current
+
+  useEffect(() => {
+    if (pinOptionsModalOpen) {
+      Animated.timing(pinOptionsSlideAnim, {
+        toValue: 0,
+        duration: 250,
+        useNativeDriver: true,
+      }).start()
+    } else {
+      pinOptionsSlideAnim.setValue(300)
+    }
+  }, [pinOptionsModalOpen])
+
+  useEffect(() => {
+    if (pinAuthModalOpen) {
+      Animated.timing(pinAuthSlideAnim, {
+        toValue: 0,
+        duration: 250,
+        useNativeDriver: true,
+      }).start()
+    } else {
+      pinAuthSlideAnim.setValue(300)
+    }
+  }, [pinAuthModalOpen])
+
+  const closePinOptionsModal = (callback) => {
+    Animated.timing(pinOptionsSlideAnim, {
+      toValue: 300,
+      duration: 200,
+      useNativeDriver: true,
+    }).start(() => {
+      setPinOptionsModalOpen(false)
+      if (typeof callback === 'function') {
+        callback()
+      }
+    })
+  }
+
+  const closePinAuthModal = (callback) => {
+    Animated.timing(pinAuthSlideAnim, {
+      toValue: 300,
+      duration: 200,
+      useNativeDriver: true,
+    }).start(() => {
+      setPinAuthModalOpen(false)
+      setPinAuthStep('send')
+      setPinAuthOtp('')
+      setPinAuthGeneratedOtp(null)
+      if (typeof callback === 'function') {
+        callback()
+      }
+    })
+  }
+
   const handlePinPress = () => {
     if (!hasPin) {
       // No PIN yet — go straight to SetPin
       navigation.navigate('SetPin')
     } else {
-      Alert.alert(
-        'PIN Security',
-        'Choose an option for your 4-digit PIN lock:',
-        [
-          {
-            text: 'Change PIN',
-            onPress: () => {
-              setPinAuthAction('change')
-              setPinAuthStep('send')
-              setPinAuthOtp('')
-              setPinAuthGeneratedOtp(null)
-              setPinAuthCooldown(0)
-              setPinAuthModalOpen(true)
-            },
-          },
-          {
-            text: 'Turn Off PIN',
-            style: 'destructive',
-            onPress: () => {
-              setPinAuthAction('remove')
-              setPinAuthStep('send')
-              setPinAuthOtp('')
-              setPinAuthGeneratedOtp(null)
-              setPinAuthCooldown(0)
-              setPinAuthModalOpen(true)
-            },
-          },
-          { text: 'Cancel', style: 'cancel' },
-        ]
-      )
+      setPinOptionsModalOpen(true)
     }
-  }
-
-  const closePinAuthModal = () => {
-    setPinAuthModalOpen(false)
-    setPinAuthStep('send')
-    setPinAuthOtp('')
-    setPinAuthGeneratedOtp(null)
   }
 
   const handleSendPinOtp = async () => {
@@ -442,28 +463,120 @@ export default function Settings({ navigation }) {
         </View>
       </Modal>
 
+      {/* ── PIN Security Options Modal ── */}
+      <Modal
+        visible={pinOptionsModalOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={closePinOptionsModal}
+      >
+        <View style={styles.modalContainer}>
+          <TouchableOpacity
+            style={styles.modalBackdrop}
+            activeOpacity={1}
+            onPress={closePinOptionsModal}
+          />
+          <Animated.View style={[styles.sheet, { transform: [{ translateY: pinOptionsSlideAnim }] }]}>
+            <View style={styles.sheetHeader}>
+              <TouchableOpacity onPress={closePinOptionsModal} style={styles.closeBtn}>
+                <Feather name="x" size={24} color="#64748b" />
+              </TouchableOpacity>
+              <Text style={styles.sheetTitle}>PIN Security</Text>
+              <View style={styles.closeBtn} />
+            </View>
+
+            <Text style={styles.pinOptionsDesc}>
+              Choose an option for your 4-digit PIN lock:
+            </Text>
+
+            {/* Option: Change PIN */}
+            <TouchableOpacity
+              style={styles.pinActionCard}
+              onPress={() => {
+                closePinOptionsModal(() => {
+                  setPinAuthAction('change')
+                  setPinAuthStep('send')
+                  setPinAuthOtp('')
+                  setPinAuthGeneratedOtp(null)
+                  setPinAuthCooldown(0)
+                  setPinAuthModalOpen(true)
+                })
+              }}
+              activeOpacity={0.7}
+            >
+              <View style={[styles.pinActionIconWrap, { backgroundColor: '#eff6ff' }]}>
+                <Feather name="key" size={20} color="#2563eb" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.pinActionTitle}>Change PIN</Text>
+                <Text style={styles.pinActionDesc}>Update and configure a new 4-digit PIN</Text>
+              </View>
+              <Feather name="chevron-right" size={20} color="#94a3b8" />
+            </TouchableOpacity>
+
+            {/* Option: Turn Off PIN */}
+            <TouchableOpacity
+              style={styles.pinActionCard}
+              onPress={() => {
+                closePinOptionsModal(() => {
+                  setPinAuthAction('remove')
+                  setPinAuthStep('send')
+                  setPinAuthOtp('')
+                  setPinAuthGeneratedOtp(null)
+                  setPinAuthCooldown(0)
+                  setPinAuthModalOpen(true)
+                })
+              }}
+              activeOpacity={0.7}
+            >
+              <View style={[styles.pinActionIconWrap, { backgroundColor: '#fef2f2' }]}>
+                <Feather name="slash" size={20} color="#dc2626" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.pinActionTitle, { color: '#dc2626' }]}>Turn Off PIN</Text>
+                <Text style={styles.pinActionDesc}>Disable PIN security for this device</Text>
+              </View>
+              <Feather name="chevron-right" size={20} color="#94a3b8" />
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.pinCancelBtn}
+              onPress={closePinOptionsModal}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.pinCancelBtnText}>Cancel</Text>
+            </TouchableOpacity>
+          </Animated.View>
+        </View>
+      </Modal>
+
       {/* ── PIN Email Verification Modal ── */}
       <Modal
         visible={pinAuthModalOpen}
         transparent
-        animationType="slide"
+        animationType="fade"
         onRequestClose={closePinAuthModal}
       >
-        <TouchableOpacity
-          style={styles.backdrop}
-          activeOpacity={1}
-          onPress={closePinAuthModal}
-        />
-        <View style={[styles.sheet, styles.pinAuthSheet]}>
-          {/* Sheet header */}
-          <View style={styles.sheetHeader}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-              {pinAuthStep === 'verify' && (
+        <View style={styles.modalContainer}>
+          <TouchableOpacity
+            style={styles.modalBackdrop}
+            activeOpacity={1}
+            onPress={closePinAuthModal}
+          />
+          <Animated.View style={[styles.sheet, styles.pinAuthSheet, { transform: [{ translateY: pinAuthSlideAnim }] }]}>
+            {/* Sheet header */}
+            <View style={styles.sheetHeader}>
+              {pinAuthStep === 'verify' ? (
                 <TouchableOpacity
                   onPress={() => { setPinAuthStep('send'); setPinAuthOtp('') }}
+                  style={styles.closeBtn}
                   hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                 >
-                  <Feather name="arrow-left" size={20} color={NAVY} />
+                  <Feather name="arrow-left" size={22} color={NAVY} />
+                </TouchableOpacity>
+              ) : (
+                <TouchableOpacity onPress={closePinAuthModal} style={styles.closeBtn}>
+                  <Feather name="x" size={24} color="#64748b" />
                 </TouchableOpacity>
               )}
               <Text style={styles.sheetTitle}>
@@ -471,79 +584,83 @@ export default function Settings({ navigation }) {
                   ? (pinAuthAction === 'remove' ? 'Turn Off PIN' : 'Change PIN')
                   : 'Enter Verification Code'}
               </Text>
+              {pinAuthStep === 'verify' ? (
+                <TouchableOpacity onPress={closePinAuthModal} style={styles.closeBtn}>
+                  <Feather name="x" size={24} color="#64748b" />
+                </TouchableOpacity>
+              ) : (
+                <View style={styles.closeBtn} />
+              )}
             </View>
-            <TouchableOpacity onPress={closePinAuthModal}>
-              <Feather name="x" size={22} color={NAVY} />
-            </TouchableOpacity>
-          </View>
 
-          {pinAuthStep === 'send' ? (
-            /* ── Step 1: send code ── */
-            <View style={styles.pinAuthBody}>
-              <View style={styles.pinAuthIconWrap}>
-                <Feather name="mail" size={28} color={NAVY} />
-              </View>
-              <Text style={styles.pinAuthDesc}>
-                {pinAuthAction === 'remove'
-                  ? "To turn off your PIN lock, we'll send a verification code to your registered email address."
-                  : "To change your PIN, we'll send a verification code to your registered email address."}
-              </Text>
-              <View style={styles.pinEmailBox}>
-                <Feather name="at-sign" size={15} color="#64748b" />
-                <Text style={styles.pinEmailText} numberOfLines={1}>{pinAuthEmail}</Text>
-              </View>
-              <TouchableOpacity
-                style={[styles.pwBtn, { alignSelf: 'stretch' }, pinAuthLoading && { opacity: 0.7 }]}
-                onPress={handleSendPinOtp}
-                disabled={pinAuthLoading}
-                activeOpacity={0.85}
-              >
-                {pinAuthLoading
-                  ? <ActivityIndicator size="small" color="#fff" />
-                  : <Text style={styles.pwBtnText}>Send Code</Text>
-                }
-              </TouchableOpacity>
-            </View>
-          ) : (
-            /* ── Step 2: enter code ── */
-            <View style={styles.pinAuthBody}>
-              <View style={styles.pinAuthIconWrap}>
-                <Feather name="shield" size={28} color={NAVY} />
-              </View>
-              <Text style={styles.pinAuthDesc}>
-                Enter the 4-digit code sent to{' '}
-                <Text style={{ fontWeight: '700', color: NAVY }}>{pinAuthEmail}</Text>
-              </Text>
-
-              <OtpInput value={pinAuthOtp} onChange={setPinAuthOtp} />
-
-              <TouchableOpacity
-                style={[styles.pwBtn, { marginTop: 20, alignSelf: 'stretch' }, pinAuthLoading && { opacity: 0.7 }]}
-                onPress={handleVerifyPinOtp}
-                disabled={pinAuthLoading}
-                activeOpacity={0.85}
-              >
-                {pinAuthLoading ? (
-                  <ActivityIndicator size="small" color="#fff" />
-                ) : (
-                  <Text style={styles.pwBtnText}>
-                    {pinAuthAction === 'remove' ? 'Verify & Turn Off PIN' : 'Verify & Change PIN'}
-                  </Text>
-                )}
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={styles.resendBtn}
-                onPress={handleSendPinOtp}
-                disabled={pinAuthCooldown > 0 || pinAuthLoading}
-                activeOpacity={0.6}
-              >
-                <Text style={[styles.resendText, pinAuthCooldown > 0 && { color: '#94a3b8' }]}>
-                  {pinAuthCooldown > 0 ? `Resend code in ${pinAuthCooldown}s` : 'Resend code'}
+            {pinAuthStep === 'send' ? (
+              /* ── Step 1: send code ── */
+              <View style={styles.pinAuthBody}>
+                <View style={styles.pinAuthIconWrap}>
+                  <Feather name="mail" size={28} color={NAVY} />
+                </View>
+                <Text style={styles.pinAuthDesc}>
+                  {pinAuthAction === 'remove'
+                    ? "To turn off your PIN lock, we'll send a verification code to your registered email address."
+                    : "To change your PIN, we'll send a verification code to your registered email address."}
                 </Text>
-              </TouchableOpacity>
-            </View>
-          )}
+                <View style={styles.pinEmailBox}>
+                  <Feather name="at-sign" size={15} color="#64748b" />
+                  <Text style={styles.pinEmailText} numberOfLines={1}>{pinAuthEmail}</Text>
+                </View>
+                <TouchableOpacity
+                  style={[styles.pwBtn, { alignSelf: 'stretch' }, pinAuthLoading && { opacity: 0.7 }]}
+                  onPress={handleSendPinOtp}
+                  disabled={pinAuthLoading}
+                  activeOpacity={0.85}
+                >
+                  {pinAuthLoading
+                    ? <ActivityIndicator size="small" color="#fff" />
+                    : <Text style={styles.pwBtnText}>Send Code</Text>
+                  }
+                </TouchableOpacity>
+              </View>
+            ) : (
+              /* ── Step 2: enter code ── */
+              <View style={styles.pinAuthBody}>
+                <View style={styles.pinAuthIconWrap}>
+                  <Feather name="shield" size={28} color={NAVY} />
+                </View>
+                <Text style={styles.pinAuthDesc}>
+                  Enter the 4-digit code sent to{' '}
+                  <Text style={{ fontWeight: '700', color: NAVY }}>{pinAuthEmail}</Text>
+                </Text>
+
+                <OtpInput value={pinAuthOtp} onChange={setPinAuthOtp} />
+
+                <TouchableOpacity
+                  style={[styles.pwBtn, { marginTop: 20, alignSelf: 'stretch' }, pinAuthLoading && { opacity: 0.7 }]}
+                  onPress={handleVerifyPinOtp}
+                  disabled={pinAuthLoading}
+                  activeOpacity={0.85}
+                >
+                  {pinAuthLoading ? (
+                    <ActivityIndicator size="small" color="#fff" />
+                  ) : (
+                    <Text style={styles.pwBtnText}>
+                      {pinAuthAction === 'remove' ? 'Verify & Turn Off PIN' : 'Verify & Change PIN'}
+                    </Text>
+                  )}
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={styles.resendBtn}
+                  onPress={handleSendPinOtp}
+                  disabled={pinAuthCooldown > 0 || pinAuthLoading}
+                  activeOpacity={0.6}
+                >
+                  <Text style={[styles.resendText, pinAuthCooldown > 0 && { color: '#94a3b8' }]}>
+                    {pinAuthCooldown > 0 ? `Resend code in ${pinAuthCooldown}s` : 'Resend code'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            )}
+          </Animated.View>
         </View>
       </Modal>
     </View>
@@ -634,6 +751,18 @@ const styles = StyleSheet.create({
   },
 
   // ── Bottom-sheet modals ──
+  modalContainer: {
+    flex: 1,
+    justifyContent: 'flex-end',
+  },
+  modalBackdrop: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0,0,0,0.3)',
+  },
   backdrop: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.3)',
@@ -646,8 +775,9 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
-    paddingHorizontal: 20,
-    paddingBottom: Platform.OS === 'ios' ? 40 : 28,
+    paddingHorizontal: 24,
+    paddingTop: 12,
+    paddingBottom: Platform.OS === 'ios' ? 44 : 28,
   },
   pinAuthSheet: {
     paddingBottom: Platform.OS === 'ios' ? 48 : 32,
@@ -656,15 +786,22 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: 18,
+    paddingVertical: 14,
     borderBottomWidth: 1,
     borderBottomColor: '#f1f5f9',
-    marginBottom: 8,
+    marginBottom: 16,
   },
   sheetTitle: {
-    fontSize: 17,
+    fontSize: 18,
     fontWeight: '700',
     color: NAVY,
+    textAlign: 'center',
+  },
+  closeBtn: {
+    width: 36,
+    height: 36,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   sheetOption: {
     flexDirection: 'row',
@@ -790,5 +927,53 @@ const styles = StyleSheet.create({
     color: NAVY,
     fontWeight: '600',
     textDecorationLine: 'underline',
+  },
+
+  // ── PIN Options Sheet Styles ──
+  pinOptionsDesc: {
+    fontSize: 14,
+    color: '#64748b',
+    marginBottom: 16,
+    paddingHorizontal: 2,
+  },
+  pinActionCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#f8fafc',
+    borderRadius: 16,
+    padding: 14,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+  },
+  pinActionIconWrap: {
+    width: 44,
+    height: 44,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 14,
+  },
+  pinActionTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: NAVY,
+    marginBottom: 2,
+  },
+  pinActionDesc: {
+    fontSize: 12,
+    color: '#64748b',
+  },
+  pinCancelBtn: {
+    marginTop: 6,
+    paddingVertical: 14,
+    borderRadius: 30,
+    backgroundColor: '#f1f5f9',
+    alignItems: 'center',
+  },
+  pinCancelBtnText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#475569',
   },
 })

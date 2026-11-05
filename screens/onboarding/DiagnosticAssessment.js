@@ -17,15 +17,14 @@ const IP_CATEGORIES = [
 ]
 
 const FE_CATEGORIES = [
-  'Computer Systems & Architecture',
-  'Algorithms & Programming',
-  'Networks & Security',
-  'IT Management & Strategy',
+  'Subject A',
+  'Subject B',
 ]
 
 const CATEGORY_CONFIG = {
   'Technology': {
     label: 'Technology',
+    subLabel: '33.3% of exam (10 questions)',
     icon: 'laptop',
     bg: '#E0EDFE',
     color: '#2563EB',
@@ -33,6 +32,7 @@ const CATEGORY_CONFIG = {
   },
   'Management': {
     label: 'Management',
+    subLabel: '33.3% of exam (10 questions)',
     icon: 'clipboard-list-outline',
     bg: '#FEF3C7',
     color: '#D97706',
@@ -40,13 +40,31 @@ const CATEGORY_CONFIG = {
   },
   'Strategy': {
     label: 'Strategy',
+    subLabel: '33.3% of exam (10 questions)',
     icon: 'lightbulb-outline',
     bg: '#F3E8FF',
     color: '#9333EA',
     barColor: '#9333EA',
   },
+  'Subject A': {
+    label: 'Subject A',
+    subLabel: '73.3% of exam (22 questions)',
+    icon: 'cpu-64-bit',
+    bg: '#E0EDFE',
+    color: '#2563EB',
+    barColor: '#2563EB',
+  },
+  'Subject B': {
+    label: 'Subject B',
+    subLabel: '26.7% of exam (8 questions)',
+    icon: 'code-tags',
+    bg: '#DCFCE7',
+    color: '#16A34A',
+    barColor: '#16A34A',
+  },
   'Computer Systems & Architecture': {
     label: 'Systems & Architecture',
+    subLabel: 'Computer Systems',
     icon: 'cpu-64-bit',
     bg: '#E0EDFE',
     color: '#2563EB',
@@ -54,6 +72,7 @@ const CATEGORY_CONFIG = {
   },
   'Algorithms & Programming': {
     label: 'Algorithms & Code',
+    subLabel: 'Algorithms',
     icon: 'code-tags',
     bg: '#DCFCE7',
     color: '#16A34A',
@@ -61,6 +80,7 @@ const CATEGORY_CONFIG = {
   },
   'Networks & Security': {
     label: 'Networks & Security',
+    subLabel: 'Networks & Security',
     icon: 'shield-check-outline',
     bg: '#FEE2E2',
     color: '#EF4444',
@@ -68,6 +88,7 @@ const CATEGORY_CONFIG = {
   },
   'IT Management & Strategy': {
     label: 'Management & Strategy',
+    subLabel: 'Management & Strategy',
     icon: 'briefcase-outline',
     bg: '#FEF3C7',
     color: '#D97706',
@@ -77,36 +98,42 @@ const CATEGORY_CONFIG = {
 
 // Fallback questions loaded from DiagnosticFallbackQuestions.js
 
-const DIAGNOSTIC_TIME_LIMIT_SECONDS = 40 * 60 // 40 minutes (2,400 seconds)
+const DIAGNOSTIC_TIME_LIMIT_SECONDS = 30 * 60 // 30 minutes (1,800 seconds)
 
+/**
+ * @param {number} totalSeconds
+ */
 function formatTime(totalSeconds) {
   const mins = Math.floor(Math.max(totalSeconds, 0) / 60)
   const secs = Math.max(totalSeconds, 0) % 60
-  const pad = (n) => String(n).padStart(2, '0')
+  const pad = (/** @type {any} */ n) => String(n).padStart(2, '0')
   return `${pad(mins)}:${pad(secs)}`
 }
 
+/**
+ * @param {{ navigation: any, route?: any }} props
+ */
 export default function DiagnosticAssessment({ navigation, route }) {
   const from = route?.params?.from
-  const [questions, setQuestions] = React.useState([])
+  const [questions, setQuestions] = React.useState(/** @type {any[]} */ ([]))
   const [loading, setLoading] = React.useState(true)
-  const [loadError, setLoadError] = React.useState(null)
+  const [loadError, setLoadError] = React.useState(/** @type {any} */ (null))
   const [started, setStarted] = React.useState(false)
   const [questionIndex, setQuestionIndex] = React.useState(0)
   const [selectedAnswer, setSelectedAnswer] = React.useState('')
-  const [answers, setAnswers] = React.useState({})
+  const [answers, setAnswers] = React.useState(/** @type {Record<string, any>} */ ({}))
   const [exitVisible, setExitVisible] = React.useState(false)
   const [finished, setFinished] = React.useState(false)
   const [saving, setSaving] = React.useState(false)
-  const [result, setResult] = React.useState(null)
+  const [result, setResult] = React.useState(/** @type {any} */ (null))
   const [examType, setExamType] = React.useState('ip')
   const [targetCategories, setTargetCategories] = React.useState(IP_CATEGORIES)
   const [secondsLeft, setSecondsLeft] = React.useState(DIAGNOSTIC_TIME_LIMIT_SECONDS)
 
-  const timerRef = React.useRef(null)
+  const timerRef = React.useRef(/** @type {any} */ (null))
   const answersRef = React.useRef(answers)
   const selectedAnswerRef = React.useRef(selectedAnswer)
-  const currentQuestionRef = React.useRef(null)
+  const currentQuestionRef = React.useRef(/** @type {any} */ (null))
 
   React.useEffect(() => { answersRef.current = answers }, [answers])
   React.useEffect(() => { selectedAnswerRef.current = selectedAnswer }, [selectedAnswer])
@@ -134,6 +161,17 @@ export default function DiagnosticAssessment({ navigation, route }) {
   }, [started, finished])
 
   const fetchUserExamType = async () => {
+    // 1. If explicit param passed via route, respect it first
+    if (route?.params?.examType) {
+      const p = String(route.params.examType).toLowerCase()
+      if (p.includes('fe') || p.includes('engineer') || p.includes('fundamental')) {
+        return 'fe'
+      }
+      if (p.includes('ip') || p.includes('passport')) {
+        return 'ip'
+      }
+    }
+
     try {
       const { data: userData } = await supabase.auth.getUser()
       if (userData?.user?.id) {
@@ -145,7 +183,7 @@ export default function DiagnosticAssessment({ navigation, route }) {
 
         if (data?.target_exam_level) {
           const lvl = data.target_exam_level.toLowerCase()
-          if (lvl.includes('fe') || lvl.includes('engineer')) {
+          if (lvl.includes('fe') || lvl.includes('engineer') || lvl.includes('fundamental')) {
             return 'fe'
           }
         }
@@ -163,43 +201,311 @@ export default function DiagnosticAssessment({ navigation, route }) {
 
       const userExamType = await fetchUserExamType()
       setExamType(userExamType)
+      const examTrackKey = userExamType === 'fe' ? 'FE' : 'IP'
+
+      // Enforce strictly 1 attempt per track (IP / FE) - no retakes allowed
+      try {
+        const { data: authData } = await supabase.auth.getUser()
+        const currentUserId = authData?.user?.id
+        if (currentUserId) {
+          // 1. Check philnits_diagnostic_attempts
+          const { data: existingAttempt } = await supabase
+            .from('philnits_diagnostic_attempts')
+            .select('*')
+            .eq('user_id', currentUserId)
+            .eq('exam_level', examTrackKey)
+            .maybeSingle()
+
+          if (existingAttempt) {
+            setResult({
+              scorePercent: existingAttempt.score_percent ?? 0,
+              correctCount: existingAttempt.correct_answers ?? 0,
+              totalQuestions: existingAttempt.total_questions ?? 30,
+              level: existingAttempt.proficiency_level || 'Intermediate',
+              categoryScores: existingAttempt.category_scores || {},
+            })
+            setFinished(true)
+            setLoading(false)
+            return
+          }
+
+          // 2. Fallback check diagnostic_assessment_attempts
+          const { data: legacyAttempts } = await supabase
+            .from('diagnostic_assessment_attempts')
+            .select('*')
+            .eq('user_id', currentUserId)
+            .order('completed_at', { ascending: false })
+            .limit(5)
+
+          if (Array.isArray(legacyAttempts) && legacyAttempts.length > 0) {
+            for (const att of legacyAttempts) {
+              const cats = Object.keys(att.category_scores || {})
+              const isMatch = (examTrackKey === 'FE')
+                ? cats.some(c => c.toLowerCase().includes('subject') || c.toLowerCase().includes('algorithm') || c.toLowerCase().includes('architecture') || c.toLowerCase().includes('network'))
+                : cats.some(c => c === 'Technology' || c === 'Management' || c === 'Strategy')
+
+              if (isMatch) {
+                setResult({
+                  scorePercent: att.score_percent ?? 0,
+                  correctCount: att.correct_answers ?? 0,
+                  totalQuestions: att.total_questions ?? 30,
+                  level: att.level || att.proficiency_level || 'Intermediate',
+                  categoryScores: att.category_scores || {},
+                })
+                setFinished(true)
+                setLoading(false)
+                return
+              }
+            }
+          }
+        }
+      } catch (checkErr) {
+        console.warn('Check existing diagnostic attempt notice:', checkErr)
+      }
 
       const categories = userExamType === 'fe' ? FE_CATEGORIES : IP_CATEGORIES
       setTargetCategories(categories)
-      setSecondsLeft((userExamType === 'fe' ? 40 : 30) * 60)
+      setSecondsLeft(30 * 60)
 
-      // Attempt to load from Supabase for target categories
-      const { data: dbData, error } = await supabase
-        .from('diagnostic_questions')
-        .select('id, category, question, options, correct_answer')
-        .eq('is_active', true)
-        .in('category', categories)
-        .order('category')
-
+      /** @type {any[]} */
       let assembled = []
 
-      // Assembly: Randomly pick questions per category
-      categories.forEach((cat) => {
-        const dbCatQuestions = (dbData || []).filter((q) => q.category === cat)
-        const fallbackCatQuestions = FALLBACK_QUESTIONS.filter((q) => q.category === cat)
+      // Helper to map mock exam style rows
+      const answerToIndex = { A: 0, B: 1, C: 2, D: 3, a: 0, b: 1, c: 2, d: 3 }
+      const mapMockRow = (/** @type {any} */ r, defaultCat = 'Technology') => {
+        const rawOpts = [r.option_a, r.option_b, r.option_c, r.option_d].filter(
+          (o) => o !== null && o !== undefined && String(o).trim() !== ''
+        )
+        const cAns = (r.correct_answer || '').trim()
+        const cIdx = (/** @type {any} */ (answerToIndex))[cAns.toUpperCase()]
 
-        // Combine DB questions first, fill remaining with fallback if needed
-        let combined = [...dbCatQuestions]
-        if (combined.length < 10) {
-          const needed = 10 - combined.length
-          const existingIds = new Set(combined.map((q) => q.id))
-          const fillers = fallbackCatQuestions.filter((q) => !existingIds.has(q.id))
-          combined = [...combined, ...fillers]
+        let parsedOpts = []
+        if (Array.isArray(r.options)) {
+          parsedOpts = r.options
+        } else if (typeof r.options === 'string' && r.options.trim().startsWith('[')) {
+          try {
+            parsedOpts = JSON.parse(r.options)
+          } catch (_) {
+            parsedOpts = []
+          }
         }
 
-        // Randomly shuffle all questions in this category and pick up to 10
-        const shuffled = [...combined].sort(() => Math.random() - 0.5)
-        assembled.push(...shuffled.slice(0, 10))
-      })
+        const opts = rawOpts.length > 0 ? rawOpts : (parsedOpts.length > 0 ? parsedOpts : ['A', 'B', 'C', 'D'])
+        const resolvedCorrect = (cIdx !== undefined && rawOpts[cIdx]) ? rawOpts[cIdx] : (r.correct_answer || opts[0])
+        const finalCategory = r.category || defaultCat
 
-      if (assembled.length === 0) {
-        // Fallback for all categories if anything fails
-        assembled = FALLBACK_QUESTIONS.filter((q) => categories.includes(q.category))
+        return {
+          id: r.id,
+          question_number: r.question_number,
+          category: finalCategory,
+          section: finalCategory,
+          question: r.question_text || r.question || '',
+          options: opts,
+          correct_answer: resolvedCorrect,
+          explanation: r.explanation,
+          difficulty: r.difficulty,
+          image_url: r.image_url || r.reference_image_url || null,
+          image_description: r.image_description || null,
+        }
+      }
+
+      if (userExamType === 'fe') {
+        // ── FE: Subject A (22 questions) and Subject B (8 questions) ──
+        /** @type {any[]} */
+        let dbSubA = []
+        /** @type {any[]} */
+        let dbSubB = []
+
+        // 1. Check dedicated Philnits_FE_diagnostic_exam table
+        try {
+          const { data: feDiagRows } = await supabase
+            .from('Philnits_FE_diagnostic_exam')
+            .select('*')
+            .eq('is_active', true)
+
+          if (feDiagRows && feDiagRows.length > 0) {
+            feDiagRows.forEach((r) => {
+              const catUpper = (r.category || '').toUpperCase()
+              if (catUpper.includes('SUBJECT B') || catUpper.includes('ALGORITHM') || catUpper.includes('PROGRAM')) {
+                dbSubB.push(mapMockRow(r, 'Subject B'))
+              } else {
+                dbSubA.push(mapMockRow(r, 'Subject A'))
+              }
+            })
+          }
+        } catch (diagErr) {
+          // Table may not exist yet, fallback below
+        }
+
+        // 2. Check unified Philnits_diagnostic_exam table for fe
+        if (dbSubA.length === 0 && dbSubB.length === 0) {
+          try {
+            const { data: unifiedRows } = await supabase
+              .from('Philnits_diagnostic_exam')
+              .select('*')
+              .eq('exam_level', 'fe')
+              .eq('is_active', true)
+
+            if (unifiedRows && unifiedRows.length > 0) {
+              unifiedRows.forEach((r) => {
+                const catUpper = (r.category || '').toUpperCase()
+                if (catUpper.includes('SUBJECT B') || catUpper.includes('ALGORITHM') || catUpper.includes('PROGRAM')) {
+                  dbSubB.push(mapMockRow(r, 'Subject B'))
+                } else {
+                  dbSubA.push(mapMockRow(r, 'Subject A'))
+                }
+              })
+            }
+          } catch (uErr) {
+            // Unified table may not exist yet
+          }
+        }
+
+        // 3. Fallback: Pull from mock exam tables (Philnits_FE_subject_A & Philnits_FE_subject_B)
+        if (dbSubA.length === 0) {
+          try {
+            const { data: feARows } = await supabase
+              .from('Philnits_FE_subject_A')
+              .select('*')
+              .eq('is_active', true)
+
+            if (feARows && feARows.length > 0) {
+              dbSubA = feARows.map((r) => mapMockRow(r, 'Subject A'))
+            }
+          } catch (errA) {
+            console.warn('Error fetching Philnits_FE_subject_A:', errA)
+          }
+        }
+
+        if (dbSubB.length === 0) {
+          try {
+            const { data: feBRows } = await supabase
+              .from('Philnits_FE_subject_B')
+              .select('*')
+              .eq('is_active', true)
+
+            if (feBRows && feBRows.length > 0) {
+              dbSubB = feBRows.map((r) => mapMockRow(r, 'Subject B'))
+            }
+          } catch (errB) {
+            console.warn('Error fetching Philnits_FE_subject_B:', errB)
+          }
+        }
+
+        const fallbackSubA = FALLBACK_QUESTIONS
+          .filter((q) =>
+            ['Computer Systems & Architecture', 'Networks & Security', 'IT Management & Strategy'].includes(q.category)
+          )
+          .map((q) => ({ ...q, category: 'Subject A', section: 'Subject A' }))
+
+        const combinedSubA = [...dbSubA, ...fallbackSubA]
+        const shuffledSubA = [...combinedSubA].sort(() => Math.random() - 0.5)
+        const chosenSubA = shuffledSubA.slice(0, 22)
+
+        const fallbackSubB = FALLBACK_QUESTIONS
+          .filter((q) => q.category === 'Algorithms & Programming')
+          .map((q) => ({ ...q, category: 'Subject B', section: 'Subject B' }))
+
+        const combinedSubB = [...dbSubB, ...fallbackSubB]
+        const shuffledSubB = [...combinedSubB].sort(() => Math.random() - 0.5)
+        const chosenSubB = shuffledSubB.slice(0, 8)
+
+        assembled = [...chosenSubA, ...chosenSubB]
+      } else {
+        // ── IP: Technology (10), Management (10), Strategy (10) ──
+        /** @type {any[]} */
+        let ipDbQuestions = []
+
+        // 1. Check dedicated Philnits_IP_diagnostic_exam table
+        try {
+          const { data: ipDiagRows } = await supabase
+            .from('Philnits_IP_diagnostic_exam')
+            .select('*')
+            .eq('is_active', true)
+
+          if (ipDiagRows && ipDiagRows.length > 0) {
+            ipDbQuestions = ipDiagRows.map((r) => {
+              let cat = 'Technology'
+              const rawCat = (r.category || r.section_name || '').toLowerCase()
+              if (rawCat.includes('manage')) cat = 'Management'
+              else if (rawCat.includes('strat')) cat = 'Strategy'
+              return mapMockRow(r, cat)
+            })
+          }
+        } catch (diagErr) {
+          // Table may not exist yet
+        }
+
+        // 2. Check unified Philnits_diagnostic_exam table for ip
+        if (ipDbQuestions.length === 0) {
+          try {
+            const { data: unifiedRows } = await supabase
+              .from('Philnits_diagnostic_exam')
+              .select('*')
+              .eq('exam_level', 'ip')
+              .eq('is_active', true)
+
+            if (unifiedRows && unifiedRows.length > 0) {
+              ipDbQuestions = unifiedRows.map((r) => {
+                let cat = 'Technology'
+                const rawCat = (r.category || r.section_name || '').toLowerCase()
+                if (rawCat.includes('manage')) cat = 'Management'
+                else if (rawCat.includes('strat')) cat = 'Strategy'
+                return mapMockRow(r, cat)
+              })
+            }
+          } catch (uErr) {
+            // Unified table may not exist yet
+          }
+        }
+
+        // 3. Fallback: Check Philnits_IP_mock_exam
+        if (ipDbQuestions.length === 0) {
+          try {
+            const { data: ipRows } = await supabase
+              .from('Philnits_IP_mock_exam')
+              .select('*')
+              .eq('is_active', true)
+
+            if (ipRows && ipRows.length > 0) {
+              ipDbQuestions = ipRows.map((r) => {
+                let cat = 'Technology'
+                const rawCat = (r.category || r.section_name || '').toLowerCase()
+                if (rawCat.includes('manage')) cat = 'Management'
+                else if (rawCat.includes('strat')) cat = 'Strategy'
+                return mapMockRow(r, cat)
+              })
+            }
+          } catch (ipErr) {
+            console.warn('Error fetching Philnits_IP_mock_exam:', ipErr)
+          }
+        }
+
+        // 4. Fallback: Legacy diagnostic_questions table
+        if (ipDbQuestions.length === 0) {
+          try {
+            const { data: diagRows } = await supabase
+              .from('diagnostic_questions')
+              .select('*')
+              .eq('is_active', true)
+              .in('category', ['Technology', 'Management', 'Strategy'])
+
+            if (diagRows && diagRows.length > 0) {
+              const mappedLegacy = diagRows.map((r) => mapMockRow(r, r.category || 'Technology'))
+              ipDbQuestions = [...ipDbQuestions, ...mappedLegacy]
+            }
+          } catch (dErr) {
+            console.warn('Error fetching diagnostic_questions:', dErr)
+          }
+        }
+
+        ;['Technology', 'Management', 'Strategy'].forEach((cat) => {
+          const catDb = ipDbQuestions.filter((q) => q.category === cat)
+          const catFallback = FALLBACK_QUESTIONS.filter((q) => q.category === cat)
+          const combined = [...catDb, ...catFallback]
+          const shuffled = [...combined].sort(() => Math.random() - 0.5)
+          assembled.push(...shuffled.slice(0, 10))
+        })
       }
 
       // Ensure options are strictly arrays of strings
@@ -221,31 +527,52 @@ export default function DiagnosticAssessment({ navigation, route }) {
       setQuestions(normalized)
     } catch (e) {
       console.warn('Load questions error, using local fallback:', e)
-      const categories = examType === 'fe' ? FE_CATEGORIES : IP_CATEGORIES
-      const fallbackList = FALLBACK_QUESTIONS.filter((q) => categories.includes(q.category))
-      setQuestions(fallbackList)
+      const userExamType = examType || 'ip'
+      if (userExamType === 'fe') {
+        const subA = FALLBACK_QUESTIONS.filter((q) =>
+          ['Computer Systems & Architecture', 'Networks & Security', 'IT Management & Strategy'].includes(q.category)
+        )
+          .map((q) => ({ ...q, category: 'Subject A' }))
+          .slice(0, 22)
+        const subB = FALLBACK_QUESTIONS.filter((q) => q.category === 'Algorithms & Programming')
+          .map((q) => ({ ...q, category: 'Subject B' }))
+          .slice(0, 8)
+        setQuestions([...subA, ...subB])
+      } else {
+        const ipQs = FALLBACK_QUESTIONS.filter((q) => ['Technology', 'Management', 'Strategy'].includes(q.category))
+        setQuestions(ipQs.slice(0, 30))
+      }
     } finally {
       setLoading(false)
     }
   }
 
+  /** @type {any} */
   const currentQuestion = questions[questionIndex]
   const progress = `${Math.min(questionIndex + 1, questions.length)} / ${questions.length}`
 
   React.useEffect(() => { currentQuestionRef.current = currentQuestion }, [currentQuestion])
 
   // ── Compute results & Review Speed ─────────────────────────
-  const computeResults = React.useCallback((answerMap) => {
-    const categoryScores = targetCategories.reduce((acc, cat) => {
-      acc[cat] = { correct: 0, total: 0 }
+  const computeResults = React.useCallback((/** @type {Record<string, any>} */ answerMap) => {
+    const isFE = examType === 'fe'
+    const categories = isFE ? FE_CATEGORIES : IP_CATEGORIES
+
+    /** @type {Record<string, any>} */
+    const categoryScores = categories.reduce((/** @type {Record<string, any>} */ acc, cat) => {
+      acc[cat] = {
+        correct: 0,
+        total: cat === 'Subject A' ? 22 : cat === 'Subject B' ? 8 : 10,
+        percentage: 0,
+      }
       return acc
-    }, {})
+    }, /** @type {Record<string, any>} */ ({}))
 
     let correctCount = 0
     questions.forEach((q) => {
-      const bucket = categoryScores[q.category]
+      const cat = q.category || (isFE ? 'Subject A' : 'Technology')
+      const bucket = categoryScores[cat]
       if (bucket) {
-        bucket.total += 1
         if (answerMap[q.id] === q.correct_answer) {
           bucket.correct += 1
           correctCount++
@@ -253,7 +580,7 @@ export default function DiagnosticAssessment({ navigation, route }) {
       }
     })
 
-    let weakestCategory = targetCategories[0] || 'Technology'
+    let weakestCategory = categories[0]
     let lowestPct = 101
 
     Object.entries(categoryScores).forEach(([cat, bucket]) => {
@@ -265,7 +592,7 @@ export default function DiagnosticAssessment({ navigation, route }) {
       }
     })
 
-    const totalQuestions = questions.length || 40
+    const totalQuestions = questions.length || 30
     const scorePercent = Math.round((correctCount / totalQuestions) * 100)
 
     // Level assessment
@@ -296,11 +623,126 @@ export default function DiagnosticAssessment({ navigation, route }) {
       weakestCategory,
       lowestPct: lowestPct === 101 ? 0 : lowestPct,
       answerMap,
-      calculatedSpeed
+      calculatedSpeed,
     }
-  }, [questions, targetCategories])
+  }, [questions, examType])
 
-  // ── Auto-submit when 40 minutes expire ──────────────────────
+  // ── Save attempt & update user review_speed ───────────────
+  const saveAttempt = React.useCallback(async (/** @type {any} */ summary) => {
+    const { data: userData, error: userError } = await supabase.auth.getUser()
+    if (userError) throw new Error(userError.message)
+    const userId = userData.user?.id
+    const userEmail = userData.user?.email
+    if (!userId) throw new Error('No logged-in user found')
+
+    const examLevelKey = (examType === 'fe') ? 'FE' : 'IP'
+    let insertedInNew = false
+
+    // 1. Primary: Save to philnits_diagnostic_attempts (1 attempt only per user and track)
+    try {
+      const { error: newErr } = await supabase
+        .from('philnits_diagnostic_attempts')
+        .upsert({
+          user_id: userId,
+          exam_level: examLevelKey,
+          total_questions: summary.totalQuestions,
+          correct_answers: summary.correctCount,
+          score_percent: summary.scorePercent,
+          proficiency_level: summary.level,
+          category_scores: summary.categoryScores,
+          answers: summary.answerMap,
+          completed_at: new Date().toISOString(),
+        }, { onConflict: 'user_id, exam_level', ignoreDuplicates: true })
+
+      if (!newErr) {
+        insertedInNew = true
+      } else {
+        console.warn('philnits_diagnostic_attempts insert notice (table might need creation):', newErr.message)
+      }
+    } catch (newEx) {
+      console.warn('philnits_diagnostic_attempts exception:', newEx)
+    }
+
+    // 2. Dual-write or fallback: Save to diagnostic_assessment_attempts
+    try {
+      const legacyPayload = {
+        user_id: userId,
+        exam_level: examLevelKey,
+        total_questions: summary.totalQuestions,
+        correct_answers: summary.correctCount,
+        score_percent: summary.scorePercent,
+        level: summary.level,
+        category_scores: summary.categoryScores,
+        answers: summary.answerMap,
+        completed_at: new Date().toISOString(),
+      }
+
+      const { error: attemptError } = await supabase
+        .from('diagnostic_assessment_attempts')
+        .insert(legacyPayload)
+
+      if (attemptError) {
+        // If column exam_level doesn't exist yet in legacy table, retry without it
+        delete (/** @type {any} */ (legacyPayload)).exam_level
+        const { error: retryErr } = await supabase
+          .from('diagnostic_assessment_attempts')
+          .insert(legacyPayload)
+
+        if (retryErr && !insertedInNew) {
+          throw new Error(retryErr.message)
+        }
+      }
+    } catch (legacyEx) {
+      if (!insertedInNew) throw legacyEx
+    }
+
+    // 3. Persist target exam level in personal_info
+    try {
+      const targetLevelText = examLevelKey === 'FE'
+        ? 'Fundamental IT Engineer (FE)'
+        : 'Information Technology Passport (IP)'
+      await supabase
+        .from('personal_info')
+        .upsert({
+          user_id: userId,
+          target_exam_level: targetLevelText,
+          updated_at: new Date().toISOString(),
+        }, { onConflict: 'user_id' })
+    } catch (pErr) {
+      console.warn('Could not update target_exam_level in personal_info:', pErr)
+    }
+
+    // 4. Cache weekly study focus for the Study Plan
+    try {
+      await setCache(`user_study_plan_focus_${userId}`, {
+        primaryFocus: summary.weakestCategory,
+        lowestPct: summary.lowestPct,
+        categoryScores: summary.categoryScores,
+        scorePercent: summary.scorePercent,
+        completedAt: new Date().toISOString(),
+      }, 7 * 24 * 60 * 60 * 1000)
+    } catch (cErr) {
+      console.warn('Study plan cache warning:', cErr)
+    }
+
+    // 5. Automatically update user's review_speed preference in `users` table
+    if (userEmail) {
+      const formattedSpeed = summary.calculatedSpeed.charAt(0).toUpperCase() + summary.calculatedSpeed.slice(1).toLowerCase()
+      await supabase
+        .from('users')
+        .update({ review_speed: formattedSpeed })
+        .eq('email', userEmail)
+    }
+
+    // 6. Update local user cache so offline / initial routing recognizes diagnostic is completed
+    try {
+      await saveUserCache(userId, null, true, true)
+    } catch (cacheErr) {
+      console.warn('Local cache save warning:', cacheErr)
+    }
+  }, [examType])
+
+  // ── Auto-submit when 30 minutes expire ──────────────────────
   const handleTimeoutFinish = React.useCallback(async () => {
     if (timerRef.current) clearInterval(timerRef.current)
     const latestAnswers = { ...answersRef.current }
@@ -309,7 +751,7 @@ export default function DiagnosticAssessment({ navigation, route }) {
     }
     Alert.alert(
       "Time's Up!",
-      'The 40-minute limit for the diagnostic assessment has expired. Your current answers have been submitted automatically.',
+      'The 30-minute limit for the diagnostic assessment has expired. Your current answers have been submitted automatically.',
       [{ text: 'View Results' }]
     )
     const summary = computeResults(latestAnswers)
@@ -326,7 +768,7 @@ export default function DiagnosticAssessment({ navigation, route }) {
     }
   }, [computeResults, saveAttempt])
 
-  // ── 40-Minute Countdown Timer ──────────────────────────────
+  // ── 30-Minute Countdown Timer ──────────────────────────────
   React.useEffect(() => {
     if (!started || finished) {
       if (timerRef.current) clearInterval(timerRef.current)
@@ -349,59 +791,8 @@ export default function DiagnosticAssessment({ navigation, route }) {
     }
   }, [started, finished, handleTimeoutFinish])
 
-  // ── Save attempt & update user review_speed ───────────────
-  const saveAttempt = React.useCallback(async (summary) => {
-    const { data: userData, error: userError } = await supabase.auth.getUser()
-    if (userError) throw new Error(userError.message)
-    const userId = userData.user?.id
-    const userEmail = userData.user?.email
-    if (!userId) throw new Error('No logged-in user found')
-
-    // 1. Record diagnostic assessment attempt
-    const { error: attemptError } = await supabase.from('diagnostic_assessment_attempts').insert({
-      user_id: userId,
-      total_questions: summary.totalQuestions,
-      correct_answers: summary.correctCount,
-      score_percent: summary.scorePercent,
-      level: summary.level,
-      category_scores: summary.categoryScores,
-      answers: summary.answerMap,
-      completed_at: new Date().toISOString(),
-    })
-    if (attemptError) throw new Error(attemptError.message)
-
-    // 2. Cache weekly study focus for the Study Plan
-    try {
-      await setCache(`user_study_plan_focus_${userId}`, {
-        primaryFocus: summary.weakestCategory,
-        lowestPct: summary.lowestPct,
-        categoryScores: summary.categoryScores,
-        scorePercent: summary.scorePercent,
-        completedAt: new Date().toISOString(),
-      }, 7 * 24 * 60 * 60 * 1000)
-    } catch (cErr) {
-      console.warn('Study plan cache warning:', cErr)
-    }
-
-    // 3. Automatically update user's review_speed preference in `users` table
-    if (userEmail) {
-      const formattedSpeed = summary.calculatedSpeed.charAt(0).toUpperCase() + summary.calculatedSpeed.slice(1).toLowerCase()
-      await supabase
-        .from('users')
-        .update({ review_speed: formattedSpeed })
-        .eq('email', userEmail)
-    }
-
-    // 4. Update local user cache so offline / initial routing recognizes diagnostic is completed
-    try {
-      await saveUserCache(userId, null, true, true)
-    } catch (cacheErr) {
-      console.warn('Local cache save warning:', cacheErr)
-    }
-  }, [])
-
   // ── Handlers ───────────────────────────────────────────────
-  const handleChoose = (option) => setSelectedAnswer(option)
+  const handleChoose = (/** @type {any} */ option) => setSelectedAnswer(option)
 
   const handleNext = async () => {
     if (!selectedAnswer) return
@@ -432,7 +823,8 @@ export default function DiagnosticAssessment({ navigation, route }) {
   const handleExitAssessment = () => {
     if (timerRef.current) clearInterval(timerRef.current)
     setExitVisible(false)
-    if (from === 'Home') navigation?.navigate('Home')
+    if (from === 'StudyPlan') navigation?.navigate('StudyPlan')
+    else if (from === 'Home') navigation?.navigate('Home')
     else navigation?.goBack()
   }
 
@@ -516,14 +908,16 @@ export default function DiagnosticAssessment({ navigation, route }) {
 
             {/* Category Breakdown */}
             <View style={styles.breakdownHeaderRow}>
-              <Text style={styles.breakdownTitle}>Category Breakdown</Text>
+              <Text style={styles.breakdownTitle}>
+                {examType === 'fe' ? 'FE Section Breakdown' : 'Subject Area Breakdown'}
+              </Text>
               <Text style={styles.breakdownTotalQuestions}>Total: {result.totalQuestions} Questions</Text>
             </View>
 
             {targetCategories.map((cat) => {
-              const b = result.categoryScores[cat] || { correct: 0, total: 10 }
+              const b = result.categoryScores[cat] || { correct: 0, total: examType === 'fe' ? (cat === 'Subject A' ? 22 : 8) : 10 }
               const pct = b.total > 0 ? Math.round((b.correct / b.total) * 100) : 0
-              const cfg = CATEGORY_CONFIG[cat] || {
+              const cfg = (/** @type {any} */ (CATEGORY_CONFIG))[cat] || {
                 label: cat,
                 icon: 'format-list-checks',
                 bg: '#EFF6FF',
@@ -538,7 +932,12 @@ export default function DiagnosticAssessment({ navigation, route }) {
                   </View>
                   <View style={styles.catInfoWrap}>
                     <View style={styles.catRowTop}>
-                      <Text style={styles.catLabelText}>{cfg.label}</Text>
+                      <View style={{ flex: 1, paddingRight: 8 }}>
+                        <Text style={styles.catLabelText}>{cfg.label}</Text>
+                        {cfg.subLabel ? (
+                          <Text style={{ fontSize: 11, color: '#6B7280', marginTop: 1 }}>{cfg.subLabel}</Text>
+                        ) : null}
+                      </View>
                       <View style={styles.catScoreRight}>
                         <Text style={styles.catFractionText}>{b.correct}/{b.total}</Text>
                         <Text style={styles.catPercentText}>{pct}%</Text>
@@ -560,21 +959,63 @@ export default function DiagnosticAssessment({ navigation, route }) {
             {/* Areas for Improvement */}
             <Text style={styles.areasImprovementHeader}>Areas for Improvement</Text>
             <View style={styles.areasImprovementCard}>
-              {targetCategories.map((cat) => (
-                <Text key={cat} style={styles.areaBulletText}>
-                  •  {cat}
-                </Text>
-              ))}
+              {(() => {
+                const weakCategories = targetCategories.filter((cat) => {
+                  const b = result.categoryScores[cat] || { correct: 0, total: 1 }
+                  const pct = b.total > 0 ? (b.correct / b.total) * 100 : 0
+                  return pct < 60
+                })
+
+                if (weakCategories.length === 0) {
+                  return (
+                    <Text style={[styles.areaBulletText, { color: '#059669', fontStyle: 'italic' }]}>
+                      ✓ Excellent work! No critical weak areas detected (all ≥ 60%).
+                    </Text>
+                  )
+                }
+
+                return weakCategories.map((cat) => {
+                  const b = result.categoryScores[cat] || { correct: 0, total: 1 }
+                  const pct = b.total > 0 ? Math.round((b.correct / b.total) * 100) : 0
+                  const cfg = (/** @type {any} */ (CATEGORY_CONFIG))[cat] || { label: cat }
+                  return (
+                    <Text key={cat} style={styles.areaBulletText}>
+                      •  {cfg.label} ({b.correct}/{b.total} · {pct}%) — Focus recommended
+                    </Text>
+                  )
+                })
+              })()}
             </View>
 
             {/* Strong Areas */}
             <Text style={styles.strongAreasHeader}>Strong Areas</Text>
             <View style={styles.strongAreasCard}>
-              {targetCategories.map((cat) => (
-                <Text key={cat} style={styles.areaBulletText}>
-                  •  {cat}
-                </Text>
-              ))}
+              {(() => {
+                const strongCategories = targetCategories.filter((cat) => {
+                  const b = result.categoryScores[cat] || { correct: 0, total: 1 }
+                  const pct = b.total > 0 ? (b.correct / b.total) * 100 : 0
+                  return pct >= 60
+                })
+
+                if (strongCategories.length === 0) {
+                  return (
+                    <Text style={[styles.areaBulletText, { color: '#D97706', fontStyle: 'italic' }]}>
+                      •  Keep practicing to build proficiency across all areas.
+                    </Text>
+                  )
+                }
+
+                return strongCategories.map((cat) => {
+                  const b = result.categoryScores[cat] || { correct: 0, total: 1 }
+                  const pct = b.total > 0 ? Math.round((b.correct / b.total) * 100) : 0
+                  const cfg = (/** @type {any} */ (CATEGORY_CONFIG))[cat] || { label: cat }
+                  return (
+                    <Text key={cat} style={styles.areaBulletText}>
+                      •  {cfg.label} ({b.correct}/{b.total} · {pct}%) — Proficient
+                    </Text>
+                  )
+                })
+              })()}
             </View>
 
             {/* Action Button: LET'S START STUDYING! */}
@@ -582,7 +1023,9 @@ export default function DiagnosticAssessment({ navigation, route }) {
               style={styles.studyNowButton}
               activeOpacity={0.85}
               onPress={() => {
-                if (navigation?.reset) {
+                if (from === 'StudyPlan') {
+                  navigation?.navigate('StudyPlan')
+                } else if (navigation?.reset) {
                   navigation.reset({ index: 0, routes: [{ name: 'Home' }] })
                 } else {
                   navigation?.replace('Home')
@@ -622,18 +1065,22 @@ export default function DiagnosticAssessment({ navigation, route }) {
               {examType === 'fe' ? 'Fundamental IT Engineer (FE)' : 'Information Technology Passport (IP)'}
             </Text>
             <Text style={styles.introBody}>
-              This {questions.length || (examType === 'fe' ? 40 : 30)}-item diagnostic test evaluates your readiness across {examType === 'fe' ? '4 core technical subjects' : '3 core domains (Technology, Management, Strategy)'} and automatically sets your optimal review speed.
+              {examType === 'fe'
+                ? 'This 30-item diagnostic test evaluates your readiness across Subject A (22 questions) and Subject B (8 questions) according to official ITPEC format, and automatically sets your optimal review speed.'
+                : 'This 30-item diagnostic test evaluates your readiness across Technology (10), Management (10), and Strategy (10) according to official ITPEC format, and automatically sets your optimal review speed.'}
             </Text>
             <View style={styles.bulletBox}>
               <View style={styles.bulletRow}>
                 <MaterialCommunityIcons name="check-circle" size={20} color="#d85e67" style={styles.bulletIcon} />
                 <Text style={styles.bulletText}>
-                  {questions.length || (examType === 'fe' ? 40 : 30)} questions (10 items each: {targetCategories.join(', ')})
+                  {examType === 'fe'
+                    ? '30 questions (Subject A: 22 items · 73.3%, Subject B: 8 items · 26.7%)'
+                    : '30 questions (10 items each: Technology, Management, Strategy)'}
                 </Text>
               </View>
               <View style={styles.bulletRow}>
                 <MaterialCommunityIcons name="clock-outline" size={20} color="#d85e67" style={styles.bulletIcon} />
-                <Text style={styles.bulletText}>Time limit: {Math.round(secondsLeft / 60)} minutes (1 minute per question)</Text>
+                <Text style={styles.bulletText}>Time limit: 30 minutes (1 minute per question)</Text>
               </View>
               <View style={styles.bulletRow}>
                 <MaterialCommunityIcons name="speedometer" size={20} color="#d85e67" style={styles.bulletIcon} />
@@ -641,7 +1088,7 @@ export default function DiagnosticAssessment({ navigation, route }) {
               </View>
             </View>
             <TouchableOpacity style={styles.startButton} activeOpacity={0.85} onPress={() => setStarted(true)}>
-              <Text style={styles.startButtonText}>START ASSESSMENT ({questions.length || (examType === 'fe' ? 40 : 30)} ITEMS)</Text>
+              <Text style={styles.startButtonText}>START ASSESSMENT ({questions.length || 30} ITEMS)</Text>
             </TouchableOpacity>
             <TouchableOpacity onPress={() => navigation?.replace('Home')}>
               <Text style={styles.laterText}>Maybe Later</Text>
@@ -698,8 +1145,18 @@ export default function DiagnosticAssessment({ navigation, route }) {
         </Text>
         <Text style={styles.questionText}>{currentQuestion?.question}</Text>
 
+        {currentQuestion?.image_url ? (
+          <View style={styles.questionImageContainer}>
+            <Image
+              source={{ uri: currentQuestion.image_url }}
+              style={styles.questionImage}
+              resizeMode="contain"
+            />
+          </View>
+        ) : null}
+
         <View style={styles.optionsWrap}>
-          {(Array.isArray(currentQuestion?.options) ? currentQuestion.options : []).map((option) => {
+          {(Array.isArray(currentQuestion?.options) ? currentQuestion.options : []).map((/** @type {any} */ option) => {
             const active = selectedAnswer === option
             return (
               <TouchableOpacity
@@ -802,6 +1259,19 @@ const styles = StyleSheet.create({
   laterText: { color: '#6b7280', fontSize: 14, fontWeight: '600' },
   questionHeader: { fontSize: 13, color: '#6b7280', marginBottom: 8, fontWeight: '600' },
   questionText: { fontSize: 18, fontWeight: '700', color: '#111827', marginBottom: 18 },
+  questionImageContainer: {
+    marginVertical: 12,
+    alignItems: 'center',
+    backgroundColor: '#F8FAFC',
+    borderRadius: 14,
+    padding: 8,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  questionImage: {
+    width: '100%',
+    height: 200,
+  },
   optionsWrap: { flex: 1 },
   optionButton: { borderWidth: 1, borderColor: '#d1d5db', borderRadius: 14, paddingVertical: 13, paddingHorizontal: 14, marginBottom: 12, backgroundColor: '#fff' },
   optionButtonActive: { borderColor: '#0F2747', backgroundColor: '#eef2ff' },

@@ -50,9 +50,12 @@ const LEVELS = [
 ];
 
 // Simple score gauge built with plain Views only
-function ScoreGauge({ correct, incorrect, score, width = 120 }) {
-  const total = correct + incorrect;
-  const correctFraction = total > 0 ? correct / total : 0;
+/**
+ * @param {{ correct?: number, incorrect?: number, score?: any, width?: number }} props
+ */
+function ScoreGauge({ correct = 0, incorrect = 0, score = 0, width = 120 }) {
+  const total = Number(correct) + Number(incorrect);
+  const correctFraction = total > 0 ? Number(correct) / total : 0;
   const correctWidth = Math.round(width * correctFraction);
   const incorrectWidth = width - correctWidth;
 
@@ -73,6 +76,7 @@ function getNextPhilnitsExamDate() {
   const now = new Date();
   const currentYear = now.getFullYear();
   const candidateYears = [currentYear, currentYear + 1];
+  /** @type {{ date: Date, label: string }[]} */
   const candidates = [];
 
   candidateYears.forEach((y) => {
@@ -82,15 +86,19 @@ function getNextPhilnitsExamDate() {
     candidates.push({ date: new Date(y, 9, 25), label: `October ${y} Cycle` });
   });
 
-  const future = candidates.filter((c) => c.date > now).sort((a, b) => a.date - b.date);
+  const future = candidates.filter((c) => c.date.getTime() > now.getTime()).sort((a, b) => a.date.getTime() - b.date.getTime());
   return future[0] || candidates[0];
 }
 
+/**
+ * @param {{ navigation: any, route?: any }} props
+ */
 export default function MockExamHome({ navigation, route }) {
   const from = route?.params?.from;
-  const [daysLeft, setDaysLeft] = useState('-');
+  const [daysLeft, setDaysLeft] = useState(/** @type {string | number} */ ('-'));
   const [examCycleLabel, setExamCycleLabel] = useState(UPCOMING_EXAM.label);
-  const [latestResult, setLatestResult] = useState(null);
+  const [latestResult, setLatestResult] = useState(/** @type {any} */ (null));
+  const [userTargetExam, setUserTargetExam] = useState('IP');
 
   useEffect(() => {
     let active = true;
@@ -99,10 +107,10 @@ export default function MockExamHome({ navigation, route }) {
       try {
         const nextCycle = getNextPhilnitsExamDate();
         const now = new Date();
-        const diffDays = Math.ceil((nextCycle.date - now) / (1000 * 60 * 60 * 24));
+        const diffDays = Math.ceil((nextCycle.date.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
         if (active) {
           setDaysLeft(diffDays > 0 ? diffDays : 0);
-          setExamCycleLabel(`Upcoming PhilNITS Exam (${nextCycle.label})`);
+          setExamCycleLabel(`PhilNITS Exam (${nextCycle.label})`);
         }
       } catch (e) {
         console.warn('Schedule calculation error:', e);
@@ -115,37 +123,72 @@ export default function MockExamHome({ navigation, route }) {
     };
   }, []);
 
-  // Fetch live latest mock exam result
+  // Fetch user's target exam level and live latest mock exam result
   useEffect(() => {
-    const fetchLatestAttempt = async () => {
+    const fetchTargetAndAttempt = async () => {
       try {
-        const { data: { session } } = await supabase.auth.getSession();
-        if (!session?.user?.id) return;
+        const { data: sessionData } = await supabase.auth.getSession();
+        const uid = sessionData?.session?.user?.id;
+        if (!uid) return;
+
+        let activeTrack = 'IP';
+        const { data: pData } = await supabase
+          .from('personal_info')
+          .select('target_exam_level')
+          .eq('user_id', uid)
+          .maybeSingle();
+
+        if (pData?.target_exam_level) {
+          const lvl = pData.target_exam_level.toLowerCase();
+          activeTrack = (lvl.includes('fe') || lvl.includes('fundamental') || (lvl.includes('pro') && !lvl.includes('sub')))
+            ? 'FE'
+            : 'IP';
+          setUserTargetExam(activeTrack);
+        }
 
         const { data } = await supabase
           .from('mock_exam_attempts')
           .select('score, total_questions, correct_count, incorrect_count, mock_exam_configs(title, level_key)')
-          .eq('user_id', session.user.id)
+          .eq('user_id', uid)
           .eq('status', 'completed')
           .order('completed_at', { ascending: false })
-          .limit(1)
-          .maybeSingle();
+          .limit(10);
 
-        if (data) {
-          setLatestResult({
-            examName: data.mock_exam_configs?.title || 'PhilNITS Mock Exam',
-            correct: data.correct_count ?? 0,
-            incorrect: data.incorrect_count ?? 0,
-            totalScore: data.score ?? 0,
+        if (data && data.length > 0) {
+          const match = data.find((att) => {
+            const rawCfg = /** @type {any} */ (att).mock_exam_configs;
+            const cfg = Array.isArray(rawCfg) ? rawCfg[0] : rawCfg;
+            const lk = (cfg?.level_key || '').toLowerCase();
+            return activeTrack === 'IP' ? lk.includes('ip') : lk.includes('fe');
           });
+
+          if (match) {
+            const rawCfg = /** @type {any} */ (match).mock_exam_configs;
+            const cfg = Array.isArray(rawCfg) ? rawCfg[0] : rawCfg;
+            setLatestResult({
+              examName: cfg?.title || 'PhilNITS Mock Exam',
+              correct: match.correct_count ?? 0,
+              incorrect: match.incorrect_count ?? 0,
+              totalScore: match.score ?? 0,
+            });
+          }
         }
       } catch (err) {
-        console.warn('Error loading latest attempt:', err);
+        console.warn('Error loading mock exam info:', err);
       }
     };
 
-    fetchLatestAttempt();
-  }, []);
+    fetchTargetAndAttempt();
+    const unsubscribe = navigation?.addListener?.('focus', fetchTargetAndAttempt);
+    return () => {
+      unsubscribe?.();
+    };
+  }, [navigation]);
+
+  const visibleLevels = LEVELS.filter((lvl) => {
+    if (userTargetExam === 'IP') return lvl.id === 'ip';
+    return lvl.id.startsWith('fe');
+  });
 
   const handleBack = () => {
     if (from === 'Home') navigation.navigate('Home');
@@ -174,12 +217,14 @@ export default function MockExamHome({ navigation, route }) {
       >
         {/* Upcoming exam banner */}
         <View style={styles.banner}>
-          <Text style={styles.bannerLabel}>{examCycleLabel}</Text>
+          <Text style={styles.bannerLabel}>
+            {userTargetExam === 'FE' ? 'PhilNITS FE Track' : 'PhilNITS IP Track'} • {examCycleLabel}
+          </Text>
           <Text style={styles.bannerDays}>{daysLeft} days left</Text>
         </View>
 
-        {/* Level cards */}
-        {LEVELS.map((level) => (
+        {/* Level cards strictly matching user's target exam */}
+        {visibleLevels.map((level) => (
           <View key={level.id} style={styles.levelCard}>
             <View style={styles.levelBadgeContainer}>
               <Text style={styles.levelBadgeText}>{level.levelBadge}</Text>

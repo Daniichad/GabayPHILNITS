@@ -10,6 +10,13 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useFocusEffect } from '@react-navigation/native'
 import { getCache, setCache, clearCache } from '../../../utils/cache'
 import { getUnsyncedPoints } from '../../../utils/database'
+import {
+  addNotificationListener,
+  cleanNotificationText,
+  extractFirstName,
+  formatNotificationTime,
+  getNotificationIcon,
+} from '../../../utils/notificationManager'
 
 // ─── Fallback motivational quotes (used if API fails) ───────────
 const FALLBACK_QUOTES = [
@@ -29,24 +36,28 @@ const FALLBACK_QUOTES = [
 const NAVY = '#0f2747'
 const ACCENT = '#d85e67'
 
-const DEFAULT_SUBJECTS = [
+const IP_DEFAULT_SUBJECTS = [
   { label: 'Technology', progress: 0 },
   { label: 'Management', progress: 0 },
   { label: 'Strategy', progress: 0 },
+]
+
+const FE_DEFAULT_SUBJECTS = [
   { label: 'Computer Systems & Architecture', progress: 0 },
   { label: 'Algorithms & Programming', progress: 0 },
   { label: 'Networks & Security', progress: 0 },
+  { label: 'IT Management & Strategy', progress: 0 },
 ]
 
-export default function Home({ session, navigation }) {
+export default function Home({ session, navigation, route }) {
   const user = session?.user
   const insets = useSafeAreaInsets()
   const displayName =
     user?.user_metadata?.full_name ||
     user?.user_metadata?.fullName ||
     user?.email ||
-    'User'
-  const firstName = displayName.split(' ')[0] || 'Learner'
+    'Student'
+  const firstName = extractFirstName(displayName, user?.email)
 
   // ─── State ─────────────────────────────────────────────────────
   const [notifications, setNotifications] = useState([])
@@ -61,9 +72,10 @@ export default function Home({ session, navigation }) {
   const [rankings, setRankings] = useState([])
   const [rankingsLoading, setRankingsLoading] = useState(true)
   const [rankingTimeframe, setRankingTimeframe] = useState('all_time')
-  const [profileName, setProfileName] = useState('Learner')
+  const [profileName, setProfileName] = useState(() => firstName || 'Student')
   const [streakDays, setStreakDays] = useState(0)
-  const [subjects, setSubjectProgress] = useState(DEFAULT_SUBJECTS)
+  const [targetExamType, setTargetExamType] = useState('IP')
+  const [subjects, setSubjectProgress] = useState(IP_DEFAULT_SUBJECTS)
 
   const quoteTimer = useRef(null)
   const quoteOpacity = useRef(new Animated.Value(1)).current
@@ -81,107 +93,219 @@ export default function Home({ session, navigation }) {
     }
   }, [notifVisible])
 
-  // ─── Generate & Fetch Dynamic Notifications ──────────────────────────────
+  // Open notifications modal if navigated with openNotifs param
   useEffect(() => {
-    async function updateDynamicNotifications() {
-      const generated = []
+    if (route?.params?.openNotifs) {
+      setNotifVisible(true)
+    }
+  }, [route?.params?.openNotifs])
 
+  // ─── Fetch Supabase & Dynamic In-App Notifications ───────────────────────
+  const fetchNotifications = useCallback(async () => {
+    try {
+      // 1. Resolve current user identity
+      let currentUser = user
+      if (!currentUser) {
+        try {
+          const { data: sessionData } = await supabase.auth.getSession()
+          currentUser = sessionData?.session?.user || null
+        } catch (_) {}
+      }
+
+      const uid = currentUser?.id || null
+      let currentFullName =
+        currentUser?.user_metadata?.full_name ||
+        currentUser?.user_metadata?.fullName ||
+        profileName ||
+        ''
+      const currentEmail = currentUser?.email || ''
+
+      if (!currentFullName && currentEmail) {
+        try {
+          const { data: uData } = await supabase
+            .from('users')
+            .select('fullname')
+            .eq('email', currentEmail)
+            .maybeSingle()
+          if (uData?.fullname) {
+            currentFullName = uData.fullname
+          }
+        } catch (_) {}
+      }
+
+      const userFirstName = extractFirstName(currentFullName, currentEmail).toLowerCase()
+      const userFullNameLower = (currentFullName || '').toLowerCase()
+      const userEmailPrefix = (currentEmail.split('@')[0] || '').toLowerCase()
+
+      // 2. Dynamic in-app notices based on user metrics
+      const generated = []
       if (streakDays > 0) {
         generated.push({
-          id: 'streak',
+          id: 'streak_notice',
           icon: 'fire',
+          iconColor: '#f59e0b',
           title: 'Study Streak! 🔥',
           body: `You're on a ${streakDays}-day study streak. Consistency is key!`,
-          time: 'Just now',
-          read: false,
+          time: 'Active now',
+          timestamp: Date.now(),
+          isDbRead: false,
         })
       }
 
       if (cseSchedule && cseSchedule.daysLeft !== null && cseSchedule.daysLeft >= 0) {
         generated.push({
-          id: 'exam',
+          id: 'exam_countdown_notice',
           icon: 'calendar-clock',
+          iconColor: '#6366f1',
           title: 'PhilNITS Exam Reminder',
-          body: `The next PhilNITS exam is in ${cseSchedule.daysLeft} days. Stay focused!`,
-          time: 'Just now',
-          read: false,
+          body: `The next PhilNITS exam cycle is in ${cseSchedule.daysLeft} days. Stay focused!`,
+          time: 'Upcoming',
+          timestamp: Date.now() - 60000,
+          isDbRead: false,
         })
       }
 
       if (readiness > 0) {
         generated.push({
-          id: 'readiness',
-          icon: 'chart-bar',
+          id: 'readiness_notice',
+          icon: 'chart-line',
+          iconColor: '#10b981',
           title: 'Exam Readiness Update',
-          body: `Your current estimated readiness is ${readiness}%. Keep taking practice tests!`,
-          time: 'Just now',
-          read: false,
+          body: `Your estimated readiness is ${readiness}%. Keep taking practice tests!`,
+          time: 'Recent',
+          timestamp: Date.now() - 120000,
+          isDbRead: false,
         })
       }
 
+      // 3. Fetch from Supabase public.notifications
       let supabaseNotifs = []
-      if (user) {
-        try {
-          const { data, error } = await supabase
-            .from('notifications')
-            .select('*')
-            .order('created_at', { ascending: false })
-            .limit(20);
+      try {
+        const { data, error } = await supabase
+          .from('notifications')
+          .select('*')
+          .order('created_at', { ascending: false })
+          .limit(30)
 
-          if (!error && data) {
-            const relevant = data.filter(n => {
-              if (n.target_audience === 'Specific User (Direct Notification)...' && n.user_id !== user.id) return false;
-              return true;
-            });
-            
-            supabaseNotifs = relevant.map(notif => {
-              let iconName = 'bell';
-              if (notif.type === 'Study Reminder') iconName = 'book-clock';
-              else if (notif.type === 'Exam Update') iconName = 'calendar-clock';
-              
-              return {
-                id: notif.id,
-                icon: iconName,
-                title: notif.title,
-                body: notif.message,
-                time: new Date(notif.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }),
-                read: false // Will be updated by cache below
-              };
-            });
-          }
-        } catch (err) {
-          console.warn('Failed to fetch Supabase notifications:', err);
+        if (!error && Array.isArray(data)) {
+          const now = new Date()
+          const relevant = data.filter((n) => {
+            // Check status: ignore Drafts, only show Scheduled if scheduled_at is past or now
+            const status = (n.status || '').toLowerCase()
+            if (status === 'draft') return false
+            if (status === 'scheduled') {
+              if (n.scheduled_at && new Date(n.scheduled_at) > now) {
+                return false
+              }
+            }
+
+            const aud = (n.target_audience || '').trim()
+            const audLower = aud.toLowerCase()
+
+            // Broadcast / General announcements -> visible to everyone
+            if (!aud || audLower.includes('all user') || audLower === 'all' || audLower.includes('broadcast')) {
+              return true
+            }
+
+            // Direct notification check
+            if (audLower.startsWith('direct:') || audLower.includes('specific user')) {
+              const directTarget = audLower.replace(/^direct:\s*/i, '').trim()
+              const uidMatches = n.user_id && uid && n.user_id === uid
+              const nameMatches =
+                directTarget &&
+                (userFirstName.includes(directTarget) ||
+                  userFullNameLower.includes(directTarget) ||
+                  userEmailPrefix.includes(directTarget) ||
+                  directTarget.includes(userFirstName))
+
+              return Boolean(uidMatches || nameMatches)
+            }
+
+            // Segment-based campaigns (Struggling, Streak, Inactive): delivered to user's notification center
+            return true
+          })
+
+          supabaseNotifs = relevant.map((notif) => {
+            const iconInfo = getNotificationIcon(notif.type, notif.title)
+            const notifDate = notif.created_at || notif.scheduled_at
+            return {
+              id: String(notif.id),
+              icon: iconInfo.name,
+              iconColor: iconInfo.color,
+              title: cleanNotificationText(notif.title) || 'Notification',
+              body: cleanNotificationText(notif.message) || '',
+              time: formatNotificationTime(notifDate),
+              timestamp: notifDate ? new Date(notifDate).getTime() : 0,
+              isDbRead: notif.is_read === true,
+            }
+          })
         }
+      } catch (err) {
+        console.warn('Failed to fetch Supabase notifications:', err)
       }
 
       // Combine both sources
-      const allNotifs = [...generated, ...supabaseNotifs];
+      const allNotifs = [...generated, ...supabaseNotifs]
+
+      // Sort newest first
+      allNotifs.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0))
 
       // Load read state from cache
-      const readStates = await getCache('notifications_read_state') || {}
-      
-      const merged = allNotifs.map(notif => ({
-        ...notif,
-        read: readStates[notif.id] === true
+      const readStates = (await getCache('notifications_read_state')) || {}
+
+      const merged = allNotifs.map((n) => ({
+        ...n,
+        read: n.isDbRead === true || readStates[n.id] === true,
       }))
 
       setNotifications(merged)
+    } catch (err) {
+      console.warn('fetchNotifications error:', err)
     }
-    
-    updateDynamicNotifications()
-  }, [streakDays, cseSchedule, readiness, user])
+  }, [user, profileName, streakDays, cseSchedule, readiness])
+
+  useEffect(() => {
+    fetchNotifications()
+  }, [fetchNotifications])
+
+  // Real-time listener to update badge and notification sheet dynamically
+  useEffect(() => {
+    const unsubscribe = addNotificationListener(() => {
+      fetchNotifications()
+    })
+    return () => {
+      unsubscribe()
+    }
+  }, [fetchNotifications])
 
   const markAllNotifsRead = async () => {
     const updated = notifications.map((n) => ({ ...n, read: true }))
     setNotifications(updated)
 
-    const readStates = {}
-    updated.forEach(n => {
+    const readStates = (await getCache('notifications_read_state')) || {}
+    updated.forEach((n) => {
       readStates[n.id] = true
     })
     await setCache('notifications_read_state', readStates)
+
+    try {
+      const ids = updated.map((n) => n.id)
+      await supabase.from('notifications').update({ is_read: true }).in('id', ids)
+    } catch (_) {}
   }
 
+  const markSingleNotifRead = async (id) => {
+    const updated = notifications.map((n) => (n.id === id ? { ...n, read: true } : n))
+    setNotifications(updated)
+
+    const readStates = (await getCache('notifications_read_state')) || {}
+    readStates[id] = true
+    await setCache('notifications_read_state', readStates)
+
+    try {
+      await supabase.from('notifications').update({ is_read: true }).eq('id', id)
+    } catch (_) {}
+  }
 
   const unreadCount = notifications.filter((n) => !n.read).length
 
@@ -258,23 +382,47 @@ export default function Home({ session, navigation }) {
       const uid = session?.user?.id
       if (!uid) return
 
+      // Fetch user's registered target exam level to filter readiness strictly to their exam
+      let isFE = false
+      const { data: pInfo } = await supabase
+        .from('personal_info')
+        .select('target_exam_level')
+        .eq('user_id', uid)
+        .maybeSingle()
+
+      if (pInfo?.target_exam_level) {
+        const rawLevel = String(pInfo.target_exam_level).trim().toLowerCase()
+        isFE = rawLevel.includes('fe') || rawLevel.includes('fundamental') || (rawLevel.includes('pro') && !rawLevel.includes('sub'))
+      }
+
       const { data: attempts, error } = await supabase
         .from('mock_exam_attempts')
-        .select('correct_count, total_questions')
+        .select('correct_count, total_questions, mock_exam_configs(title, level_key)')
         .eq('user_id', uid)
         .eq('status', 'completed')
 
       if (error) throw error
 
+      // Strictly include ONLY mock attempts matching the user's target exam
+      const targetAttempts = (attempts || []).filter(a => {
+        const lk = (a.mock_exam_configs?.level_key || '').toLowerCase()
+        const title = (a.mock_exam_configs?.title || '').toLowerCase()
+        if (isFE) {
+          return lk.includes('fe') || title.includes('fundamental') || title.includes('fe')
+        } else {
+          return lk.includes('ip') || title.includes('passport') || title.includes('ip')
+        }
+      })
+
       let score = 0
-      if (attempts && attempts.length > 0) {
-        const totalPct = attempts.reduce((sum, attempt) => {
+      if (targetAttempts.length > 0) {
+        const totalPct = targetAttempts.reduce((sum, attempt) => {
           const pct = attempt.total_questions > 0
             ? (attempt.correct_count / attempt.total_questions) * 100
             : 0
           return sum + pct
         }, 0)
-        score = Math.round(totalPct / attempts.length)
+        score = Math.round(totalPct / targetAttempts.length)
       }
       setReadiness(score)
       await setCache('home_readiness', score)
@@ -289,8 +437,14 @@ export default function Home({ session, navigation }) {
   const fetchRankings = useCallback(async (selectedTimeframe = rankingTimeframe) => {
     const cacheKey = `home_rankings_${selectedTimeframe}`
     const cached = (await getCache(cacheKey)) || (await getCache('home_rankings'))
-    if (cached) {
-      setRankings(cached)
+    if (cached && Array.isArray(cached) && cached.length > 0) {
+      const sanitized = cached.map(r => ({
+        ...r,
+        name: (!r.name || r.name.toLowerCase() === 'learner')
+          ? (r.isCurrentUser ? (extractFirstName(profileName) || 'You') : 'Student')
+          : extractFirstName(r.name)
+      }))
+      setRankings(sanitized)
       setRankingsLoading(false)
     } else {
       setRankingsLoading(true)
@@ -367,7 +521,7 @@ export default function Home({ session, navigation }) {
           const userScores = {}
           if (publicUsers) {
             publicUsers.forEach(u => {
-              userScores[u.id] = { name: u.fullname || u.email || 'Learner', points: 0 }
+              userScores[u.id] = { name: extractFirstName(u.fullname, u.email), points: 0 }
             })
           }
           if (attempts) {
@@ -433,31 +587,89 @@ export default function Home({ session, navigation }) {
       const userIds = leaderboardData.map(item => item.user_id).filter(Boolean)
       const nameMap = {}
 
-      if (userIds.length > 0) {
-        try {
-          const { data: usersData } = await supabase
-            .from('users')
-            .select('id, fullname, email')
-            .in('id', userIds)
+      // Pre-resolve current user's real first name
+      const myResolvedFirstName = extractFirstName(
+        profileName || session?.user?.user_metadata?.full_name || session?.user?.user_metadata?.fullName,
+        session?.user?.email
+      )
+      if (currentUserId) {
+        nameMap[currentUserId] = myResolvedFirstName
+      }
 
-          if (usersData) {
-            usersData.forEach(u => {
-              nameMap[u.id] = u.fullname || (u.email ? u.email.split('@')[0] : 'Learner')
+      if (userIds.length > 0) {
+        // 1. Fetch real names from app_ratings (which stores user_id UUID -> user_name)
+        try {
+          const { data: ratingsData } = await supabase
+            .from('app_ratings')
+            .select('user_id, user_name')
+            .in('user_id', userIds)
+
+          if (ratingsData) {
+            ratingsData.forEach(r => {
+              if (r.user_id && r.user_name) {
+                nameMap[r.user_id] = extractFirstName(r.user_name)
+              }
             })
           }
         } catch (e) {
-          console.warn('Error fetching user names:', e)
+          console.warn('Error fetching names from app_ratings:', e)
+        }
+
+        // 2. Fetch real names from points_ledger metadata
+        try {
+          const { data: ledgerMeta } = await supabase
+            .from('points_ledger')
+            .select('user_id, metadata')
+            .in('user_id', userIds)
+
+          if (ledgerMeta) {
+            ledgerMeta.forEach(row => {
+              if (row.user_id && !nameMap[row.user_id] && row.metadata?.user_name) {
+                nameMap[row.user_id] = extractFirstName(row.metadata.user_name)
+              }
+            })
+          }
+        } catch (e) {
+          console.warn('Error fetching names from points_ledger metadata:', e)
+        }
+
+        // 3. Query users table (only filter on numeric IDs if present to avoid bigint syntax error, and match current user by email)
+        try {
+          const numericIds = userIds.filter(id => !isNaN(Number(id)))
+          let usersQuery = supabase.from('users').select('id, fullname, email')
+          if (numericIds.length > 0) {
+            usersQuery = usersQuery.in('id', numericIds)
+          }
+
+          const { data: usersData } = await usersQuery
+
+          if (usersData) {
+            usersData.forEach(u => {
+              const uFirst = extractFirstName(u.fullname, u.email)
+              if (u.id) {
+                nameMap[String(u.id)] = uFirst
+                nameMap[u.id] = uFirst
+              }
+              if (session?.user?.email && u.email && u.email.toLowerCase() === session.user.email.toLowerCase()) {
+                if (currentUserId) {
+                  nameMap[currentUserId] = uFirst
+                }
+              }
+            })
+          }
+        } catch (e) {
+          console.warn('Error fetching user names from users table:', e)
         }
       }
 
       const finalized = leaderboardData.map(item => {
         let name = nameMap[item.user_id]
         if (!name && item.user_id === currentUserId) {
-          name = profileName || 'You'
+          name = myResolvedFirstName || 'You'
         }
         return {
           uid: item.user_id,
-          name: name || 'Learner',
+          name: name ? extractFirstName(name) : 'Student',
           score: item.points,
           isCurrentUser: item.user_id === currentUserId,
         }
@@ -524,7 +736,9 @@ export default function Home({ session, navigation }) {
     const cachedStreak = await getCache('home_streak_days')
     const cachedSubjects = await getCache('home_subject_progress')
     if (cachedName !== null && cachedStreak !== null && cachedSubjects) {
-      setProfileName(cachedName)
+      if (cachedName && cachedName.toLowerCase() !== 'learner') {
+        setProfileName(extractFirstName(cachedName))
+      }
       setStreakDays(cachedStreak)
       setSubjectProgress(cachedSubjects)
     }
@@ -540,11 +754,13 @@ export default function Home({ session, navigation }) {
         .eq('email', session.user.email)
         .maybeSingle()
 
-      let resolvedName = 'Learner'
+      let resolvedName = firstName || 'Student'
       if (uData && uData.fullname) {
-        resolvedName = uData.fullname
-      } else {
-        resolvedName = session.user.user_metadata?.full_name || session.user.user_metadata?.fullName || session.user.email || 'Learner'
+        resolvedName = extractFirstName(uData.fullname, session.user.email)
+      } else if (session.user.user_metadata?.full_name || session.user.user_metadata?.fullName) {
+        resolvedName = extractFirstName(session.user.user_metadata?.full_name || session.user.user_metadata?.fullName)
+      } else if (session.user.email) {
+        resolvedName = extractFirstName('', session.user.email)
       }
       setProfileName(resolvedName)
       await setCache('home_profile_name', resolvedName)
@@ -589,7 +805,23 @@ export default function Home({ session, navigation }) {
       setStreakDays(streak)
       await setCache('home_streak_days', streak)
 
-      // 3. Fetch MCQ + TF results to calculate subject progress
+      // 3. Fetch target exam level to determine allowed subject areas
+      let isFE = false
+      const { data: pInfo } = await supabase
+        .from('personal_info')
+        .select('target_exam_level')
+        .eq('user_id', uid)
+        .maybeSingle()
+
+      if (pInfo?.target_exam_level) {
+        const rawLevel = String(pInfo.target_exam_level).trim().toLowerCase()
+        isFE = rawLevel.includes('fe') || rawLevel.includes('fundamental') || (rawLevel.includes('pro') && !rawLevel.includes('sub'))
+      }
+
+      setTargetExamType(isFE ? 'FE' : 'IP')
+      const targetDefaultSubjects = isFE ? FE_DEFAULT_SUBJECTS : IP_DEFAULT_SUBJECTS
+
+      // 4. Fetch MCQ + TF results to calculate subject progress strictly for target exam
       const { data: mcqPerformance } = await supabase
         .from('multiple_choice_results')
         .select('is_correct, multiple_choice_questions(practice_categories(name))')
@@ -601,20 +833,25 @@ export default function Home({ session, navigation }) {
         .eq('user_id', uid)
 
       const performanceMap = {}
-      DEFAULT_SUBJECTS.forEach(s => {
+      targetDefaultSubjects.forEach(s => {
         performanceMap[s.label] = { correct: 0, total: 0 }
       })
 
       const mapCategory = (name) => {
         if (!name) return null
         const n = String(name).trim()
-        if (n === 'Technology' || n.includes('Tech')) return 'Technology'
-        if (n === 'Management' || n.includes('Manage') || n.includes('Project')) return 'Management'
-        if (n === 'Strategy' || n.includes('Strat') || n.includes('Business')) return 'Strategy'
-        if (n.includes('Architecture') || n.includes('Computer Systems') || n.includes('Hardware')) return 'Computer Systems & Architecture'
-        if (n.includes('Algorithm') || n.includes('Program') || n.includes('Data Structure')) return 'Algorithms & Programming'
-        if (n.includes('Network') || n.includes('Security')) return 'Networks & Security'
-        return null
+        if (isFE) {
+          if (n.includes('Architecture') || n.includes('Computer Systems') || n.includes('Hardware') || n === 'Technology' || n === 'Subject A') return 'Computer Systems & Architecture'
+          if (n.includes('Algorithms & Programming') || n.includes('Programming') || (n.includes('Algorithm') && !n.includes('Data Structure')) || n === 'Subject B') return 'Algorithms & Programming'
+          if (n.includes('Network') || n.includes('Security')) return 'Networks & Security'
+          if (n.includes('Management') || n.includes('Strategy') || n.includes('Project')) return 'IT Management & Strategy'
+          return null
+        } else {
+          if (n === 'Technology' || n.includes('Hardware') || n.includes('Software') || n.includes('Database') || n.includes('Network') || n.includes('Security') || n.includes('Computer Systems')) return 'Technology'
+          if (n === 'Management' || n.includes('Project Management') || n.includes('IT Service Management') || n.includes('Audit')) return 'Management'
+          if (n === 'Strategy' || n.includes('Corporate Strategy') || n.includes('Business') || n.includes('Legal')) return 'Strategy'
+          return null
+        }
       }
 
       if (mcqPerformance) {
@@ -639,8 +876,8 @@ export default function Home({ session, navigation }) {
         })
       }
 
-      const updatedSubjects = DEFAULT_SUBJECTS.map(s => {
-        const stats = performanceMap[s.label]
+      const updatedSubjects = targetDefaultSubjects.map(s => {
+        const stats = performanceMap[s.label] || { correct: 0, total: 0 }
         const progress = stats.total > 0 ? (stats.correct / stats.total) : 0
         return { label: s.label, progress }
       })
@@ -658,14 +895,16 @@ export default function Home({ session, navigation }) {
     fetchReadiness()
     fetchRankings()
     fetchHomeData()
-  }, [fetchCSESchedule, fetchReadiness, fetchRankings, fetchHomeData])
+    fetchNotifications()
+  }, [fetchCSESchedule, fetchReadiness, fetchRankings, fetchHomeData, fetchNotifications])
 
-  // Re-fetch rankings and home data when Home screen comes into focus
+  // Re-fetch rankings, home data, and notifications when Home screen comes into focus
   useFocusEffect(
     useCallback(() => {
       fetchRankings()
       fetchHomeData()
-    }, [fetchRankings, fetchHomeData])
+      fetchNotifications()
+    }, [fetchRankings, fetchHomeData, fetchNotifications])
   )
 
   // ─── Pull-to-refresh ───────────────────────────────────────────
@@ -683,16 +922,15 @@ export default function Home({ session, navigation }) {
       fetchCSESchedule(),
       fetchReadiness(),
       fetchRankings(),
-      fetchHomeData()
+      fetchHomeData(),
+      fetchNotifications()
     ])
     setRefreshing(false)
-  }, [fetchQuote, fetchCSESchedule, fetchReadiness, fetchRankings, fetchHomeData])
+  }, [fetchQuote, fetchCSESchedule, fetchReadiness, fetchRankings, fetchHomeData, fetchNotifications])
 
   // ─── Notification helpers ──────────────────────────────────────
   const openNotifications = () => {
     setNotifVisible(true)
-    // Mark all as read when opened
-    setNotifications((prev) => prev.map((n) => ({ ...n, read: true })))
   }
 
   const closeNotifications = () => {
@@ -939,7 +1177,7 @@ export default function Home({ session, navigation }) {
                       <Text style={styles.rankIndex}>{idx + 1}</Text>
                     )}
                     <Text style={[styles.rankName, rank.isCurrentUser && styles.currentUserRankText]} numberOfLines={1}>
-                      {rank.name} {rank.isCurrentUser ? '(You)' : ''}
+                      {extractFirstName(rank.name)} {rank.isCurrentUser ? '(You)' : ''}
                     </Text>
                   </View>
                   <Text style={styles.rankScore}>{rank.score} pts</Text>
@@ -964,40 +1202,10 @@ export default function Home({ session, navigation }) {
           <TouchableOpacity
             style={[styles.actionCard, styles.actionCream]}
             activeOpacity={0.85}
-            onPress={() => navigation?.navigate('PracticeOverview', { typeId: 'Flashcards', from: 'Home' })}
+            onPress={() => navigation?.navigate('Performance')}
           >
-            <MaterialCommunityIcons name="cards-outline" size={32} color={NAVY} />
-            <Text style={styles.actionText}>Review{'\n'}Flashcards</Text>
-          </TouchableOpacity>
-        </View>
-
-        {/* ── Subject Areas ── */}
-        <View style={styles.subjectCard}>
-          <Text style={styles.subjectTitle}>Your Subject Areas</Text>
-          {subjects.map((s) => (
-            <View key={s.label} style={styles.subjectItem}>
-              <View style={styles.subjectRow}>
-                <Text style={styles.subjectLabel}>{s.label}</Text>
-                <Text style={styles.subjectPct}>{Math.round(s.progress * 100)}%</Text>
-              </View>
-              <View style={styles.progressTrack}>
-                <View
-                  style={[
-                    styles.progressFill,
-                    { width: `${Math.max(s.progress * 100, 4)}%` },
-                  ]}
-                />
-              </View>
-            </View>
-          ))}
-
-          <TouchableOpacity
-            style={styles.diagnosticBtn}
-            activeOpacity={0.85}
-            onPress={() => navigation?.navigate('DiagnosticAssessment', { from: 'Home' })}
-          >
-            <Feather name="activity" size={16} color="#fff" style={{ marginRight: 6 }} />
-            <Text style={styles.diagnosticText}>Take Diagnostic</Text>
+            <MaterialCommunityIcons name="chart-box-outline" size={32} color={NAVY} />
+            <Text style={styles.actionText}>Performance</Text>
           </TouchableOpacity>
         </View>
       </ScrollView>
@@ -1021,13 +1229,35 @@ export default function Home({ session, navigation }) {
 
             {/* Header */}
             <View style={styles.notifSheetHeader}>
-              <Text style={styles.notifSheetTitle}>Notifications</Text>
-              <TouchableOpacity onPress={closeNotifications}>
-                <Ionicons name="close" size={24} color={NAVY} />
-              </TouchableOpacity>
+              <View style={styles.notifHeaderTitleRow}>
+                <Text style={styles.notifSheetTitle}>Notifications</Text>
+                {unreadCount > 0 && (
+                  <View style={styles.notifCountBadge}>
+                    <Text style={styles.notifCountBadgeText}>{unreadCount} new</Text>
+                  </View>
+                )}
+              </View>
+              <View style={styles.notifHeaderActions}>
+                {unreadCount > 0 && (
+                  <TouchableOpacity
+                    onPress={markAllNotifsRead}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    style={styles.markAllReadBtn}
+                  >
+                    <Text style={styles.markAllReadText}>Mark all as read</Text>
+                  </TouchableOpacity>
+                )}
+                <TouchableOpacity
+                  onPress={closeNotifications}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  style={styles.notifCloseBtn}
+                >
+                  <Ionicons name="close" size={24} color={NAVY} />
+                </TouchableOpacity>
+              </View>
             </View>
 
-            <ScrollView showsVerticalScrollIndicator={false}>
+            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 20 }}>
               {notifications.length === 0 ? (
                 <View style={styles.notifEmpty}>
                   <Ionicons name="notifications-off-outline" size={48} color="#cbd5e1" />
@@ -1035,26 +1265,32 @@ export default function Home({ session, navigation }) {
                 </View>
               ) : (
                 notifications.map((notif) => (
-                  <View
+                  <TouchableOpacity
                     key={notif.id}
                     style={[styles.notifItem, !notif.read && styles.notifItemUnread]}
+                    activeOpacity={0.7}
+                    onPress={() => markSingleNotifRead(notif.id)}
                   >
-                    <View style={styles.notifIconWrap}>
+                    <View style={[styles.notifIconWrap, !notif.read && styles.notifIconWrapUnread]}>
                       <MaterialCommunityIcons
-                        name={notif.icon || 'bell'}
+                        name={notif.icon || 'bell-outline'}
                         size={22}
-                        color={notif.read ? '#94a3b8' : ACCENT}
+                        color={notif.read ? '#94a3b8' : (notif.iconColor || ACCENT)}
                       />
                     </View>
                     <View style={styles.notifBody}>
-                      <Text style={[styles.notifTitle, !notif.read && styles.notifTitleUnread]}>
-                        {notif.title}
+                      <View style={styles.notifTitleRow}>
+                        <Text style={[styles.notifTitle, !notif.read && styles.notifTitleUnread]} numberOfLines={1}>
+                          {notif.title}
+                        </Text>
+                        <Text style={styles.notifTime}>{notif.time}</Text>
+                      </View>
+                      <Text style={[styles.notifText, !notif.read && styles.notifTextUnread]}>
+                        {notif.body}
                       </Text>
-                      <Text style={styles.notifText}>{notif.body}</Text>
-                      <Text style={styles.notifTime}>{notif.time}</Text>
                     </View>
                     {!notif.read && <View style={styles.unreadDot} />}
-                  </View>
+                  </TouchableOpacity>
                 ))
               )}
             </ScrollView>
@@ -1478,11 +1714,29 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
     elevation: 2,
   },
+  subjectHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 16,
+  },
   subjectTitle: {
     fontSize: 18,
     fontWeight: '700',
     color: NAVY,
-    marginBottom: 16,
+  },
+  examBadge: {
+    backgroundColor: '#eff6ff',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#dbeafe',
+  },
+  examBadgeText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#2563eb',
   },
   subjectItem: {
     marginBottom: 14,
@@ -1572,6 +1826,39 @@ const styles = StyleSheet.create({
     borderBottomColor: '#f1f5f9',
     marginBottom: 8,
   },
+  notifHeaderTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  notifHeaderActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  notifCountBadge: {
+    backgroundColor: '#fee2e2',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 12,
+  },
+  notifCountBadgeText: {
+    color: ACCENT,
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  markAllReadBtn: {
+    paddingVertical: 4,
+    paddingHorizontal: 6,
+  },
+  markAllReadText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#0284c7',
+  },
+  notifCloseBtn: {
+    padding: 2,
+  },
   notifSheetTitle: {
     fontSize: 20,
     fontWeight: '800',
@@ -1589,13 +1876,18 @@ const styles = StyleSheet.create({
   notifItem: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    paddingVertical: 14,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f1f5f9',
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#f1f5f9',
+    backgroundColor: '#ffffff',
+    marginVertical: 4,
     gap: 12,
   },
   notifItemUnread: {
-    backgroundColor: '#edf2fa',
+    backgroundColor: '#f8fafc',
+    borderColor: '#e2e8f0',
   },
   notifIconWrap: {
     width: 40,
@@ -1606,14 +1898,24 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     flexShrink: 0,
   },
+  notifIconWrapUnread: {
+    backgroundColor: '#eff6ff',
+  },
   notifBody: {
     flex: 1,
+  },
+  notifTitleRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 4,
   },
   notifTitle: {
     fontSize: 14,
     fontWeight: '600',
     color: '#475569',
-    marginBottom: 2,
+    flex: 1,
+    marginRight: 8,
   },
   notifTitleUnread: {
     color: NAVY,
@@ -1623,11 +1925,15 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: '#64748b',
     lineHeight: 18,
-    marginBottom: 4,
+    marginBottom: 2,
+  },
+  notifTextUnread: {
+    color: '#334155',
   },
   notifTime: {
     fontSize: 11,
     color: '#94a3b8',
+    flexShrink: 0,
   },
   unreadDot: {
     width: 8,

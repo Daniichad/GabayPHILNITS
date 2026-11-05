@@ -1,7 +1,10 @@
 import React, { useEffect, useRef } from 'react';
 import { View, Animated, StyleSheet } from 'react-native';
 
-export function SkeletonItem({ width, height, borderRadius = 6, style }) {
+/**
+ * @param {{ width?: any, height?: any, borderRadius?: number, style?: any }} [props]
+ */
+export function SkeletonItem({ width = '100%', height = 20, borderRadius = 6, style = {} } = {}) {
   const pulseAnim = useRef(new Animated.Value(0.4)).current;
 
   useEffect(() => {

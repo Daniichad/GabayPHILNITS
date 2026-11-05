@@ -3,16 +3,24 @@ import {
   View, Text, StyleSheet, TouchableOpacity,
   StatusBar, Platform, ActivityIndicator
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';;
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import NetInfo from '@react-native-community/netinfo';
 import { supabase } from '../../../supabase';
 import { SkeletonItem } from '../../../components/Skeleton';
+import {
+  getActiveUserSession,
+  cacheQuestionsLocally,
+  getLocalQuestions,
+  enqueueSync,
+} from '../../../utils/database';
 
 const NAVY = '#0B2540';
 
 export default function MultipleChoice({ navigation, route }) {
   const subject = route?.params?.subject;
   const limit = route?.params?.limit ?? 10;
+  const passedTargetExam = route?.params?.targetExam;
 
   const [questions, setQuestions] = useState([]);
   const [index, setIndex] = useState(0);
@@ -28,20 +36,86 @@ export default function MultipleChoice({ navigation, route }) {
   const loadData = async () => {
     try {
       setLoading(true); setError(null);
-      const { data: { session } } = await supabase.auth.getSession();
-      setUserId(session?.user?.id ?? null);
+      let uid = null;
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        uid = session?.user?.id ?? null;
+      } catch (_) {}
 
-      let q = supabase.from('multiple_choice_questions')
-        .select('*, practice_categories!inner(name)')
-        .eq('is_published', true);
-      if (subject) {
-        q = q.eq('practice_categories.name', subject);
+      if (!uid) {
+        const localSession = await getActiveUserSession();
+        uid = localSession?.user_id ?? null;
+      }
+      setUserId(uid);
+
+      // Resolve user's target exam (IP or FE)
+      let activeTrack = passedTargetExam || 'IP';
+      if (!passedTargetExam && uid) {
+        try {
+          const { data: pData } = await supabase
+            .from('personal_info')
+            .select('target_exam_level')
+            .eq('user_id', uid)
+            .maybeSingle();
+          if (pData?.target_exam_level) {
+            const lvl = pData.target_exam_level.toLowerCase();
+            activeTrack = (lvl.includes('fe') || lvl.includes('fundamental') || (lvl.includes('pro') && !lvl.includes('sub')))
+              ? 'FE'
+              : 'IP';
+          }
+        } catch (_) {}
       }
 
-      const { data, error: qErr } = await q.limit(limit);
-      if (qErr) throw qErr;
+      const IP_SUBJECTS = ['Technology', 'Management', 'Strategy'];
+      const FE_SUBJECTS = [
+        'Computer Systems & Architecture',
+        'Algorithms & Programming',
+        'Networks & Security',
+        'IT Management & Strategy',
+        'Databases & SQL',
+      ];
+      const trackSubjects = activeTrack === 'FE' ? FE_SUBJECTS : IP_SUBJECTS;
+      const cacheScope = `${activeTrack.toLowerCase()}_${subject || 'all'}`;
 
-      const shuffled = (data ?? []).sort(() => 0.5 - Math.random());
+      let loadedQuestions = [];
+      const net = await NetInfo.fetch();
+
+      // 1. Try remote fetch if online
+      if (net.isConnected) {
+        try {
+          let q = supabase.from('multiple_choice_questions')
+            .select('*, practice_categories!inner(name)')
+            .eq('is_published', true);
+          if (subject) {
+            q = q.eq('practice_categories.name', subject);
+          } else {
+            q = q.in('practice_categories.name', trackSubjects);
+          }
+          const { data, error: qErr } = await q.limit(limit);
+          if (!qErr && data && data.length > 0) {
+            loadedQuestions = data;
+            // Pre-cache to local SQLite scoped by track
+            cacheQuestionsLocally('mcq', cacheScope, data).catch(() => {});
+          }
+        } catch (netErr) {
+          console.warn('Network issue loading MCQ, falling back to SQLite:', netErr);
+        }
+      }
+
+      // 2. If offline or online fetch yielded nothing, fall back to SQLite cache
+      if (loadedQuestions.length === 0) {
+        const localQs = await getLocalQuestions('mcq', cacheScope, limit);
+        if (localQs && localQs.length > 0) {
+          loadedQuestions = localQs;
+        }
+      }
+
+      if (loadedQuestions.length === 0) {
+        setError('No questions available offline. Connect to the internet once to download questions.');
+        return;
+      }
+
+      const shuffled = [...loadedQuestions].sort(() => 0.5 - Math.random());
       setQuestions(shuffled);
     } catch (err) {
       console.error('MCQ load error:', err);
@@ -53,12 +127,24 @@ export default function MultipleChoice({ navigation, route }) {
 
   const logResult = async (question, selectedIdx) => {
     if (!userId) return;
-    await supabase.from('multiple_choice_results').insert({
+    const payload = {
       user_id: userId,
       question_id: question.id,
       selected_index: selectedIdx,
       is_correct: selectedIdx === question.correct_index,
-    });
+      answered_at: new Date().toISOString(),
+    };
+
+    try {
+      const net = await NetInfo.fetch();
+      if (net.isConnected) {
+        const { error } = await supabase.from('multiple_choice_results').insert(payload);
+        if (!error) return;
+      }
+    } catch (_) {}
+
+    // Offline fallback: queue sync
+    await enqueueSync('multiple_choice_results', 'INSERT', payload);
   };
 
   // ------------------------------------------------------------

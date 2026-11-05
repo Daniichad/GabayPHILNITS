@@ -14,6 +14,9 @@ import { decodeJpeg } from '@tensorflow/tfjs-react-native';
 import * as blazeface from '@tensorflow-models/blazeface';
 import { supabase } from '../../../supabase';
 import { calculateMockExamPoints, recordPointsEntry } from '../../../utils/pointsEngine';
+import NetInfo from '@react-native-community/netinfo';
+import { getActiveUserSession, enqueueSync } from '../../../utils/database';
+import { getCache, setCache } from '../../../utils/cache';
 
 const NAVY = '#0B2540';
 
@@ -113,14 +116,12 @@ export default function MockExamTake({ navigation, route }) {
   useEffect(() => {
     if (stage !== 'quiz') return;
 
-    // Snapshot loop for face tracking
+    // Snapshot loop for face tracking (smooth 1200ms cadence without UI flickering)
     let isProcessing = false;
     const interval = setInterval(async () => {
-      setDebugMsg(`M:${!!modelRef.current} R:${!!cameraRef.current} P:${isProcessing}`);
       if (isProcessing || !modelRef.current || !cameraRef.current) return;
       isProcessing = true;
       try {
-        setDebugMsg('taking photo...');
         const takePhotoPromise = cameraRef.current.takePictureAsync({ 
           base64: false,
           quality: 0.3
@@ -129,58 +130,59 @@ export default function MockExamTake({ navigation, route }) {
         const photo = await Promise.race([takePhotoPromise, timeoutPromise]);
         
         if (photo?.uri) {
-          setDebugMsg('resizing...');
           const manipResult = await ImageManipulator.manipulateAsync(
             photo.uri,
             [{ resize: { width: 320 } }],
             { compress: 0.5, format: ImageManipulator.SaveFormat.JPEG, base64: true }
           );
 
-          setDebugMsg('decoding...');
           const imgBuffer = tf.util.encodeString(manipResult.base64, 'base64').buffer;
           const raw = new Uint8Array(imgBuffer);
           const imageTensor = decodeJpeg(raw);
-          setDebugMsg('estimating face...');
           const predictions = await modelRef.current.estimateFaces(imageTensor, false);
           imageTensor.dispose();
 
-          setDebugMsg(`faces: ${predictions.length}`);
           if (predictions.length === 0) {
             setFaceDetected(false);
-            setEyeLandmarks(null);
             
             if (!lookingAwaySinceRef.current) {
               lookingAwaySinceRef.current = Date.now();
-            } else if (Date.now() - lookingAwaySinceRef.current >= 5000) {
-              warningCountRef.current += 1;
-              setFaceWarnings(warningCountRef.current);
-              lookingAwaySinceRef.current = null; // Reset for next strike
-              if (warningCountRef.current >= 3) {
-                handleTerminated('You looked away from the screen for too long.');
+            } else {
+              const elapsed = Date.now() - lookingAwaySinceRef.current;
+              // Only trigger attention overlay after 3.5s of sustained looking away (no instant flickering)
+              if (elapsed >= 3500) {
+                setIsLookingAway(true);
+              }
+              if (elapsed >= 7000) {
+                warningCountRef.current += 1;
+                setFaceWarnings(warningCountRef.current);
+                lookingAwaySinceRef.current = null;
+                setIsLookingAway(false);
+                if (warningCountRef.current >= 3) {
+                  handleTerminated('You looked away from the screen for too long.');
+                }
               }
             }
           } else {
-             setFaceDetected(true);
-             lookingAwaySinceRef.current = null;
-             const rightEye = predictions[0].landmarks[0];
-             const leftEye = predictions[0].landmarks[1];
-             setEyeLandmarks([rightEye, leftEye]);
-             setPhotoSize({ width: photo.width, height: photo.height });
+            setFaceDetected(true);
+            lookingAwaySinceRef.current = null;
+            setIsLookingAway(false);
+            const rightEye = predictions[0].landmarks[0];
+            const leftEye = predictions[0].landmarks[1];
+            setEyeLandmarks([rightEye, leftEye]);
+            setPhotoSize({ width: photo.width, height: photo.height });
           }
         }
       } catch (err) {
-        setDebugMsg(`err: ${err.message.substring(0, 15)}`);
-        console.warn('Face detection error:', err);
-        setFaceDetected(false);
-        setEyeLandmarks(null);
+        console.warn('Face detection cycle error:', err);
       } finally {
         isProcessing = false;
       }
-    }, 250);
+    }, 1200);
 
     const onBackPress = () => {
-      Alert.alert('Exam in Progress', 'You cannot go back during the exam. Please finish the exam.', [{ text: 'OK' }]);
-      return true; // Prevent default back behavior
+      setExitModalVisible(true);
+      return true; // Intercept hardware back button to show confirmation modal
     };
     const backHandler = BackHandler.addEventListener('hardwareBackPress', onBackPress);
 
@@ -220,12 +222,14 @@ export default function MockExamTake({ navigation, route }) {
 
   const [permission, requestPermission] = useCameraPermissions();
   const [faceWarnings, setFaceWarnings] = useState(0);
-  const [faceDetected, setFaceDetected] = useState(false);
+  const [faceDetected, setFaceDetected] = useState(true);
+  const [isLookingAway, setIsLookingAway] = useState(false);
   const [eyeLandmarks, setEyeLandmarks] = useState(null);
   const [photoSize, setPhotoSize] = useState({ width: 1, height: 1 });
   const [tfReady, setTfReady] = useState(false);
   const [cameraActive, setCameraActive] = useState(false);
-  const [debugMsg, setDebugMsg] = useState('waiting...');
+  const [exitModalVisible, setExitModalVisible] = useState(false);
+  const [isExiting, setIsExiting] = useState(false);
 
   const timerRef = useRef(null);
   const cameraRef = useRef(null);
@@ -253,29 +257,53 @@ export default function MockExamTake({ navigation, route }) {
   const loadConfig = async () => {
     try {
       setLoadingConfig(true); setConfigError(null);
-      const { data: { session } } = await supabase.auth.getSession();
-      setUserId(session?.user?.id ?? null);
+      let uid = null;
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        uid = session?.user?.id ?? null;
+      } catch (_) {}
 
-      const { data, error } = await supabase
-        .from('mock_exam_configs')
-        .select('*')
-        .eq('level_key', levelKey)
-        .eq('is_published', true)
-        .maybeSingle();
+      if (!uid) {
+        const localSession = await getActiveUserSession();
+        uid = localSession?.user_id ?? null;
+      }
+      setUserId(uid);
 
-      if (!error && data) {
-        setConfig(data);
+      let resolvedConfig = null;
+      const net = await NetInfo.fetch();
+      if (net.isConnected) {
+        try {
+          const { data, error } = await supabase
+            .from('mock_exam_configs')
+            .select('*')
+            .eq('level_key', levelKey)
+            .eq('is_published', true)
+            .maybeSingle();
+
+          if (!error && data) {
+            resolvedConfig = data;
+            setCache('mock_exam_config_' + levelKey, data, 7 * 24 * 60 * 60 * 1000).catch(() => {});
+          }
+        } catch (_) {}
+      }
+
+      if (!resolvedConfig) {
+        resolvedConfig = await getCache('mock_exam_config_' + levelKey);
+      }
+
+      if (resolvedConfig) {
+        setConfig(resolvedConfig);
       } else if (DEFAULT_CONFIGS[levelKey]) {
         setConfig(DEFAULT_CONFIGS[levelKey]);
       } else {
-        throw error || new Error('Exam configuration not found.');
+        throw new Error('Exam configuration not found.');
       }
     } catch (err) {
       console.warn('Config load error, using default PhilNITS config:', err);
       if (DEFAULT_CONFIGS[levelKey]) {
         setConfig(DEFAULT_CONFIGS[levelKey]);
       } else {
-        setConfigError('Failed to load exam configuration.');
+        setConfigError('Could not load exam configuration.');
       }
     } finally {
       setLoadingConfig(false);
@@ -352,21 +380,36 @@ export default function MockExamTake({ navigation, route }) {
 
       // 2. Fallback to mock_exam_questions if PhilNITS table returned nothing
       if (examQuestions.length === 0 && currentConfig.id) {
-        const { data: qs, error: qsErr } = await supabase
-          .from('mock_exam_questions')
-          .select('*')
-          .eq('config_id', currentConfig.id)
-          .eq('is_published', true)
-          .order('sort_order');
-        if (!qsErr && qs && qs.length > 0) {
-          examQuestions = qs;
+        try {
+          const { data: qs, error: qsErr } = await supabase
+            .from('mock_exam_questions')
+            .select('*')
+            .eq('config_id', currentConfig.id)
+            .eq('is_published', true)
+            .order('sort_order');
+          if (!qsErr && qs && qs.length > 0) {
+            examQuestions = qs;
+          }
+        } catch (e) {
+          console.warn('Fallback mock_exam_questions fetch error:', e);
+        }
+      }
+
+      // 3. Cache questions or retrieve from cache if offline
+      const cacheKey = `mock_exam_questions_${levelKey}`;
+      if (examQuestions.length > 0) {
+        await setCache(cacheKey, examQuestions, 7 * 24 * 60 * 60 * 1000);
+      } else {
+        const cached = await getCache(cacheKey, true);
+        if (cached && Array.isArray(cached) && cached.length > 0) {
+          examQuestions = cached;
         }
       }
 
       if (examQuestions.length === 0) {
         Alert.alert(
           'No Questions Available',
-          'There are no questions currently loaded for this exam level. Please check back shortly.',
+          'There are no questions currently loaded for this exam level. If you are offline, connect once to cache mock exam questions.',
           [{ text: 'OK' }]
         );
         return;
@@ -387,19 +430,26 @@ export default function MockExamTake({ navigation, route }) {
       // Create attempt record
       if (userId && currentConfig.id) {
         try {
-          const { data: attempt } = await supabase
-            .from('mock_exam_attempts')
-            .insert({
-              user_id:            userId,
-              config_id:          currentConfig.id,
-              total_questions:    examQuestions.length,
-              time_limit_seconds: targetTimeLimit,
-              status:             'in_progress',
-            })
-            .select().single();
-          if (attempt) setAttemptId(attempt.id);
+          const net = await NetInfo.fetch();
+          if (net.isConnected) {
+            const { data: attempt } = await supabase
+              .from('mock_exam_attempts')
+              .insert({
+                user_id:            userId,
+                config_id:          currentConfig.id,
+                total_questions:    examQuestions.length,
+                time_limit_seconds: targetTimeLimit,
+                status:             'in_progress',
+              })
+              .select().single();
+            if (attempt) setAttemptId(attempt.id);
+            else setAttemptId(`local_${Date.now()}`);
+          } else {
+            setAttemptId(`local_${Date.now()}`);
+          }
         } catch (attemptErr) {
           console.warn('Attempt create error (non-fatal):', attemptErr);
+          setAttemptId(`local_${Date.now()}`);
         }
       }
 
@@ -421,14 +471,17 @@ export default function MockExamTake({ navigation, route }) {
     // Log individual answer safely
     if (userId && attemptId && question) {
       try {
-        await supabase.from('mock_exam_answer_logs').insert({
-          attempt_id:     attemptId,
-          user_id:        userId,
-          question_id:    question.id,
-          selected_index: selectedOption,
-          correct_index:  question.correct_index,
-          is_correct:     selectedOption === question.correct_index,
-        });
+        const net = await NetInfo.fetch();
+        if (net.isConnected && !attemptId.startsWith('local_')) {
+          await supabase.from('mock_exam_answer_logs').insert({
+            attempt_id:     attemptId,
+            user_id:        userId,
+            question_id:    question.id,
+            selected_index: selectedOption,
+            correct_index:  question.correct_index,
+            is_correct:     selectedOption === question.correct_index,
+          });
+        }
       } catch (logErr) {
         console.warn('Answer log error (non-fatal):', logErr);
       }
@@ -454,15 +507,38 @@ export default function MockExamTake({ navigation, route }) {
     const timeSpent = Math.max(targetDuration - (secondsLeftRef.current || 0), 0);
 
     if (attemptId && userId) {
-      await supabase.from('mock_exam_attempts').update({
-        score:           correct,
-        correct_count:   correct,
-        incorrect_count: incorrect,
-        skipped_count:   skipped,
-        status:          'completed',
-        completed_at:    new Date().toISOString(),
+      const attemptPayload = {
+        user_id:          userId,
+        config_id:        config?.id || (DEFAULT_CONFIGS[levelKey]?.id),
+        score:            correct,
+        correct_count:    correct,
+        incorrect_count:  incorrect,
+        skipped_count:    skipped,
+        total_questions:  questions.length,
+        status:           'completed',
+        completed_at:     new Date().toISOString(),
         duration_seconds: timeSpent,
-      }).eq('id', attemptId);
+      };
+
+      try {
+        const net = await NetInfo.fetch();
+        if (net.isConnected && !attemptId.startsWith('local_')) {
+          await supabase.from('mock_exam_attempts').update({
+            score:            correct,
+            correct_count:    correct,
+            incorrect_count:  incorrect,
+            skipped_count:    skipped,
+            status:           'completed',
+            completed_at:     new Date().toISOString(),
+            duration_seconds: timeSpent,
+          }).eq('id', attemptId);
+        } else {
+          await enqueueSync('mock_exam_attempts', 'INSERT', attemptPayload);
+        }
+      } catch (e) {
+        console.warn('Could not update mock_exam_attempts directly, queuing:', e);
+        await enqueueSync('mock_exam_attempts', 'INSERT', attemptPayload);
+      }
     }
 
     try {
@@ -492,14 +568,42 @@ export default function MockExamTake({ navigation, route }) {
     });
   };
 
+  // ── Cleanly exit without finishing (never record outlier in analytics) ──
+  const handleConfirmExit = async () => {
+    setIsExiting(true);
+    if (timerRef.current) clearInterval(timerRef.current);
+
+    // Delete in-progress attempt from Supabase so it does NOT leave an outlier
+    if (attemptId && userId) {
+      try {
+        const net = await NetInfo.fetch();
+        if (net.isConnected && !attemptId.startsWith('local_')) {
+          await supabase.from('mock_exam_attempts').delete().eq('id', attemptId);
+        }
+      } catch (e) {
+        console.warn('Error discarding unfinished exam attempt:', e);
+      }
+    }
+
+    setExitModalVisible(false);
+    navigation.goBack();
+  };
+
   // ── Terminate exam ──────────────────────────────────────────────
   const handleTerminated = async (reason) => {
     if (timerRef.current) clearInterval(timerRef.current);
     
     if (attemptId && userId) {
-      await supabase.from('mock_exam_attempts').update({
-        status: 'terminated',
-      }).eq('id', attemptId);
+      try {
+        const net = await NetInfo.fetch();
+        if (net.isConnected && !attemptId.startsWith('local_')) {
+          await supabase.from('mock_exam_attempts').update({
+            status: 'terminated',
+          }).eq('id', attemptId);
+        }
+      } catch (e) {
+        console.warn('Terminated update error (non-fatal):', e);
+      }
     }
     
     Alert.alert(
@@ -644,6 +748,7 @@ export default function MockExamTake({ navigation, route }) {
         <SafeAreaView style={styles.safeArea}>
           <StatusBar barStyle="dark-content" />
         
+        {/* ── Anti-Cheat Tab-Switch Modal ── */}
         <Modal
           visible={cheatWarningVisible}
           transparent={true}
@@ -670,12 +775,48 @@ export default function MockExamTake({ navigation, route }) {
           </View>
         </Modal>
 
+        {/* ── Quit Exam Confirmation Modal ── */}
+        <Modal
+          visible={exitModalVisible}
+          transparent={true}
+          animationType="fade"
+          onRequestClose={() => setExitModalVisible(false)}
+        >
+          <View style={styles.cheatWarningOverlay}>
+            <View style={styles.cheatWarningCard}>
+              <Ionicons name="alert-circle-outline" size={52} color="#dc2626" style={{ marginBottom: 12 }} />
+              <Text style={styles.cheatWarningTitle}>Quit Mock Exam?</Text>
+              <Text style={styles.cheatWarningText}>
+                Are you sure you want to exit? Your progress will be discarded and this unfinished exam will not be recorded in your analytics.
+              </Text>
 
+              <View style={{ flexDirection: 'row', gap: 10, marginTop: 18, width: '100%' }}>
+                <TouchableOpacity
+                  style={[styles.modalActionBtn, { backgroundColor: '#f1f5f9', borderWidth: 1, borderColor: '#cbd5e1' }]}
+                  onPress={() => setExitModalVisible(false)}
+                  disabled={isExiting}
+                >
+                  <Text style={[styles.modalActionBtnText, { color: NAVY }]}>Resume</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.modalActionBtn, { backgroundColor: '#dc2626' }]}
+                  onPress={handleConfirmExit}
+                  disabled={isExiting}
+                >
+                  {isExiting ? (
+                    <ActivityIndicator size="small" color="#fff" />
+                  ) : (
+                    <Text style={[styles.modalActionBtnText, { color: '#fff' }]}>Quit & Discard</Text>
+                  )}
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </Modal>
 
         <View style={styles.quizHeader}>
-          <TouchableOpacity style={styles.iconButton} onPress={() => {
-            Alert.alert('Exam in Progress', 'You cannot go back during the exam. Please finish the exam.', [{ text: 'OK' }]);
-          }}>
+          <TouchableOpacity style={styles.iconButton} onPress={() => setExitModalVisible(true)}>
             <Ionicons name="chevron-back" size={26} color={NAVY} />
           </TouchableOpacity>
           <Text style={styles.quizHeaderTitle}>{config?.tag} - Question {questionIndex + 1}</Text>
@@ -755,9 +896,6 @@ export default function MockExamTake({ navigation, route }) {
         </View>
 
         <View style={styles.quizFooter}>
-          <Text style={{ textAlign: 'center', fontSize: 10, color: '#6B7684', marginBottom: 8 }}>
-            AI Status: {debugMsg}
-          </Text>
           <TouchableOpacity
             style={[styles.nextButton, selectedOption === null && styles.nextButtonDisabled]}
             onPress={goToNext}
@@ -768,8 +906,8 @@ export default function MockExamTake({ navigation, route }) {
         </View>
         </SafeAreaView>
 
-        {/* Exam Blur Overlay when looking away */}
-        {!faceDetected && (
+        {/* Exam Blur Overlay only when sustained looking away */}
+        {isLookingAway && (
           <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, width: '100%', height: '100%', backgroundColor: 'rgba(255, 255, 255, 0.95)', justifyContent: 'center', alignItems: 'center', padding: 24, zIndex: 10, elevation: 90 }}>
             <View style={styles.cheatWarningCard}>
               <Ionicons name="eye-off" size={56} color="#ef4444" style={{ marginBottom: 16 }} />
@@ -916,6 +1054,17 @@ const styles = StyleSheet.create({
   cheatWarningChances:   { fontSize: 16, fontWeight: '700', color: '#dc2626', marginBottom: 24 },
   cheatWarningButton:    { backgroundColor: NAVY, paddingVertical: 14, paddingHorizontal: 32, borderRadius: 16, width: '100%', alignItems: 'center' },
   cheatWarningButtonText:{ color: '#fff', fontSize: 16, fontWeight: '700' },
+  modalActionBtn: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  modalActionBtnText: {
+    fontSize: 14,
+    fontWeight: '700',
+  },
 
   pipContainer: {
     position: 'absolute',

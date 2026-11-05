@@ -14,49 +14,31 @@ const BORDER_COLOR = '#e2e8f0'
 
 // Helper function to extract YouTube Video ID
 function extractYouTubeId(url) {
-  if (!url) return 'sI9pP3s63c8'
-  const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/
-  const match = url.match(regExp)
-  return (match && match[2].length === 11) ? match[2] : url
+  if (!url) return 'FZGugFqdr60'
+  const clean = String(url).trim()
+  if (clean.length === 11 && !clean.includes('/') && !clean.includes('?') && !clean.includes('=')) {
+    return clean
+  }
+  const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=|shorts\/)([^#\&\?]*).*/
+  const match = clean.match(regExp)
+  return (match && match[2].length === 11) ? match[2] : clean
 }
 
 export default function VideoLectureDetail({ navigation, route }) {
   const insets = useSafeAreaInsets()
   const video = route?.params?.video || {}
 
+  const youtubeId = video.youtube_id || extractYouTubeId(video.url) || 'FZGugFqdr60'
   const title = video.title || 'Video Lecture'
-  const url = video.url || 'https://www.youtube.com/watch?v=sI9pP3s63c8'
-  const authorName = video.author || video.author_name || video.channel_title || 'CrashCourse Computer Science'
-  const authorUrl = video.authorUrl || video.author_url || video.channel_url || `https://www.youtube.com/results?search_query=${encodeURIComponent(authorName)}`
+  const url = video.url || `https://www.youtube.com/watch?v=${youtubeId}`
+  const authorName = video.author || video.author_name || video.channel_title || 'CrashCourse'
+  const authorUrl = video.author_url || video.authorUrl || video.channel_url || `https://www.youtube.com/results?search_query=${encodeURIComponent(authorName)}`
   const description = video.description || 'Access video lectures and study guides prepared for PhilNITS IP and FE Examination review.'
-  const durationMins = video.duration_minutes || video.durationMinutes || 10
+  const durationMins = video.duration_minutes || video.durationMinutes || 15
   const subject = video.subject || 'PhilNITS Exam Review'
 
-  const youtubeId = extractYouTubeId(url)
-
-  const htmlContent = `
-    <!DOCTYPE html>
-    <html>
-    <head>
-      <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-      <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { background-color: #000000; height: 100vh; display: flex; align-items: center; justify-content: center; overflow: hidden; }
-        .iframe-container { position: relative; width: 100%; padding-bottom: 56.25%; height: 0; overflow: hidden; }
-        .iframe-container iframe { position: absolute; top: 0; left: 0; width: 100%; height: 100%; border: 0; }
-      </style>
-    </head>
-    <body>
-      <div class="iframe-container">
-        <iframe 
-          src="https://www.youtube-nocookie.com/embed/${youtubeId}?rel=0&playsinline=1&modestbranding=1&controls=1" 
-          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" 
-          allowfullscreen>
-        </iframe>
-      </div>
-    </body>
-    </html>
-  `
+  const bundleId = 'com.anonymous.gabay_philnits'
+  const embedUrl = `https://www.youtube-nocookie.com/embed/${youtubeId}?rel=0&autoplay=0&playsinline=1&controls=1&enablejsapi=1&origin=https://${bundleId}`
 
   const handleOpenAuthorLink = () => {
     if (authorUrl) {
@@ -94,7 +76,7 @@ export default function VideoLectureDetail({ navigation, route }) {
       </View>
 
       <ScrollView 
-        contentContainerStyle={styles.scrollContent}
+        contentContainerStyle={[styles.scrollContent, { paddingBottom: Math.max(insets.bottom, 16) + 32 }]}
         showsVerticalScrollIndicator={false}
       >
         {/* Embedded YouTube Player Container */}
@@ -102,12 +84,21 @@ export default function VideoLectureDetail({ navigation, route }) {
           <WebView
             style={styles.webview}
             originWhitelist={['*']}
-            source={{ html: htmlContent }}
+            source={{
+              uri: embedUrl,
+              headers: {
+                Referer: `https://${bundleId}`,
+              },
+            }}
             javaScriptEnabled={true}
             domStorageEnabled={true}
             allowsInlineMediaPlayback={true}
+            allowsFullscreenVideo={true}
             mediaPlaybackRequiresUserAction={false}
             scrollEnabled={false}
+            androidLayerType="hardware"
+            mixedContentMode="always"
+            userAgent="Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
           />
         </View>
 

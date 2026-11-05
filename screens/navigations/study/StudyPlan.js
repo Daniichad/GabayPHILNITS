@@ -4,7 +4,8 @@ import {
   Text, TouchableOpacity, View, ActivityIndicator
 } from 'react-native'
 import { supabase } from '../../../utils/supabase'
-import { getCache } from '../../../utils/cache'
+import { getCache, setCache } from '../../../utils/cache'
+import { saveUserSession } from '../../../utils/database'
 import { Feather, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons'
 import { SkeletonItem } from '../../../components/Skeleton'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
@@ -65,28 +66,41 @@ const FE_SUBJECTS = [
   'IT Management & Strategy',
 ]
 
+/**
+ * @param {any} cat
+ * @param {boolean} [isFE]
+ */
 function mapPhilNitsCategory(cat, isFE) {
   if (!cat) return null
   const c = String(cat).trim()
   if (isFE) {
+    if (c === 'Subject B' || c.includes('Subject B')) return 'Algorithms & Programming'
+    if (c === 'Subject A' || c.includes('Subject A')) return 'Computer Systems & Architecture'
     if (c.includes('Architecture') || c.includes('Hardware') || c.includes('Computer Systems') || c === 'Technology') return 'Computer Systems & Architecture'
     if (c.includes('Algorithm') || c.includes('Program') || c.includes('Data Structure')) return 'Algorithms & Programming'
     if (c.includes('Network') || c.includes('Security') || c.includes('Database')) return 'Networks & Security'
     if (c.includes('Management') || c.includes('Strategy') || c.includes('Project')) return 'IT Management & Strategy'
-    return 'Computer Systems & Architecture'
+    return null
   } else {
     if (c === 'Technology' || c.includes('Tech') || c.includes('Hardware') || c.includes('Software') || c.includes('Network') || c.includes('Security') || c.includes('Algorithm') || c.includes('Architecture')) return 'Technology'
     if (c === 'Management' || c.includes('Manage') || c.includes('Project') || c.includes('Service') || c.includes('Audit')) return 'Management'
     if (c === 'Strategy' || c.includes('Strat') || c.includes('Business') || c.includes('Legal') || c.includes('Corporate')) return 'Strategy'
-    return 'Technology'
+    return null
   }
 }
 
 // Pure helper function to compute ranked weekly focus strictly limited to the target exam's scope
+/**
+ * @param {string} targetLevel
+ * @param {any} attempt
+ * @param {any} mcqRaw
+ * @param {any} tfRaw
+ */
 function computeFocusListForLevel(targetLevel, attempt, mcqRaw, tfRaw) {
   const isFE = targetLevel?.toLowerCase().includes('fe') || targetLevel?.toLowerCase().includes('fundamental')
   const allowedSubjects = isFE ? FE_SUBJECTS : IP_SUBJECTS
 
+  /** @type {Record<string, { correct: number, total: number }>} */
   const subjectMap = {}
   allowedSubjects.forEach((cat) => {
     subjectMap[cat] = { correct: 0, total: 0 }
@@ -108,8 +122,8 @@ function computeFocusListForLevel(targetLevel, attempt, mcqRaw, tfRaw) {
 
         if (normalizedCat && subjectMap[normalizedCat] !== undefined) {
           if (scores && typeof scores === 'object') {
-            subjectMap[normalizedCat].correct += scores.correct || 0
-            subjectMap[normalizedCat].total += scores.total || 0
+            subjectMap[normalizedCat].correct += (/** @type {any} */ (scores)).correct || 0
+            subjectMap[normalizedCat].total += (/** @type {any} */ (scores)).total || 0
           } else if (typeof scores === 'number') {
             subjectMap[normalizedCat].correct += scores
             subjectMap[normalizedCat].total += 10
@@ -179,7 +193,7 @@ function computeFocusListForLevel(targetLevel, attempt, mcqRaw, tfRaw) {
       tagText = '📘 Skill Maintenance'
     }
 
-    const meta = SUBJECT_METADATA[item.subject] || {
+    const meta = (/** @type {Record<string, any>} */ (SUBJECT_METADATA))[item.subject] || {
       icon: 'book-open',
       color: '#3b82f6',
       detail: 'Review core concepts and practice questions',
@@ -198,19 +212,93 @@ function computeFocusListForLevel(targetLevel, attempt, mcqRaw, tfRaw) {
   return formattedList
 }
 
+/**
+ * @param {string} userId
+ * @param {string} levelKey
+ */
+async function checkDiagnosticForLevel(userId, levelKey) {
+  // levelKey is 'IP' or 'FE'
+  if (!userId) return null
+
+  // 1. Check philnits_diagnostic_attempts
+  try {
+    const { data, error } = await supabase
+      .from('philnits_diagnostic_attempts')
+      .select('*')
+      .eq('user_id', userId)
+      .eq('exam_level', levelKey)
+      .order('completed_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+
+    if (!error && data) return data
+  } catch (_) {}
+
+  // 2. Check diagnostic_assessment_attempts with exam_level column
+  try {
+    const { data, error } = await supabase
+      .from('diagnostic_assessment_attempts')
+      .select('*')
+      .eq('user_id', userId)
+      .eq('exam_level', levelKey)
+      .order('completed_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+
+    if (!error && data) return data
+  } catch (_) {}
+
+  // 3. Fallback: inspect category_scores in diagnostic_assessment_attempts
+  try {
+    const { data, error } = await supabase
+      .from('diagnostic_assessment_attempts')
+      .select('*')
+      .eq('user_id', userId)
+      .order('completed_at', { ascending: false })
+      .limit(5)
+
+    if (!error && Array.isArray(data)) {
+      for (const att of data) {
+        const cats = Object.keys(att.category_scores || {})
+        if (levelKey === 'FE') {
+          if (cats.some(c => c.toLowerCase().includes('subject') || c.toLowerCase().includes('algorithm') || c.toLowerCase().includes('architecture') || c.toLowerCase().includes('network'))) {
+            return att
+          }
+        } else {
+          if (cats.some(c => c === 'Technology' || c === 'Management' || c === 'Strategy')) {
+            return att
+          }
+        }
+      }
+    }
+  } catch (_) {}
+
+  return null
+}
+
+/**
+ * @param {{ navigation: any }} props
+ */
 export default function StudyPlan({ navigation }) {
   const insets = useSafeAreaInsets()
   const [examLevel, setExamLevel] = useState('Information Technology Passport (IP)')
   const [savingExamLevel, setSavingExamLevel] = useState(false)
   const [examSavedNotice, setExamSavedNotice] = useState(false)
-  const rawQuizDataRef = useRef({ attempt: null, mcqRaw: [], tfRaw: [] })
+  const [checkingDiagnostic, setCheckingDiagnostic] = useState(false)
+  const rawQuizDataRef = useRef({ attempt: null, mcqRaw: /** @type {any[]} */ ([]), tfRaw: /** @type {any[]} */ ([]) })
+
+  // Confirmation modal states
+  const [confirmModalVisible, setConfirmModalVisible] = useState(false)
+  const [pendingExamLevel, setPendingExamLevel] = useState('')
+  const [pendingAttempt, setPendingAttempt] = useState(/** @type {any} */ (null))
+  const [hasDiagnosticForPending, setHasDiagnosticForPending] = useState(false)
 
   const [reviewSpeed, setReviewSpeed] = useState('Standard')
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
-  const [diagnosticAttempt, setDiagnosticAttempt] = useState(null)
-  const [focusList, setFocusList] = useState([])
-  const [primaryFocus, setPrimaryFocus] = useState(null)
+  const [diagnosticAttempt, setDiagnosticAttempt] = useState(/** @type {any} */ (null))
+  const [focusList, setFocusList] = useState(/** @type {any[]} */ ([]))
+  const [primaryFocus, setPrimaryFocus] = useState(/** @type {any} */ (null))
   
   const [alertVisible, setAlertVisible] = useState(false)
   const [alertTitle, setAlertTitle] = useState('')
@@ -220,7 +308,12 @@ export default function StudyPlan({ navigation }) {
   useEffect(() => {
     navigation?.setParams?.({ hideNav: true })
     loadStudyPlanData()
-  }, [])
+
+    const unsubscribe = navigation?.addListener?.('focus', () => {
+      loadStudyPlanData()
+    })
+    return unsubscribe
+  }, [navigation])
 
   const loadStudyPlanData = async () => {
     try {
@@ -255,20 +348,16 @@ export default function StudyPlan({ navigation }) {
         .maybeSingle()
 
       if (pData?.target_exam_level) {
-        currentLevel = pData.target_exam_level.toLowerCase().includes('fe') || pData.target_exam_level.toLowerCase().includes('fundamental')
+        const lvl = pData.target_exam_level.toLowerCase()
+        currentLevel = lvl.includes('fe') || lvl.includes('fundamental') || (lvl.includes('pro') && !lvl.includes('sub'))
           ? 'Fundamental IT Engineer (FE)'
           : 'Information Technology Passport (IP)'
       }
       setExamLevel(currentLevel)
 
-      // 3. Fetch latest diagnostic assessment attempt from Supabase
-      const { data: attempt } = await supabase
-        .from('diagnostic_assessment_attempts')
-        .select('*')
-        .eq('user_id', user.id)
-        .order('completed_at', { ascending: false })
-        .limit(1)
-        .maybeSingle()
+      // 3. Fetch diagnostic assessment attempt matching user's current track
+      const currentTrackKey = currentLevel.includes('FE') ? 'FE' : 'IP'
+      const attempt = await checkDiagnosticForLevel(user.id, currentTrackKey)
 
       // 4. Fetch practice quiz results (MCQ + TF) to combine performance data
       const { data: mcqRaw } = await supabase
@@ -288,7 +377,7 @@ export default function StudyPlan({ navigation }) {
         tfRaw: tfRaw || [],
       }
 
-      if (attempt) setDiagnosticAttempt(attempt)
+      setDiagnosticAttempt(attempt || null)
 
       // 5. Compute focus list strictly filtered for current exam level
       const formattedList = computeFocusListForLevel(
@@ -308,43 +397,105 @@ export default function StudyPlan({ navigation }) {
     }
   }
 
-  const handleExamLevelChange = async (newLevel) => {
+  const handleExamLevelButtonPress = async (/** @type {string} */ newLevel) => {
     if (newLevel === examLevel) return
-    setExamLevel(newLevel)
+    setCheckingDiagnostic(true)
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      const trackKey = newLevel.includes('FE') ? 'FE' : 'IP'
+      const attempt = user?.id ? await checkDiagnosticForLevel(user.id, trackKey) : null
+      setPendingExamLevel(newLevel)
+      setPendingAttempt(attempt)
+      setHasDiagnosticForPending(!!attempt)
+      setConfirmModalVisible(true)
+    } catch (e) {
+      console.warn('Error checking diagnostic attempt for level:', e)
+    } finally {
+      setCheckingDiagnostic(false)
+    }
+  }
 
-    // Instantly recompute focus list for the newly selected exam level
-    const updatedList = computeFocusListForLevel(
-      newLevel,
-      rawQuizDataRef.current.attempt,
-      rawQuizDataRef.current.mcqRaw,
-      rawQuizDataRef.current.tfRaw
-    )
-    setFocusList(updatedList)
-    setPrimaryFocus(updatedList[0] || null)
+  const handleConfirmLevelChange = async () => {
+    if (!pendingExamLevel) return
+    const isFE = pendingExamLevel.includes('FE')
+    const trackKey = isFE ? 'fe' : 'ip'
 
-    // Save selection to Supabase personal_info
     setSavingExamLevel(true)
     try {
       const { data: { user } } = await supabase.auth.getUser()
       if (user?.id) {
-        await supabase
+        // Fetch existing personal_info to preserve existing profile fields (birthdate, contact_number, etc.)
+        const { data: existingInfo } = await supabase
           .from('personal_info')
-          .upsert({
-            user_id: user.id,
-            target_exam_level: newLevel,
-            updated_at: new Date().toISOString(),
-          }, { onConflict: 'user_id' })
+          .select('*')
+          .eq('user_id', user.id)
+          .maybeSingle()
+
+        const payload = {
+          ...(existingInfo || {}),
+          user_id: user.id,
+          target_exam_level: pendingExamLevel,
+          updated_at: new Date().toISOString(),
+        }
+
+        // Try upserting target_exam_level
+        let { error: pErr } = await supabase
+          .from('personal_info')
+          .upsert(payload, { onConflict: 'user_id' })
+
+        // Fallback: If update fails due to age constraint in legacy database schemas
+        if (pErr) {
+          const errDetail = String(pErr.message || '') + ' ' + String(pErr.details || '')
+          if (errDetail.toLowerCase().includes('age') || pErr.code === '23502') {
+            const fallbackAge = existingInfo?.age ?? 21
+            const { error: retryErr } = await supabase
+              .from('personal_info')
+              .upsert({ ...payload, age: fallbackAge }, { onConflict: 'user_id' })
+            if (retryErr) {
+              console.error('Retry upsert target_exam_level error:', retryErr)
+            }
+          } else {
+            console.error('Error upserting target_exam_level to personal_info:', pErr)
+          }
+        }
+
+        // Update local session cache so other screens immediately recognize the new target exam level
+        await saveUserSession(user, { target_exam_level: pendingExamLevel })
+        await setCache('library_target_exam', null)
+        await setCache('library_materials', null)
+        await setCache('library_videos', null)
       }
-      setExamSavedNotice(true)
-      setTimeout(() => setExamSavedNotice(false), 2500)
     } catch (err) {
       console.warn('Error saving target exam level:', err)
     } finally {
       setSavingExamLevel(false)
     }
+
+    setExamLevel(pendingExamLevel)
+
+    if (hasDiagnosticForPending) {
+      // User already completed a diagnostic attempt for this exam
+      setDiagnosticAttempt(pendingAttempt)
+      rawQuizDataRef.current.attempt = pendingAttempt
+      const updatedList = computeFocusListForLevel(
+        pendingExamLevel,
+        pendingAttempt,
+        rawQuizDataRef.current.mcqRaw,
+        rawQuizDataRef.current.tfRaw
+      )
+      setFocusList(updatedList)
+      setPrimaryFocus(updatedList[0] || null)
+      setConfirmModalVisible(false)
+      setExamSavedNotice(true)
+      setTimeout(() => setExamSavedNotice(false), 2500)
+    } else {
+      // User has not taken the diagnostic for this track, navigate to it
+      setConfirmModalVisible(false)
+      navigation?.navigate('DiagnosticAssessment', { examType: trackKey, from: 'StudyPlan' })
+    }
   }
 
-  const showCustomAlert = (title, message, type = 'error') => {
+  const showCustomAlert = (/** @type {string} */ title, /** @type {string} */ message, type = 'error') => {
     setAlertTitle(title)
     setAlertMessage(message)
     setAlertType(type)
@@ -372,13 +523,33 @@ export default function StudyPlan({ navigation }) {
       }
 
       // Persist target exam level
-      await supabase
+      const { data: existingInfo } = await supabase
         .from('personal_info')
-        .upsert({
-          user_id: user.id,
-          target_exam_level: examLevel,
-          updated_at: new Date().toISOString(),
-        }, { onConflict: 'user_id' })
+        .select('*')
+        .eq('user_id', user.id)
+        .maybeSingle()
+
+      const savePayload = {
+        ...(existingInfo || {}),
+        user_id: user.id,
+        target_exam_level: examLevel,
+        updated_at: new Date().toISOString(),
+      }
+
+      let { error: pSaveErr } = await supabase
+        .from('personal_info')
+        .upsert(savePayload, { onConflict: 'user_id' })
+
+      if (pSaveErr) {
+        const errDetail = String(pSaveErr.message || '') + ' ' + String(pSaveErr.details || '')
+        if (errDetail.toLowerCase().includes('age') || pSaveErr.code === '23502') {
+          await supabase
+            .from('personal_info')
+            .upsert({ ...savePayload, age: existingInfo?.age ?? 21 }, { onConflict: 'user_id' })
+        }
+      }
+
+      await saveUserSession(user, { target_exam_level: examLevel })
 
       // Navigate to Practice or Library focusing on primary focus area
       navigation?.navigate('PracticeLibrary')
@@ -427,7 +598,7 @@ export default function StudyPlan({ navigation }) {
                   <Text style={styles.examLevelHeaderSub}>TARGET EXAMINATION</Text>
                   <Text style={styles.examLevelHeaderTitle}>PhilNITS Examination Track</Text>
                 </View>
-                {savingExamLevel && (
+                {(savingExamLevel || checkingDiagnostic) && (
                   <ActivityIndicator size="small" color="#c14954" style={{ marginRight: 6 }} />
                 )}
                 {examSavedNotice && (
@@ -450,7 +621,8 @@ export default function StudyPlan({ navigation }) {
                     examLevel === 'Information Technology Passport (IP)' && styles.examTypeBtnActive,
                   ]}
                   activeOpacity={0.85}
-                  onPress={() => handleExamLevelChange('Information Technology Passport (IP)')}
+                  disabled={checkingDiagnostic || savingExamLevel}
+                  onPress={() => handleExamLevelButtonPress('Information Technology Passport (IP)')}
                 >
                   <View style={styles.examTypeBtnContent}>
                     <View style={styles.examTypeTopRow}>
@@ -486,7 +658,8 @@ export default function StudyPlan({ navigation }) {
                     examLevel === 'Fundamental IT Engineer (FE)' && styles.examTypeBtnActive,
                   ]}
                   activeOpacity={0.85}
-                  onPress={() => handleExamLevelChange('Fundamental IT Engineer (FE)')}
+                  disabled={checkingDiagnostic || savingExamLevel}
+                  onPress={() => handleExamLevelButtonPress('Fundamental IT Engineer (FE)')}
                 >
                   <View style={styles.examTypeBtnContent}>
                     <View style={styles.examTypeTopRow}>
@@ -513,44 +686,6 @@ export default function StudyPlan({ navigation }) {
                       4 Domains • Systems, Algo, Security
                     </Text>
                   </View>
-                </TouchableOpacity>
-              </View>
-            </View>
-
-            {/* Performance Diagnostic Insight Banner */}
-            <View style={styles.insightBanner}>
-              <View style={styles.insightHeaderRow}>
-                <View style={styles.insightIconWrap}>
-                  <Ionicons name="sparkles" size={20} color="#fff" />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.insightSubtitle}>
-                    DIAGNOSTIC & PERFORMANCE INSIGHT • {examLevel.toUpperCase()}
-                  </Text>
-                  <Text style={styles.insightTitle}>
-                    {primaryFocus ? `This Week's Focus: ${primaryFocus.subject}` : 'Personalized Study Focus'}
-                  </Text>
-                </View>
-              </View>
-              
-              <Text style={styles.insightBody}>
-                {diagnosticAttempt ? (
-                  `Based on your Diagnostic Assessment (${diagnosticAttempt.score_percent}% total score), your lowest accuracy is in ${primaryFocus?.subject || 'this area'} (${primaryFocus?.accuracy}% accuracy). We have prioritized this in your ${examLevel} study schedule.`
-                ) : (
-                  `Complete your Diagnostic Assessment to automatically tailor your weekly study plan to your weakest domains in the ${examLevel} exam.`
-                )}
-              </Text>
-
-              <View style={styles.insightActionsRow}>
-                <TouchableOpacity 
-                  style={styles.retakeBtn} 
-                  activeOpacity={0.8}
-                  onPress={() => navigation?.navigate('DiagnosticAssessment', { from: 'StudyPlan' })}
-                >
-                  <Feather name="rotate-ccw" size={13} color="#1d4ed8" style={{ marginRight: 4 }} />
-                  <Text style={styles.retakeBtnText}>
-                    {diagnosticAttempt ? 'Retake Diagnostic' : 'Take Diagnostic Test'}
-                  </Text>
                 </TouchableOpacity>
               </View>
             </View>
@@ -666,11 +801,78 @@ export default function StudyPlan({ navigation }) {
           </View>
         </View>
       </Modal>
+
+      {/* ── Track Switch & Diagnostic Confirmation Modal ── */}
+      <Modal
+        transparent
+        visible={confirmModalVisible}
+        animationType="fade"
+        onRequestClose={() => setConfirmModalVisible(false)}
+      >
+        <View style={styles.alertBackdrop}>
+          <View style={styles.confirmCard}>
+            <View style={[
+              styles.confirmIconWrap,
+              { backgroundColor: hasDiagnosticForPending ? '#EFF6FF' : '#FEF3C7' }
+            ]}>
+              <Ionicons
+                name={hasDiagnosticForPending ? 'school' : 'alert-circle'}
+                size={32}
+                color={hasDiagnosticForPending ? '#2563EB' : '#D97706'}
+              />
+            </View>
+
+            <Text style={styles.confirmCardTitle}>
+              {hasDiagnosticForPending ? 'Switch Target Exam?' : 'Diagnostic Exam Required'}
+            </Text>
+
+            <Text style={styles.confirmCardMessage}>
+              {hasDiagnosticForPending
+                ? `Switch your target exam to ${pendingExamLevel.includes('FE') ? 'Fundamental IT Engineer (FE)' : 'Information Technology Passport (IP)'}? Your study schedule, focus priorities, and readiness tracking will adapt to this syllabus.`
+                : `You haven't completed the diagnostic assessment for ${pendingExamLevel.includes('FE') ? 'Fundamental IT Engineer (FE)' : 'Information Technology Passport (IP)'} yet. In order to tailor your adaptive study plan, you must complete the diagnostic assessment for this track first.`}
+            </Text>
+
+            <View style={styles.confirmActionsCol}>
+              <TouchableOpacity
+                style={[
+                  styles.confirmPrimaryBtn,
+                  { backgroundColor: hasDiagnosticForPending ? NAVY : '#D97706' }
+                ]}
+                activeOpacity={0.85}
+                disabled={savingExamLevel}
+                onPress={handleConfirmLevelChange}
+              >
+                {savingExamLevel ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Text style={styles.confirmPrimaryBtnText}>
+                    {hasDiagnosticForPending
+                      ? `Confirm & Switch Track`
+                      : `Take Diagnostic Exam`}
+                  </Text>
+                )}
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.confirmCancelBtn}
+                activeOpacity={0.7}
+                disabled={savingExamLevel}
+                onPress={() => setConfirmModalVisible(false)}
+              >
+                <Text style={styles.confirmCancelBtnText}>Cancel</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   )
 }
 
-function FocusCard({ title, subtitle, detail, icon, color, tagText, accuracy, isPrimary }) {
+/**
+ * @param {{ title?: any, subtitle?: any, detail?: any, icon?: any, color?: any, tagText?: any, accuracy?: any, isPrimary?: boolean }} [props]
+ */
+function FocusCard({ title = '', subtitle = '', detail = '', icon = 'book-open', color = '#3b82f6', tagText = '', accuracy = 0, isPrimary = false } = {}) {
   return (
     <View style={[styles.card, isPrimary && styles.primaryCard]}>
       <View style={[styles.iconContainer, { backgroundColor: `${color}18` }]}>
@@ -1122,5 +1324,78 @@ const styles = StyleSheet.create({
     paddingVertical: 13,
     alignItems: 'center',
     width: '100%',
+  },
+
+  // ── Track Confirmation Modal ──
+  confirmCard: {
+    width: '92%',
+    maxWidth: 360,
+    backgroundColor: '#fff',
+    borderRadius: 24,
+    padding: 24,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOpacity: 0.18,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 8,
+  },
+  confirmIconWrap: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 16,
+  },
+  confirmCardTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: NAVY,
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  confirmCardMessage: {
+    color: '#4B5563',
+    fontSize: 14,
+    textAlign: 'center',
+    lineHeight: 21,
+    marginBottom: 22,
+    paddingHorizontal: 4,
+  },
+  confirmActionsCol: {
+    width: '100%',
+    gap: 10,
+  },
+  confirmPrimaryBtn: {
+    borderRadius: 14,
+    paddingVertical: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: '100%',
+    shadowColor: '#000',
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
+  },
+  confirmPrimaryBtnText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '700',
+    letterSpacing: 0.3,
+  },
+  confirmCancelBtn: {
+    borderRadius: 14,
+    paddingVertical: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: '100%',
+    backgroundColor: '#f1f5f9',
+  },
+  confirmCancelBtnText: {
+    color: '#64748b',
+    fontSize: 14,
+    fontWeight: '600',
   },
 })

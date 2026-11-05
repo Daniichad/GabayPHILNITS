@@ -27,6 +27,7 @@ function buildCards(pairs) {
 export default function Matching({ navigation, route }) {
   const subject = route?.params?.subject;
   const limit   = route?.params?.limit ?? 6; // 6 pairs = 12 cards (1 set default)
+  const passedTargetExam = route?.params?.targetExam;
 
   const [pairs,     setPairs]     = useState([]);
   const [loading,   setLoading]   = useState(true);
@@ -51,13 +52,44 @@ export default function Matching({ navigation, route }) {
     try {
       setLoading(true); setError(null);
       const { data: { session } } = await supabase.auth.getSession();
-      setUserId(session?.user?.id ?? null);
+      const uid = session?.user?.id ?? null;
+      setUserId(uid);
+
+      // Resolve user's target exam (IP or FE)
+      let activeTrack = passedTargetExam || 'IP';
+      if (!passedTargetExam && uid) {
+        try {
+          const { data: pData } = await supabase
+            .from('personal_info')
+            .select('target_exam_level')
+            .eq('user_id', uid)
+            .maybeSingle();
+          if (pData?.target_exam_level) {
+            const lvl = pData.target_exam_level.toLowerCase();
+            activeTrack = (lvl.includes('fe') || lvl.includes('fundamental') || (lvl.includes('pro') && !lvl.includes('sub')))
+              ? 'FE'
+              : 'IP';
+          }
+        } catch (_) {}
+      }
+
+      const IP_SUBJECTS = ['Technology', 'Management', 'Strategy'];
+      const FE_SUBJECTS = [
+        'Computer Systems & Architecture',
+        'Algorithms & Programming',
+        'Networks & Security',
+        'IT Management & Strategy',
+        'Databases & SQL',
+      ];
+      const trackSubjects = activeTrack === 'FE' ? FE_SUBJECTS : IP_SUBJECTS;
 
       let q = supabase.from('matching_pairs')
         .select('*, practice_categories!inner(name)')
         .eq('is_published', true);
       if (subject) {
         q = q.eq('practice_categories.name', subject);
+      } else {
+        q = q.in('practice_categories.name', trackSubjects);
       }
 
       const { data, error: qErr } = await q.limit(limit);

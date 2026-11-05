@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react'
-import { Animated, Image, StyleSheet, View } from 'react-native'
+import { ActivityIndicator, Animated, Image, StyleSheet, Text, View } from 'react-native'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { NavigationContainer, useNavigationContainerRef, DefaultTheme } from '@react-navigation/native'
 import { SafeAreaProvider } from 'react-native-safe-area-context'
@@ -13,11 +13,11 @@ import StudyPlan from './screens/navigations/study/StudyPlan'
 import Library from './screens/navigations/study/Library'
 import ReadingMaterial from './screens/navigations/study/ReadingMaterial'
 import VideoLectureDetail from './screens/navigations/study/VideoLectureDetail'
+import RecentReads from './screens/navigations/study/RecentReads'
 import Register from './screens/authentication/Register'
 import SetPin from './screens/authentication/SetPin'
 import PinAuth from './screens/authentication/PinAuth'
 import PracticeLibraryScreen from './screens/navigations/practice/PracticeLibraryScreen.js'
-import PracticeScreen from './screens/navigations/practice/PracticeScreen.js'
 import Flashcards from './screens/navigations/practice/Flashcards.js'
 import Matching from './screens/navigations/practice/Matching'
 import TrueFalse from './screens/navigations/practice/TrueFalse'
@@ -39,12 +39,16 @@ import AboutApp from './screens/navigations/profile/AboutApp'
 import CseGuide from './screens/navigations/profile/CseGuide'
 import CseSitesNearMe from './screens/navigations/profile/CseSitesNearMe'
 import ActivityCalendar from './screens/navigations/home/ActivityCalendar'
+import { Feather } from '@expo/vector-icons'
 import BottomNav from './components/BottomNav'
 import EdgeHandleAI from './components/EdgeHandleAI'
+import OfflineToast from './components/OfflineToast'
+import NotificationToast from './components/NotificationToast'
 import { supabase } from './utils/supabase'
 import NetInfo from '@react-native-community/netinfo'
-import { initDb, getUserCache, saveUserCache } from './utils/database'
-import { processSyncQueue } from './utils/syncManager'
+import { initDb, getUserCache, saveUserCache, saveUserSession, getActiveUserSession } from './utils/database'
+import { processSyncQueue, precachePracticeContent, addSyncListener } from './utils/syncManager'
+import { startRealtimeNotifications, stopRealtimeNotifications } from './utils/notificationManager'
 
 const Stack = createNativeStackNavigator()
 
@@ -58,36 +62,62 @@ const navTheme = {
 
 const NAV_SCREENS = new Set([
 	'Home', 'Library',
-	'VideoLectureDetail',
-	'PracticeLibrary', 'PracticeScreen', 'Performance', 'Profile', 'AccountInformation', 'Settings', 'HelpCenter', 'Report', 'TermsConditions', 'RateApp', 'AboutApp', 'PracticeOverview', 'CseGuide', 'CseSitesNearMe',
+	'PracticeLibrary', 'Performance', 'Profile', 'AccountInformation', 'Settings', 'HelpCenter', 'Report', 'TermsConditions', 'RateApp', 'AboutApp', 'CseGuide', 'CseSitesNearMe',
 ])
 
 const MAIN_TAB_SCREENS = new Set([
-	'Home', 'Library', 'PracticeLibrary', 'PracticeScreen', 'Performance', 'Profile',
+	'Home', 'Library', 'PracticeLibrary', 'Performance', 'Profile',
 ])
 
 export default function App() {
 	const [loading, setLoading] = useState(true)
 	const [currentRoute, setCurrentRoute] = useState('Login')
 	const [initialRoute, setInitialRoute] = useState('Login')
+	const [isOffline, setIsOffline] = useState(false)
+	const [syncNotice, setSyncNotice] = useState(null)
 	const navigationRef = useNavigationContainerRef()
 	const fadeAnim = useRef(new Animated.Value(1)).current
 
 	const determineInitialRoute = async () => {
 		try {
-			// 1. Check if user is logged in
-			const { data: { session }, error } = await supabase.auth.getSession()
-			if (error) {
-				console.warn('Session check error, clearing local session:', error.message)
-				await supabase.auth.signOut()
-			}
-			if (session?.user) {
-				const userId = session.user.id
+			const netState = await NetInfo.fetch()
+			const isOnline = Boolean(netState.isConnected)
+			setIsOffline(!isOnline)
 
-				// Check if online
-				const state = await NetInfo.fetch()
-				if (!state.isConnected) {
-					// Fallback to local cache
+			let activeUser = null
+
+			// 1. If online, check Supabase session
+			if (isOnline) {
+				try {
+					const { data: { session }, error } = await supabase.auth.getSession()
+					if (!error && session?.user) {
+						activeUser = session.user
+						await saveUserSession(session.user)
+						precachePracticeContent().catch(() => { })
+					}
+				} catch (netErr) {
+					console.warn('Network issue fetching session, will check local cache:', netErr)
+				}
+			}
+
+			// 2. If offline or no remote session returned, check cached user session in SQLite
+			if (!activeUser) {
+				const localSession = await getActiveUserSession()
+				if (localSession?.user_id) {
+					const cachedData = await getUserCache(localSession.user_id)
+					if (cachedData) {
+						if (!cachedData.personal_info_completed) return 'PersonalInfo'
+						if (!cachedData.diagnostic_completed) return 'DiagnosticAssessment'
+					}
+					const hasCachedPin = Boolean(localSession.hasPin || (cachedData?.pin_hash && String(cachedData.pin_hash).trim().length > 0))
+					return hasCachedPin ? 'PinAuth' : 'Home'
+				}
+			}
+
+			if (activeUser) {
+				const userId = activeUser.id
+
+				if (!isOnline) {
 					const cachedData = await getUserCache(userId)
 					if (cachedData) {
 						if (!cachedData.personal_info_completed) return 'PersonalInfo'
@@ -95,14 +125,13 @@ export default function App() {
 						const hasCachedPin = Boolean(cachedData.pin_hash && String(cachedData.pin_hash).trim().length > 0)
 						return hasCachedPin ? 'PinAuth' : 'Home'
 					}
-					// If no cache, assume they finished onboarding but might be unstable
 					return 'Home'
 				}
 
 				// Check personal info completion
 				const { data: personalInfoData } = await supabase
 					.from('personal_info')
-					.select('user_id')
+					.select('user_id, target_exam_level')
 					.eq('user_id', userId)
 					.maybeSingle()
 
@@ -125,7 +154,7 @@ export default function App() {
 				}
 
 				// Check if user has a PIN — if so, gate with PinAuth
-				const userEmail = session.user.email
+				const userEmail = activeUser.email
 				const { data: userData } = await supabase
 					.from('users')
 					.select('pin_hash')
@@ -134,10 +163,14 @@ export default function App() {
 
 				const hasPin = Boolean(userData?.pin_hash && String(userData.pin_hash).trim().length > 0)
 				await saveUserCache(userId, hasPin ? userData.pin_hash : null, true, true)
+				await saveUserSession(activeUser, {
+					pin_hash: hasPin ? userData.pin_hash : null,
+					target_exam_level: personalInfoData.target_exam_level || ''
+				})
 				return hasPin ? 'PinAuth' : 'Home'
 			}
 
-			// 2. If not logged in, check onboarding
+			// 3. If not logged in, check onboarding
 			const onboardingComplete = await AsyncStorage.getItem('onboardingComplete')
 			if (onboardingComplete === 'true') {
 				return 'Login'
@@ -146,7 +179,7 @@ export default function App() {
 			}
 		} catch (err) {
 			console.warn('Error determining initial route:', err)
-			return 'Onboarding' // Safe fallback
+			return 'Onboarding'
 		}
 	}
 
@@ -184,9 +217,12 @@ export default function App() {
 			} else if (event === 'TOKEN_REFRESHED') {
 				// Token refreshed successfully — nothing to do
 			} else if (event === 'TOKEN_REFRESH_ERROR') {
-				// Refresh token is invalid/expired — clear session and redirect to Login
-				console.warn('Refresh token invalid, signing out...')
-				await supabase.auth.signOut()
+				// Refresh token is invalid/expired — clear session ONLY if online!
+				const net = await NetInfo.fetch()
+				if (net.isConnected) {
+					console.warn('Refresh token invalid, signing out...')
+					await supabase.auth.signOut()
+				}
 			}
 		})
 
@@ -196,12 +232,35 @@ export default function App() {
 	}, [])
 
 	useEffect(() => {
-		const unsubscribe = NetInfo.addEventListener(state => {
-			if (state.isConnected) {
+		const unsubscribeNet = NetInfo.addEventListener(state => {
+			const offline = !state.isConnected
+			setIsOffline(offline)
+			if (!offline) {
 				processSyncQueue()
+				precachePracticeContent().catch(() => { })
 			}
 		})
-		return () => unsubscribe()
+
+		const unsubscribeSync = addSyncListener(({ status }) => {
+			if (status === 'SYNCING') {
+				setSyncNotice('syncing')
+			} else if (status === 'COMPLETED') {
+				setSyncNotice('synced')
+				setTimeout(() => setSyncNotice(null), 3500)
+			}
+		})
+
+		return () => {
+			unsubscribeNet()
+			unsubscribeSync()
+		}
+	}, [])
+
+	useEffect(() => {
+		startRealtimeNotifications()
+		return () => {
+			stopRealtimeNotifications()
+		}
 	}, [])
 
 	const activeRoute = navigationRef.isReady() ? navigationRef.getCurrentRoute() : null
@@ -224,6 +283,12 @@ export default function App() {
 	return (
 		<SafeAreaProvider>
 			<View style={styles.root}>
+				{/* Global Realtime Notification Toaster (Active on all pages) */}
+				<NotificationToast navigationRef={navigationRef} />
+
+				{/* Floating Offline / Sync Toaster UI */}
+				<OfflineToast isOffline={isOffline} syncNotice={syncNotice} />
+
 				<NavigationContainer
 					ref={navigationRef}
 					theme={navTheme}
@@ -253,10 +318,10 @@ export default function App() {
 						<Stack.Screen name="StudyPlan" component={StudyPlan} />
 						<Stack.Screen name="Library" component={Library} />
 						<Stack.Screen name="ReadingMaterial" component={ReadingMaterial} />
+						<Stack.Screen name="RecentReads" component={RecentReads} />
 						<Stack.Screen name="VideoLectureDetail" component={VideoLectureDetail} />
 						<Stack.Screen name="Home" component={Home} />
 						<Stack.Screen name="PracticeLibrary" component={PracticeLibraryScreen} />
-						<Stack.Screen name="PracticeScreen" component={PracticeScreen} />
 						<Stack.Screen name="Flashcards" component={Flashcards} />
 						<Stack.Screen name="Matching" component={Matching} />
 						<Stack.Screen name="TrueFalse" component={TrueFalse} />

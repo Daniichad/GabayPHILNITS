@@ -12,6 +12,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage'
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useVideoPlayer, VideoView } from 'expo-video'
+import { Asset } from 'expo-asset'
 
 const { width, height } = Dimensions.get('window')
 const screen = Dimensions.get('screen')
@@ -131,103 +132,100 @@ export default function Onboarding({ navigation }) {
 
   const renderScreen = ({ item }) => (
     <View style={[styles.container, item.isRecap && styles.recapContainer]}>
-
-      <View style={[styles.content, item.isRecap && styles.recapContent]}>
-        {item.isRecap ? (
-          <View style={styles.recapWrap}>
+      {item.isRecap ? (
+        <View style={styles.recapWrap}>
+          <Image
+            source={require('../../assets/logo_text_dark.png')}
+            style={styles.recapLogo}
+            resizeMode="contain"
+          />
+          <Text style={styles.recapSubtitle}>
+            A Data Analytics-Driven Mobile Learning System for PhilNITS IP & FE Examination Preparation
+          </Text>
+          <Text style={styles.recapHeading}>What You'll Get:</Text>
+          {RECAP_CARDS.map((card, index) => (
+            <View key={index} style={[styles.recapCard, { backgroundColor: card.bg }]}>
+              <MaterialCommunityIcons
+                name={card.icon}
+                size={30}
+                color={card.iconColor}
+                style={styles.recapCardIcon}
+              />
+              <View style={styles.recapCardText}>
+                <Text style={styles.recapCardTitle}>{card.title}</Text>
+                <Text style={styles.recapCardDesc}>{card.desc}</Text>
+              </View>
+            </View>
+          ))}
+        </View>
+      ) : (
+        <View style={styles.slideCard}>
+          {item.topImage && (
             <Image
-              source={require('../../assets/logo_text_dark.png')}
-              style={styles.recapLogo}
+              source={item.topImage}
+              style={styles.topLogoImage}
               resizeMode="contain"
             />
-            <Text style={styles.recapSubtitle}>
-              A Data Analytics-Driven Mobile Learning System for PhilNITS IP & FE Examination Preparation
-            </Text>
-            <Text style={styles.recapHeading}>What You'll Get:</Text>
-            {RECAP_CARDS.map((card, index) => (
-              <View key={index} style={[styles.recapCard, { backgroundColor: card.bg }]}>
-                <MaterialCommunityIcons
-                  name={card.icon}
-                  size={34}
-                  color={card.iconColor}
-                  style={styles.recapCardIcon}
-                />
-                <View style={styles.recapCardText}>
-                  <Text style={styles.recapCardTitle}>{card.title}</Text>
-                  <Text style={styles.recapCardDesc}>{card.desc}</Text>
-                </View>
-              </View>
-            ))}
-          </View>
-        ) : (
-          <>
-            {item.topImage && (
+          )}
+          {item.showGabayLogo && (
+            <View style={styles.logoContainer}>
               <Image
-                source={item.topImage}
-                style={styles.topLogoImage}
+                source={require('../../assets/img_onboarding.png')}
+                style={styles.logoImage}
                 resizeMode="contain"
               />
-            )}
-            {item.showGabayLogo && (
-              <View style={styles.logoContainer}>
-                <Image
-                  source={require('../../assets/img_onboarding.png')}
-                  style={styles.logoImage}
-                  resizeMode="contain"
-                />
-              </View>
-            )}
+            </View>
+          )}
 
-            {item.icon && (
-              <View style={styles.slideIconCircle}>
-                <MaterialCommunityIcons
-                  name={item.icon}
-                  size={48}
-                  color={item.iconColor || item.buttonColor}
-                />
-              </View>
-            )}
+          {item.icon && (
+            <View style={styles.slideIconCircle}>
+              <MaterialCommunityIcons
+                name={item.icon}
+                size={42}
+                color={item.iconColor || item.buttonColor}
+              />
+            </View>
+          )}
 
-            <Text style={[styles.title, { color: item.textColor }]}>
-              {item.title}
+          <Text style={[styles.title, { color: item.textColor }]}>
+            {item.title}
+          </Text>
+          {!!item.subtitle && (
+            <Text style={[styles.subtitle, { color: item.subtitleColor || '#4B5563' }]}>
+              {item.subtitle}
             </Text>
-            {!!item.subtitle && (
-              <Text style={[styles.subtitle, { color: item.textColor }]}>
-                {item.subtitle}
-              </Text>
-            )}
+          )}
 
-            {item.bullets && (
-              <View style={styles.bulletsContainer}>
-                {item.bullets.map((line, index) => (
-                  <View key={index} style={styles.bulletRow}>
-                    <View style={[styles.bulletDot, { backgroundColor: item.textColor }]} />
-                    <Text style={[styles.bulletText, { color: item.textColor }]}>{line}</Text>
-                  </View>
-                ))}
-              </View>
-            )}
-          </>
-        )}
+          {item.bullets && (
+            <View style={styles.bulletsContainer}>
+              {item.bullets.map((line, index) => (
+                <View key={index} style={styles.bulletRow}>
+                  <View style={[styles.bulletDot, { backgroundColor: item.textColor }]} />
+                  <Text style={[styles.bulletText, { color: item.textColor }]}>{line}</Text>
+                </View>
+              ))}
+            </View>
+          )}
 
-        {item.features && (
-          <View style={styles.featuresContainer}>
-            {item.features.map((feature, index) => (
-              <View key={index} style={styles.featureItem}>
-                <MaterialCommunityIcons
-                  name="check-circle"
-                  size={20}
-                  color={item.buttonColor}
-                  style={styles.featureIcon}
-                />
-                <Text style={[styles.featureText, { color: item.subtitleColor }]}>
-                  {feature}
-                </Text>
-              </View>
-            ))}
-          </View>
-        )}
-      </View>
+          {item.features && (
+            <View style={styles.featuresContainer}>
+              {item.features.map((feature, index) => (
+                <View key={index} style={styles.featureItem}>
+                  <MaterialCommunityIcons
+                    name="check-circle"
+                    size={20}
+                    color={item.buttonColor}
+                    style={styles.featureIcon}
+                  />
+                  <Text style={[styles.featureText, { color: item.subtitleColor }]}>
+                    {feature}
+                  </Text>
+                </View>
+              ))}
+            </View>
+          )}
+        </View>
+      )}
     </View>
   )
 
@@ -239,6 +237,23 @@ export default function Onboarding({ navigation }) {
     p.muted = true
     p.play()
   })
+
+  useEffect(() => {
+    let isMounted = true
+    async function loadAsset() {
+      try {
+        const [asset] = await Asset.loadAsync(videoSource)
+        if (isMounted && asset?.localUri && player) {
+          player.replace({ uri: asset.localUri })
+          player.play()
+        }
+      } catch (err) {
+        console.log('Onboarding video asset cache notice:', err)
+      }
+    }
+    loadAsset()
+    return () => { isMounted = false }
+  }, [player])
 
   useEffect(() => {
     if (player) {
@@ -261,6 +276,7 @@ export default function Onboarding({ navigation }) {
         nativeControls={false}
         allowsFullscreen={false}
         startsPictureInPictureAutomatically={false}
+        surfaceType="textureView"
       />
       {/* Dim so text/buttons stay readable over the video */}
       <View style={styles.dim} pointerEvents="none" />
@@ -282,7 +298,7 @@ export default function Onboarding({ navigation }) {
       {/* Skip, top-right (hidden on last slide) */}
       {currentIndex < onboardingData.length - 1 && (
         <View style={[styles.stickyHeader, { top: Math.max(insets.top + 10, 50) }]}>
-          <TouchableOpacity onPress={handleSkip}>
+          <TouchableOpacity onPress={handleSkip} activeOpacity={0.8}>
             <Text style={styles.skipText}>Skip</Text>
           </TouchableOpacity>
         </View>
@@ -309,7 +325,7 @@ export default function Onboarding({ navigation }) {
                     backgroundColor:
                       index === currentIndex
                         ? currentItem?.buttonColor || '#3b67b0'
-                        : 'rgba(188, 215, 236, 0.45)',
+                        : 'rgba(9, 32, 60, 0.25)',
                   },
                 ]}
               />
@@ -319,7 +335,7 @@ export default function Onboarding({ navigation }) {
         <TouchableOpacity
           style={[
             styles.actionButton,
-            { backgroundColor: currentItem?.buttonColor || '#c14954' },
+            { backgroundColor: currentItem?.buttonColor || '#09203c' },
           ]}
           activeOpacity={0.85}
           onPress={
@@ -345,7 +361,7 @@ export default function Onboarding({ navigation }) {
 const styles = StyleSheet.create({
   flex: {
     flex: 1,
-    backgroundColor: '#000',
+    backgroundColor: '#f8fafc',
   },
   bgVideo: {
     ...StyleSheet.absoluteFillObject,
@@ -354,104 +370,140 @@ const styles = StyleSheet.create({
   },
   dim: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(9, 32, 60, 0.45)',
+    backgroundColor: 'rgba(240, 244, 250, 0.35)',
   },
   container: {
     width: width,
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    paddingHorizontal: 24,
+    paddingHorizontal: 22,
     backgroundColor: 'transparent',
+    paddingBottom: 90,
+  },
+  slideCard: {
+    width: '100%',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.94)',
+    borderRadius: 24,
+    paddingVertical: 28,
+    paddingHorizontal: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(226, 232, 240, 0.8)',
+    shadowColor: '#09203c',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.08,
+    shadowRadius: 16,
+    elevation: 4,
   },
   recapContainer: {
-    justifyContent: 'flex-start',
-    paddingTop: 40,
-  },
-  content: {
-    alignItems: 'center',
-    paddingBottom: 100,
-  },
-  recapContent: {
-    paddingBottom: 0,
-    width: '100%',
-  },
-  logoContainer: {
-    alignItems: 'center',
-    marginBottom: 24,
-  },
-  logoImage: {
-    width: 240,
-    height: 120,
-    marginBottom: 8,
+    justifyContent: 'center',
+    paddingTop: 45,
+    paddingBottom: 90,
   },
   recapWrap: {
-    alignSelf: 'stretch',
+    width: '100%',
     alignItems: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.95)',
+    borderRadius: 24,
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(226, 232, 240, 0.8)',
+    shadowColor: '#09203c',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.08,
+    shadowRadius: 16,
+    elevation: 4,
   },
   recapLogo: {
-    width: 300,
-    height: 300,
-    marginBottom: -80,
+    width: 190,
+    height: 55,
+    marginBottom: 8,
   },
   recapSubtitle: {
-    fontSize: 13,
-    lineHeight: 18,
+    fontSize: 12,
+    lineHeight: 17,
     textAlign: 'center',
-    color: '#09203c',
+    color: '#4B5563',
     paddingHorizontal: 8,
-    marginBottom: 28,
+    marginBottom: 16,
   },
   recapHeading: {
-    fontSize: 20,
+    fontSize: 17,
     fontWeight: '800',
     color: '#09203c',
     marginBottom: 12,
+    alignSelf: 'flex-start',
+    marginLeft: 4,
   },
   recapCard: {
     alignSelf: 'stretch',
     flexDirection: 'row',
     alignItems: 'center',
-    borderRadius: 16,
-    paddingVertical: 12,
-    paddingHorizontal: 14,
-    marginBottom: 10,
+    borderRadius: 14,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    marginBottom: 8,
   },
   recapCardIcon: {
-    marginRight: 12,
+    marginRight: 10,
   },
   recapCardText: {
     flex: 1,
   },
   recapCardTitle: {
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: '800',
     color: '#09203c',
     marginBottom: 2,
   },
   recapCardDesc: {
-    fontSize: 12,
-    lineHeight: 17,
+    fontSize: 11,
+    lineHeight: 15,
     color: '#4B5563',
   },
   topLogoImage: {
-    width: 110,
-    height: 110,
-    borderRadius: 26,
-    marginBottom: 20,
-  },
-  slideIconCircle: {
     width: 96,
     height: 96,
-    borderRadius: 24,
-    backgroundColor: 'rgba(255, 255, 255, 0.9)',
+    borderRadius: 22,
+    marginBottom: 16,
+  },
+  slideIconCircle: {
+    width: 84,
+    height: 84,
+    borderRadius: 22,
+    backgroundColor: 'rgba(241, 245, 249, 0.95)',
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 20,
+    marginBottom: 16,
+  },
+  logoContainer: {
+    alignItems: 'center',
+    marginBottom: 18,
+  },
+  logoImage: {
+    width: 200,
+    height: 100,
+    marginBottom: 6,
+  },
+  title: {
+    fontSize: 24,
+    fontWeight: '800',
+    textAlign: 'center',
+    marginBottom: 10,
+  },
+  subtitle: {
+    fontSize: 14,
+    lineHeight: 20,
+    textAlign: 'center',
+    marginBottom: 18,
+    paddingHorizontal: 10,
   },
   bulletsContainer: {
     alignSelf: 'stretch',
-    paddingHorizontal: 28,
+    paddingHorizontal: 12,
     marginTop: 4,
   },
   bulletRow: {
@@ -463,36 +515,24 @@ const styles = StyleSheet.create({
     width: 6,
     height: 6,
     borderRadius: 3,
-    marginTop: 8,
-    marginRight: 12,
+    marginTop: 7,
+    marginRight: 10,
   },
   bulletText: {
     flex: 1,
-    fontSize: 16,
-    lineHeight: 22,
-  },
-  title: {
-    fontSize: 28,
-    fontWeight: '800',
-    textAlign: 'center',
-    marginBottom: 12,
-  },
-  subtitle: {
-    fontSize: 15,
-    lineHeight: 22,
-    textAlign: 'center',
-    marginBottom: 24,
-    paddingHorizontal: 12,
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: '600',
   },
   featuresContainer: {
     width: '100%',
-    marginBottom: 24,
-    paddingHorizontal: 12,
+    marginBottom: 16,
+    paddingHorizontal: 10,
   },
   featureItem: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    marginBottom: 12,
+    marginBottom: 10,
   },
   featureIcon: {
     marginRight: 10,
@@ -506,41 +546,55 @@ const styles = StyleSheet.create({
   // Sticky Elements
   stickyHeader: {
     position: 'absolute',
-    top: 50,
-    right: 24,
+    right: 20,
     zIndex: 10,
+    backgroundColor: 'rgba(255, 255, 255, 0.9)',
+    borderRadius: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderWidth: 1,
+    borderColor: 'rgba(226, 232, 240, 0.7)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
   },
   skipText: {
-    fontSize: 14,
+    fontSize: 13,
     color: '#09203c',
-    fontWeight: '600',
+    fontWeight: '700',
+  },
+  stickyButton: {
+    position: 'absolute',
+    left: 24,
+    right: 24,
+    zIndex: 10,
   },
   stickyDotsContainer: {
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
-    paddingVertical: 12,
-    marginBottom: 8,
+    paddingVertical: 10,
+    marginBottom: 6,
     gap: 8,
     zIndex: 10,
   },
   dot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-  },
-  stickyButton: {
-    position: 'absolute',
-    bottom: 20,
-    left: 24,
-    right: 24,
-    zIndex: 10,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
   },
   actionButton: {
     width: '100%',
     borderRadius: 14,
     paddingVertical: 14,
     alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.15,
+    shadowRadius: 6,
+    elevation: 3,
   },
   actionButtonText: {
     color: '#fff',

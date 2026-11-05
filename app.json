@@ -1,8 +1,12 @@
 {
   "expo": {
     "name": "Gabay PhilNITS",
-    "slug": "gabay_philnits",
-    "scheme": "gabay-philnits",
+    "slug": "gabay_philcse",
+    "scheme": [
+      "gabayphilcse",
+      "gabay-philcse",
+      "gabay-philnits"
+    ],
     "version": "1.0.0",
     "updates": {
       "enabled": false
@@ -37,6 +41,7 @@
       "eas": {
         "projectId": "b5909ad9-e928-4b90-aeeb-af2966fb4339"
       }
-    }
+    },
+    "owner": "easykeiima"
   }
 }

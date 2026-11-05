@@ -210,13 +210,13 @@ export default function SetPin({ navigation, route }) {
 
   return (
     <View style={styles.screen}>
-      <StatusBar barStyle="light-content" backgroundColor={NAVY} />
+      <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
 
       {/* Header — hide back button in prompt mode on step 'set' */}
       <View style={styles.header}>
         {(step === 'confirm' || mode !== 'prompt') ? (
           <TouchableOpacity style={styles.backBtn} onPress={handleBack} activeOpacity={0.6}>
-            <Feather name="chevron-left" size={26} color="#fff" />
+            <Feather name="chevron-left" size={26} color={NAVY} />
           </TouchableOpacity>
         ) : (
           <View style={styles.backBtn} />
@@ -230,12 +230,11 @@ export default function SetPin({ navigation, route }) {
       <View style={styles.topSection}>
         <View style={styles.logoContainer}>
           <Image 
-            source={require('../../assets/loading.png')} 
+            source={require('../../assets/logo_text_dark.png')} 
             style={styles.logoImage} 
             resizeMode="contain"
           />
         </View>
-        <Text style={styles.appName}>Gabay PhilNITS</Text>
       </View>
 
       {/* Body */}
@@ -281,7 +280,7 @@ export default function SetPin({ navigation, route }) {
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: NAVY,
+    backgroundColor: '#FFFFFF',
     paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight : 54,
     justifyContent: 'flex-end',
   },
@@ -302,7 +301,7 @@ const styles = StyleSheet.create({
   headerTitle: {
     fontSize: 18,
     fontWeight: '800',
-    color: '#fff',
+    color: '#0F2747',
   },
 
   topSection: {
@@ -311,21 +310,14 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   logoContainer: {
-    width: 80,
+    width: 260,
     height: 80,
-    marginBottom: 16,
     justifyContent: 'center',
     alignItems: 'center',
   },
   logoImage: {
-    width: '100%',
-    height: '100%',
-  },
-  appName: {
-    fontSize: 24,
-    fontWeight: '700',
-    color: '#fff',
-    letterSpacing: 1,
+    width: 260,
+    height: 260,
   },
 
   // Form Container
@@ -333,11 +325,19 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     borderTopLeftRadius: 32,
     borderTopRightRadius: 32,
-    paddingTop: 36,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    paddingTop: 28,
     paddingHorizontal: 24,
-    paddingBottom: Platform.OS === 'ios' ? 40 : 24,
+    paddingBottom: Platform.OS === 'ios' ? 36 : 20,
     alignItems: 'center',
-    minHeight: '60%',
+    width: '100%',
+    // Standout drop shadow
+    shadowColor: '#0F2747',
+    shadowOffset: { width: 0, height: -6 },
+    shadowOpacity: 0.12,
+    shadowRadius: 18,
+    elevation: 12,
   },
   title: {
     fontSize: 22,
@@ -349,7 +349,7 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: '#64748b',
     textAlign: 'center',
-    marginBottom: 32,
+    marginBottom: 20,
     maxWidth: 260,
   },
 
@@ -357,7 +357,7 @@ const styles = StyleSheet.create({
   dotsRow: {
     flexDirection: 'row',
     gap: 16,
-    marginBottom: 16,
+    marginBottom: 12,
   },
   dot: {
     width: 16,
@@ -392,23 +392,23 @@ const styles = StyleSheet.create({
   // Numpad
   numpadContainer: {
     width: '100%',
-    marginTop: 16,
-    flex: 1,
-    justifyContent: 'flex-end',
+    marginTop: 8,
+    alignItems: 'center',
   },
   numpad: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     justifyContent: 'center',
     gap: 0,
-    rowGap: 8,
+    rowGap: 4,
+    width: '100%',
   },
   numKey: {
     width: '33.33%',
-    height: 64,
+    height: 60,
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: 32,
+    borderRadius: 30,
   },
   numKeyText: {
     fontSize: 28,

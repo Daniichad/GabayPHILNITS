@@ -14,7 +14,7 @@ import {
 } from 'react-native'
 import { Ionicons } from '@expo/vector-icons'
 import { supabase } from '../../utils/supabase'
-import { saveUserCache } from '../../utils/database'
+import { saveUserCache, saveUserSession } from '../../utils/database'
 
 function Field({ label, placeholder, value, onChangeText, keyboardType = 'default' }) {
   const [isFocused, setIsFocused] = React.useState(false)
@@ -285,13 +285,26 @@ export default function PersonalInfo({ navigation }) {
           }
 
           setGender(data.gender ?? '')
-          const rawLevel = data.target_exam_level ?? ''
-          if (rawLevel === 'Professional') {
+          const rawLevel = (data.target_exam_level ?? '').trim()
+          if (
+            rawLevel === 'Fundamental IT Engineer (FE)' ||
+            rawLevel === 'Professional' ||
+            rawLevel === 'FE' ||
+            rawLevel.toLowerCase().includes('fundamental') ||
+            rawLevel.toLowerCase().includes('(fe)')
+          ) {
             setTargetExamLevel('Fundamental IT Engineer (FE)')
-          } else if (rawLevel === 'Sub-Professional') {
+          } else if (
+            rawLevel === 'Information Technology Passport (IP)' ||
+            rawLevel === 'Sub-Professional' ||
+            rawLevel === 'Sub-professional' ||
+            rawLevel === 'IP' ||
+            rawLevel.toLowerCase().includes('passport') ||
+            rawLevel.toLowerCase().includes('(ip)')
+          ) {
             setTargetExamLevel('Information Technology Passport (IP)')
-          } else {
-            setTargetExamLevel(rawLevel)
+          } else if (rawLevel) {
+            setTargetExamLevel('Information Technology Passport (IP)')
           }
           setEducation(data.highest_educational_attainment ?? '')
           
@@ -367,20 +380,56 @@ export default function PersonalInfo({ navigation }) {
         return
       }
 
-      const { error } = await supabase.from('personal_info').upsert(
-        {
-          user_id: userId,
-          birthdate,
-          contact_number: fullContactNumber,
-          gender,
-          target_exam_level: targetExamLevel,
-          highest_educational_attainment: education,
-          updated_at: new Date().toISOString(),
-        },
-        {
-          onConflict: 'user_id',
+      // Compute age automatically from birthdate
+      let calculatedAge = null
+      if (birthdate) {
+        const parts = birthdate.split('-')
+        if (parts.length === 3) {
+          const yr = parseInt(parts[0], 10)
+          const mo = parseInt(parts[1], 10) - 1
+          const dy = parseInt(parts[2], 10)
+          if (!isNaN(yr) && !isNaN(mo) && !isNaN(dy)) {
+            const birthDateObj = new Date(yr, mo, dy)
+            const today = new Date()
+            let a = today.getFullYear() - birthDateObj.getFullYear()
+            const m = today.getMonth() - birthDateObj.getMonth()
+            if (m < 0 || (m === 0 && today.getDate() < birthDateObj.getDate())) a--
+            calculatedAge = a >= 0 ? a : 0
+          }
         }
+      }
+
+      const basePayload = {
+        user_id: userId,
+        birthdate,
+        contact_number: fullContactNumber,
+        gender,
+        target_exam_level: targetExamLevel,
+        highest_educational_attainment: education,
+        updated_at: new Date().toISOString(),
+      }
+
+      // Try saving without age first (recommended schema where age is dropped)
+      let { error } = await supabase.from('personal_info').upsert(
+        basePayload,
+        { onConflict: 'user_id' }
       )
+
+      // If database still requires 'age' (NOT NULL constraint or column exists), retry with calculated age
+      if (error) {
+        const errDetail = String(error.message || '') + ' ' + String(error.details || '')
+        if (errDetail.toLowerCase().includes('age') || error.code === '23502') {
+          console.log('Database has age constraint, retrying with calculated age:', calculatedAge)
+          const retryResult = await supabase.from('personal_info').upsert(
+            {
+              ...basePayload,
+              ...(calculatedAge !== null ? { age: calculatedAge } : {}),
+            },
+            { onConflict: 'user_id' }
+          )
+          error = retryResult.error
+        }
+      }
 
       if (error) {
         showCustomAlert('Save error', error.message || 'Could not save personal information')
@@ -389,6 +438,11 @@ export default function PersonalInfo({ navigation }) {
 
       try {
         await saveUserCache(userId, null, true, false)
+        if (userData?.user) {
+          await saveUserSession(userData.user, {
+            target_exam_level: targetExamLevel,
+          })
+        }
       } catch (cacheErr) {
         console.warn('Local cache save warning in PersonalInfo:', cacheErr)
       }

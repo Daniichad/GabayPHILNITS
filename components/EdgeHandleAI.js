@@ -32,6 +32,153 @@ const QUICK_PROMPTS = [
   '⏱️ FE Subject B exam strategy',
 ]
 
+// ── Lightweight Rich Formatter for Chat Output ─────────────────
+function FormattedMessage({ text, isAi }) {
+  if (!text) return null
+
+  // Sanitize math syntax & raw symbols for mobile
+  const sanitized = text
+    .replace(/\$\\rightarrow\$|\\rightarrow|\$\s*\\rightarrow\s*\$/gi, ' → ')
+    .replace(/\$\\leftarrow\$|\\leftarrow|\$\s*\\leftarrow\s*\$/gi, ' ← ')
+    .replace(/\$\\leftrightarrow\$|\\leftrightarrow/gi, ' ↔ ')
+    .replace(/\$\\le\$|\\le/gi, ' ≤ ')
+    .replace(/\$\\ge\$|\\ge/gi, ' ≥ ')
+    .replace(/\$\\ne\$|\\ne/gi, ' ≠ ')
+    .replace(/\$\\approx\$|\\approx/gi, ' ≈ ')
+    .replace(/\$\\times\$|\\times/gi, ' × ')
+    .replace(/\\text\{([^}]+)\}/gi, '$1')
+    .replace(/\$\$([\s\S]*?)\$\$/g, '$1')
+    .replace(/\$([^$\n]+)\$/g, '$1')
+
+  const lines = sanitized.split('\n')
+  const elements = []
+  let inCodeBlock = false
+  let codeBuffer = []
+
+  for (let i = 0; i < lines.length; i++) {
+    const rawLine = lines[i]
+    const trimmed = rawLine.trim()
+
+    // Code block fences
+    if (trimmed.startsWith('```')) {
+      if (inCodeBlock) {
+        elements.push(
+          <View key={`code-${i}`} style={styles.mdCodeBlock}>
+            <Text style={styles.mdCodeBlockText}>{codeBuffer.join('\n')}</Text>
+          </View>
+        )
+        codeBuffer = []
+        inCodeBlock = false
+      } else {
+        inCodeBlock = true
+      }
+      continue
+    }
+
+    if (inCodeBlock) {
+      codeBuffer.push(rawLine)
+      continue
+    }
+
+    // Horizontal Rule (--- or ***)
+    if (/^(\-{3,}|\*{3,}|_{3,})$/.test(trimmed)) {
+      elements.push(<View key={`div-${i}`} style={styles.mdDivider} />)
+      continue
+    }
+
+    // Headings (### Title or ## Title)
+    if (/^#{1,4}\s+/.test(trimmed)) {
+      const headingContent = trimmed.replace(/^#{1,4}\s+/, '')
+      elements.push(
+        <Text key={`h-${i}`} style={[styles.mdHeading, isAi ? styles.mdHeadingAi : styles.mdHeadingUser]}>
+          {renderInlineFormatting(headingContent, isAi)}
+        </Text>
+      )
+      continue
+    }
+
+    // Bullet points: * item, - item, • item
+    if (/^(\*|\-|\•)\s+/.test(trimmed)) {
+      const bulletContent = trimmed.replace(/^(\*|\-|\•)\s+/, '')
+      elements.push(
+        <View key={`bullet-${i}`} style={styles.mdBulletRow}>
+          <Text style={[styles.mdBulletDot, isAi ? styles.mdBulletDotAi : styles.mdBulletDotUser]}>•</Text>
+          <Text style={[styles.mdBulletText, isAi ? styles.msgTextAi : styles.msgTextUser]}>
+            {renderInlineFormatting(bulletContent, isAi)}
+          </Text>
+        </View>
+      )
+      continue
+    }
+
+    // Numbered lists: 1. item
+    if (/^\d+\.\s+/.test(trimmed)) {
+      const numMatch = trimmed.match(/^(\d+\.)\s+(.*)$/)
+      if (numMatch) {
+        elements.push(
+          <View key={`num-${i}`} style={styles.mdBulletRow}>
+            <Text style={[styles.mdNumberLabel, isAi ? styles.mdNumberLabelAi : styles.mdNumberLabelUser]}>
+              {numMatch[1]}
+            </Text>
+            <Text style={[styles.mdBulletText, isAi ? styles.msgTextAi : styles.msgTextUser]}>
+              {renderInlineFormatting(numMatch[2], isAi)}
+            </Text>
+          </View>
+        )
+        continue
+      }
+    }
+
+    // Empty lines -> vertical spacer
+    if (!trimmed) {
+      elements.push(<View key={`spacer-${i}`} style={{ height: 6 }} />)
+      continue
+    }
+
+    // Normal paragraph line
+    elements.push(
+      <Text key={`p-${i}`} style={[styles.msgText, isAi ? styles.msgTextAi : styles.msgTextUser, { marginBottom: 3 }]}>
+        {renderInlineFormatting(rawLine, isAi)}
+      </Text>
+    )
+  }
+
+  return <View style={{ width: '100%' }}>{elements}</View>
+}
+
+function renderInlineFormatting(text, isAi) {
+  if (!text) return null
+
+  // Split by bold (**bold**) and inline code (`code`)
+  const parts = text.split(/(\*\*[^*]+\*\*|`[^`]+`)/g)
+
+  return parts.map((part, index) => {
+    if (part.startsWith('**') && part.endsWith('**') && part.length >= 4) {
+      const content = part.slice(2, -2)
+      return (
+        <Text
+          key={index}
+          style={[styles.mdInlineBold, isAi ? styles.mdInlineBoldAi : styles.mdInlineBoldUser]}
+        >
+          {content}
+        </Text>
+      )
+    }
+    if (part.startsWith('`') && part.endsWith('`') && part.length >= 2) {
+      const content = part.slice(1, -1)
+      return (
+        <Text
+          key={index}
+          style={[styles.mdInlineCode, isAi ? styles.mdInlineCodeAi : styles.mdInlineCodeUser]}
+        >
+          {content}
+        </Text>
+      )
+    }
+    return <Text key={index}>{part}</Text>
+  })
+}
+
 export default function EdgeHandleAI({ side = 'right' }) {
   const insets = useSafeAreaInsets()
 
@@ -182,8 +329,8 @@ export default function EdgeHandleAI({ side = 'right' }) {
         }).start()
 
         // Persist side & vertical coordinate
-        AsyncStorage.setItem('edgeHandleSide', finalSide).catch(() => {})
-        AsyncStorage.setItem('edgeHandleY', currentY.current.toString()).catch(() => {})
+        AsyncStorage.setItem('edgeHandleSide', finalSide).catch(() => { })
+        AsyncStorage.setItem('edgeHandleY', currentY.current.toString()).catch(() => { })
       },
     })
   ).current
@@ -212,9 +359,9 @@ export default function EdgeHandleAI({ side = 'right' }) {
   }
 
   // ── AI Chat Assistant Logic ────────────────────────────────
-  const handleSendMessage = (textToSend = inputText) => {
+  const handleSendMessage = async (textToSend = inputText) => {
     const query = textToSend.trim()
-    if (!query) return
+    if (!query || isTyping) return
 
     const userMsg = {
       id: Date.now().toString(),
@@ -223,12 +370,20 @@ export default function EdgeHandleAI({ side = 'right' }) {
       time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
     }
 
+    const currentHistory = [...messages]
     setMessages((prev) => [...prev, userMsg])
     if (textToSend === inputText) setInputText('')
     setIsTyping(true)
 
-    setTimeout(() => {
-      const replyText = generateAiReply(query)
+    try {
+      let replyText = ''
+      try {
+        replyText = await callGeminiTutor(query, currentHistory)
+      } catch (err) {
+        console.warn('Gemini live call error, using fallback:', err?.message)
+        replyText = generateAiReply(query)
+      }
+
       const aiMsg = {
         id: (Date.now() + 1).toString(),
         sender: 'ai',
@@ -236,8 +391,84 @@ export default function EdgeHandleAI({ side = 'right' }) {
         time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       }
       setMessages((prev) => [...prev, aiMsg])
+    } finally {
       setIsTyping(false)
-    }, 1000)
+    }
+  }
+
+  const callGeminiTutor = async (query, history = []) => {
+    const apiKey = process.env.EXPO_PUBLIC_GEMINI_API_KEY
+    if (!apiKey) {
+      throw new Error('EXPO_PUBLIC_GEMINI_API_KEY not found')
+    }
+
+    // Build multi-turn context (last 6 messages)
+    const contents = [
+      ...history.slice(-6).map((m) => ({
+        role: m.sender === 'user' ? 'user' : 'model',
+        parts: [{ text: m.text }],
+      })),
+      { role: 'user', parts: [{ text: query }] },
+    ]
+
+    const systemInstruction = {
+      parts: [
+        {
+          text: `You are GABAY AI, an encouraging and expert study assistant and tutor for the GabayPHILNITS exam prep mobile app.
+Your core expertise:
+- PhilNITS FE (Fundamental Information Technology Engineer Examination - Level 2):
+  • Subject A: 80 multiple choice questions (Computer Systems, Software, Networks, Security, Project Management, Strategy).
+  • Subject B: Information Security, Algorithms and Data Structures, and Software Development / Pseudocode analysis.
+  • Scoring: Item Response Theory (IRT) scaled scoring (Passing grade: 600 out of 1000).
+- PhilNITS IP (Information Technology Passport Examination - Level 1):
+  • Technology, Management, and Strategy. (Passing grade: 550 out of 1000).
+
+Guidelines for answers:
+- Keep responses concise, clear, and structured for mobile screens.
+- Formatting rules:
+  • Never use LaTeX math syntax like $\\rightarrow$, \\rightarrow, $\\le$, etc. Always write clean standard Unicode symbols: "→", "←", "≤", "≥".
+  • Do not use markdown title hashes like "###" or "##". Use bold section titles instead (e.g., "**1. Processor & CPU Architecture**").
+  • Do not use horizontal rule lines ("---" or "***").
+  • Use clean bullet points with "• " and leave blank lines between points for effortless reading.
+- If the question is general IT, connect it back to PhilNITS exam relevance.`,
+        },
+      ],
+    }
+
+    // Try gemini-3.5-flash first, then gemini-3.8-flash, then gemini-flash-latest
+    const candidateModels = ['gemini-3.5-flash', 'gemini-3.8-flash', 'gemini-flash-latest']
+
+    for (const model of candidateModels) {
+      try {
+        const response = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              system_instruction: systemInstruction,
+              contents,
+              generationConfig: {
+                temperature: 0.7,
+                maxOutputTokens: 800,
+              },
+            }),
+          }
+        )
+
+        if (!response.ok) continue
+
+        const data = await response.json()
+        const text = data?.candidates?.[0]?.content?.parts?.[0]?.text
+        if (text && text.trim().length > 0) {
+          return text.trim()
+        }
+      } catch (e) {
+        // Continue to fallback model
+      }
+    }
+
+    throw new Error('All Gemini candidate models failed')
   }
 
   const generateAiReply = (q) => {
@@ -274,14 +505,14 @@ export default function EdgeHandleAI({ side = 'right' }) {
         <TouchableOpacity
           activeOpacity={0.85}
           onPress={openPanel}
-          style={styles.handleCircle}
+          style={styles.handleTouchable}
         >
-          {/* Glowing App / G Logo */}
-          <View style={styles.iconInner}>
+          {/* Circular Chatbot Logo */}
+          <View style={styles.circleWrapper}>
             <Image
-              source={require('../assets/loading.png')}
+              source={require('../assets/chatbot_logo.png')}
               style={styles.logoImage}
-              resizeMode="contain"
+              resizeMode="cover"
             />
           </View>
         </TouchableOpacity>
@@ -321,9 +552,9 @@ export default function EdgeHandleAI({ side = 'right' }) {
                 <View style={styles.headerTitleRow}>
                   <View style={styles.headerLogoCircle}>
                     <Image
-                      source={require('../assets/loading.png')}
+                      source={require('../assets/chatbot_logo.png')}
                       style={styles.headerLogoImg}
-                      resizeMode="contain"
+                      resizeMode="cover"
                     />
                   </View>
                   <View>
@@ -376,9 +607,7 @@ export default function EdgeHandleAI({ side = 'right' }) {
                         </View>
                       )}
                       <View style={[styles.msgBubble, isAi ? styles.msgBubbleAi : styles.msgBubbleUser]}>
-                        <Text style={[styles.msgText, isAi ? styles.msgTextAi : styles.msgTextUser]}>
-                          {msg.text}
-                        </Text>
+                        <FormattedMessage text={msg.text} isAi={isAi} />
                         <Text style={[styles.msgTime, isAi ? styles.msgTimeAi : styles.msgTimeUser]}>
                           {msg.time}
                         </Text>
@@ -438,34 +667,29 @@ const styles = StyleSheet.create({
     zIndex: 9999,
     elevation: 20,
   },
-  handleCircle: {
+  handleTouchable: {
     width: HANDLE_SIZE,
     height: HANDLE_SIZE,
     borderRadius: HANDLE_SIZE / 2,
-    backgroundColor: NAVY,
     justifyContent: 'center',
     alignItems: 'center',
-    borderWidth: 2,
-    borderColor: '#38bdf8',
-    // Shadow for iOS
-    shadowColor: '#000',
-    shadowOpacity: 0.35,
+    shadowColor: '#0F2747',
+    shadowOpacity: 0.32,
     shadowRadius: 6,
     shadowOffset: { width: 0, height: 3 },
-    // Elevation for Android
-    elevation: 12,
+    elevation: 10,
   },
-  iconInner: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: '#fff',
+  circleWrapper: {
+    width: HANDLE_SIZE,
+    height: HANDLE_SIZE,
+    borderRadius: HANDLE_SIZE / 2,
+    overflow: 'hidden',
     justifyContent: 'center',
     alignItems: 'center',
   },
   logoImage: {
-    width: 22,
-    height: 22,
+    width: '100%',
+    height: '100%',
   },
 
   // Modal Overlay
@@ -478,8 +702,8 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   panelContainer: {
-    width: SCREEN_WIDTH * 0.86,
-    maxWidth: 400,
+    width: Math.min(SCREEN_WIDTH * 0.90, 420),
+    maxWidth: 420,
     backgroundColor: '#ffffff',
     height: '100%',
     shadowColor: '#000',
@@ -510,13 +734,13 @@ const styles = StyleSheet.create({
     width: 38,
     height: 38,
     borderRadius: 19,
-    backgroundColor: NAVY,
+    overflow: 'hidden',
     justifyContent: 'center',
     alignItems: 'center',
   },
   headerLogoImg: {
-    width: 26,
-    height: 26,
+    width: '100%',
+    height: '100%',
   },
   headerTitleText: {
     fontSize: 16,
@@ -586,8 +810,8 @@ const styles = StyleSheet.create({
   },
   msgRow: {
     flexDirection: 'row',
-    alignItems: 'flex-end',
-    marginBottom: 4,
+    alignItems: 'flex-start',
+    marginBottom: 8,
   },
   msgRowAi: {
     justifyContent: 'flex-start',
@@ -599,29 +823,31 @@ const styles = StyleSheet.create({
     width: 28,
     height: 28,
     borderRadius: 14,
-    backgroundColor: NAVY,
+    backgroundColor: '#3c64b4',
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 8,
-    marginBottom: 2,
+    marginTop: 4,
   },
   msgBubble: {
-    maxWidth: '80%',
+    maxWidth: '85%',
     borderRadius: 18,
     paddingHorizontal: 14,
-    paddingVertical: 10,
+    paddingVertical: 12,
   },
   msgBubbleAi: {
-    backgroundColor: '#f1f5f9',
-    borderBottomLeftRadius: 4,
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    borderTopLeftRadius: 4,
   },
   msgBubbleUser: {
-    backgroundColor: NAVY,
+    backgroundColor: '#3c64b4',
     borderBottomRightRadius: 4,
   },
   msgText: {
-    fontSize: 13,
-    lineHeight: 19,
+    fontSize: 13.5,
+    lineHeight: 20,
   },
   msgTextAi: {
     color: '#1e293b',
@@ -630,8 +856,8 @@ const styles = StyleSheet.create({
     color: '#ffffff',
   },
   msgTime: {
-    fontSize: 9,
-    marginTop: 4,
+    fontSize: 10,
+    marginTop: 6,
     alignSelf: 'flex-end',
   },
   msgTimeAi: {
@@ -639,6 +865,98 @@ const styles = StyleSheet.create({
   },
   msgTimeUser: {
     color: 'rgba(255,255,255,0.7)',
+  },
+
+  // ── Rich Markdown Element Styles ──
+  mdHeading: {
+    fontSize: 14.5,
+    fontWeight: '800',
+    marginTop: 6,
+    marginBottom: 4,
+    letterSpacing: 0.2,
+  },
+  mdHeadingAi: {
+    color: '#0F2747',
+  },
+  mdHeadingUser: {
+    color: '#ffffff',
+  },
+  mdBulletRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginBottom: 4,
+    paddingRight: 4,
+  },
+  mdBulletDot: {
+    fontSize: 14,
+    lineHeight: 20,
+    marginRight: 6,
+    fontWeight: '900',
+  },
+  mdBulletDotAi: {
+    color: '#3c64b4',
+  },
+  mdBulletDotUser: {
+    color: '#ffffff',
+  },
+  mdNumberLabel: {
+    fontSize: 13,
+    lineHeight: 20,
+    marginRight: 6,
+    fontWeight: '700',
+  },
+  mdNumberLabelAi: {
+    color: '#3c64b4',
+  },
+  mdNumberLabelUser: {
+    color: '#ffffff',
+  },
+  mdBulletText: {
+    flex: 1,
+    fontSize: 13.5,
+    lineHeight: 20,
+  },
+  mdDivider: {
+    height: 1,
+    backgroundColor: '#E2E8F0',
+    marginVertical: 8,
+    width: '100%',
+  },
+  mdInlineBold: {
+    fontWeight: '700',
+  },
+  mdInlineBoldAi: {
+    color: '#0F2747',
+  },
+  mdInlineBoldUser: {
+    color: '#ffffff',
+  },
+  mdInlineCode: {
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    fontSize: 12,
+    paddingHorizontal: 4,
+    paddingVertical: 1,
+    borderRadius: 4,
+  },
+  mdInlineCodeAi: {
+    backgroundColor: 'rgba(15, 39, 71, 0.08)',
+    color: '#0F2747',
+  },
+  mdInlineCodeUser: {
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    color: '#ffffff',
+  },
+  mdCodeBlock: {
+    backgroundColor: '#0F2747',
+    borderRadius: 8,
+    padding: 10,
+    marginVertical: 6,
+  },
+  mdCodeBlockText: {
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    fontSize: 12,
+    color: '#E2E8F0',
+    lineHeight: 18,
   },
 
   // Input Bar
