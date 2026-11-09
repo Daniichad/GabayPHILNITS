@@ -11,16 +11,18 @@ import { getCache, setCache, clearCache } from '../../../utils/cache'
 const NAVY = '#13294b'
 
 const IP_SUBJECTS = ['Technology', 'Management', 'Strategy']
-const FE_SUBJECTS = [
-  'Technology',
-  'Management',
-  'Strategy',
+const FE_A_SUBJECTS = [
   'Computer Systems & Architecture',
   'Algorithms & Programming',
   'Networks & Security',
   'IT Management & Strategy',
   'Databases & SQL',
 ]
+const FE_B_SUBJECTS = [
+  'Algorithms & Data Structures',
+  'Security & System Design',
+]
+const FE_SUBJECTS = [...FE_A_SUBJECTS, ...FE_B_SUBJECTS]
 const PHILNITS_SUBJECTS = [...IP_SUBJECTS, ...FE_SUBJECTS]
 const CSE_SUBJECTS = PHILNITS_SUBJECTS
 
@@ -428,8 +430,11 @@ const SUBJECT_THEMES = {
   Strategy: { bg: '#451a03', accent: '#fbbf24', icon: 'target', border: '#78350f' },
   'Computer Systems & Architecture': { bg: '#1e1b4b', accent: '#a78bfa', icon: 'server', border: '#4338ca' },
   'Algorithms & Programming': { bg: '#022c22', accent: '#4ade80', icon: 'code', border: '#065f46' },
+  'Algorithms & Data Structures': { bg: '#022c22', accent: '#4ade80', icon: 'code', border: '#065f46' },
+  'Security & System Design': { bg: '#4c0519', accent: '#f87171', icon: 'shield', border: '#9f1239' },
   'Networks & Security': { bg: '#4c0519', accent: '#f87171', icon: 'shield', border: '#9f1239' },
   'IT Management & Strategy': { bg: '#172554', accent: '#60a5fa', icon: 'compass', border: '#1e40af' },
+  'Databases & SQL': { bg: '#1e1b4b', accent: '#38bdf8', icon: 'database', border: '#4338ca' },
   'Verbal Ability': { bg: '#1e293b', accent: '#93c5fd', icon: 'book', border: '#334155' },
   'Numerical Ability': { bg: '#1c1917', accent: '#fde047', icon: 'hash', border: '#44403c' },
   'Analytical Ability': { bg: '#14273e', accent: '#67e8f9', icon: 'activity', border: '#1e3a5f' },
@@ -475,6 +480,18 @@ const SUBJECT_FILTER_CONFIG = {
     icon: 'code',
     color: '#059669',
   },
+  'Algorithms & Data Structures': {
+    label: 'Algorithms & Data',
+    shortLabel: 'Data Struct',
+    icon: 'code',
+    color: '#059669',
+  },
+  'Security & System Design': {
+    label: 'Security & Design',
+    shortLabel: 'Sec Design',
+    icon: 'shield',
+    color: '#dc2626',
+  },
   'Networks & Security': {
     label: 'Networks & Security',
     shortLabel: 'Security',
@@ -486,6 +503,12 @@ const SUBJECT_FILTER_CONFIG = {
     shortLabel: 'IT Strategy',
     icon: 'compass',
     color: '#ea580c',
+  },
+  'Databases & SQL': {
+    label: 'Databases & SQL',
+    shortLabel: 'Databases',
+    icon: 'database',
+    color: '#0284c7',
   },
   'Verbal Ability': {
     label: 'Verbal Ability',
@@ -529,8 +552,11 @@ const SUBJECT_FILTER_CONFIG = {
  * Clean book cover used when an image URL is not uploaded yet.
  * Based strictly on reading_materials data from Supabase (title, subject).
  */
-function DefaultBookCover({ item }) {
+function DefaultBookCover({ item, userReviewSpeed }) {
   const theme = SUBJECT_THEMES[item.subject] || { bg: '#0b192c', accent: '#38bdf8', icon: 'book', border: '#1e3a8a' }
+  const displaySpeed = (item.review_speed && item.review_speed !== 'Standard')
+    ? item.review_speed
+    : (userReviewSpeed || item.review_speed)
 
   return (
     <View style={[styles.defaultCoverRoot, { backgroundColor: theme.bg }]}>
@@ -549,9 +575,9 @@ function DefaultBookCover({ item }) {
         </View>
 
         <View style={styles.defaultCoverFooterRow}>
-          {item.review_speed ? (
+          {displaySpeed ? (
             <View style={[styles.defaultCoverEditionTag, { backgroundColor: `${theme.accent}22` }]}>
-              <Text style={[styles.defaultCoverEditionText, { color: theme.accent }]}>{item.review_speed}</Text>
+              <Text style={[styles.defaultCoverEditionText, { color: theme.accent }]}>{displaySpeed}</Text>
             </View>
           ) : null}
         </View>
@@ -566,12 +592,14 @@ function DefaultBookCover({ item }) {
  * Adheres to user rule: "make the ui of reading materials be like book cover
  * dont use text because it is full image book cover".
  *
- * @param {{ item: any, onPress: any }} props
+ * @param {{ item: any, onPress: any, userReviewSpeed?: string }} props
  */
-function MaterialCard({ item, onPress }) {
+function MaterialCard({ item, onPress, userReviewSpeed }) {
   const coverUrl = item.cover_image_url || item.cover_url || item.thumbnail_url || item.image_url
   const progress = item.progress || 0
-  const speed = item.review_speed
+  const displaySpeed = (item.review_speed && item.review_speed !== 'Standard')
+    ? item.review_speed
+    : (userReviewSpeed || item.review_speed)
 
   return (
     <TouchableOpacity
@@ -587,7 +615,7 @@ function MaterialCard({ item, onPress }) {
             resizeMode="cover"
           />
         ) : (
-          <DefaultBookCover item={item} />
+          <DefaultBookCover item={item} userReviewSpeed={userReviewSpeed} />
         )}
 
         {/* Realistic Book Spine Shadow / Crease */}
@@ -598,20 +626,20 @@ function MaterialCard({ item, onPress }) {
         <View style={styles.bookPageEdge} />
 
         {/* Floating speed badge on top corner */}
-        {speed && coverUrl ? (
+        {displaySpeed && coverUrl ? (
           <View style={[
             styles.bookSpeedBadge,
-            speed === 'Quick' ? styles.speedBadgeQuick :
-            speed === 'Detailed' ? styles.speedBadgeDetailed :
+            displaySpeed === 'Quick' ? styles.speedBadgeQuick :
+            displaySpeed === 'Detailed' ? styles.speedBadgeDetailed :
             styles.speedBadgeStandard
           ]}>
             <Text style={[
               styles.bookSpeedBadgeText,
-              speed === 'Quick' ? styles.speedBadgeTextQuick :
-              speed === 'Detailed' ? styles.speedBadgeTextDetailed :
+              displaySpeed === 'Quick' ? styles.speedBadgeTextQuick :
+              displaySpeed === 'Detailed' ? styles.speedBadgeTextDetailed :
               styles.speedBadgeTextStandard
             ]}>
-              {speed}
+              {displaySpeed}
             </Text>
           </View>
         ) : null}
@@ -645,7 +673,7 @@ export default function Library({ navigation }) {
   const [libraryMode, setLibraryMode] = useState('READING') // 'READING' | 'VIDEOS'
   const [userReviewSpeed, setUserReviewSpeed] = useState('Standard')
   const [userTargetExam, setUserTargetExam] = useState('IP')
-  const [selectedTrack, setSelectedTrack] = useState('ALL')
+  const [feSection, setFeSection] = useState('FE Subject A')
 
   useEffect(() => {
     const unsubscribe = navigation.addListener('focus', () => {
@@ -793,22 +821,44 @@ export default function Library({ navigation }) {
     }
   }
 
-  const isFE = (userTargetExam || '').toLowerCase().includes('fe')
-  const currentTrackSubjects = isFE ? FE_SUBJECTS : IP_SUBJECTS
+  const isItemSubjectB = (item) => {
+    const sec = String(item.fe_section || '').toLowerCase().trim()
+    if (sec.includes('subject b') || sec.includes('fe_b') || sec === 'b') return true
+    if (sec.includes('subject a') || sec.includes('fe_a') || sec === 'a') return false
 
-  // Filter reading materials strictly matching target exam track and syllabus topics
+    const sub = String(item.subject || '').toLowerCase()
+    const title = String(item.title || '').toLowerCase()
+    const desc = String(item.description || '').toLowerCase()
+
+    return (
+      sub.includes('data structure') ||
+      sub.includes('system design') ||
+      title.includes('subject b') ||
+      title.includes('data structure') ||
+      title.includes('pseudo') ||
+      desc.includes('subject b') ||
+      desc.includes('afternoon')
+    )
+  }
+
+  const isFE = (userTargetExam || '').toLowerCase().includes('fe')
+  const currentTrackSubjects = isFE
+    ? (feSection === 'FE Subject B' ? FE_B_SUBJECTS : FE_A_SUBJECTS)
+    : IP_SUBJECTS
+
+  // Filter reading materials strictly matching personal info target exam track (IP or FE) and Subject A / B section
   const filtered = materials.filter(m => {
     const lvl = (m.exam_level || '').toLowerCase().trim()
-    let matchTrack = true
-    if (selectedTrack === 'FE') {
-      matchTrack = lvl.includes('fe') || lvl === 'both' || lvl === 'all'
-    } else if (selectedTrack === 'IP') {
-      matchTrack = !lvl.includes('fe') || lvl === 'both' || lvl === 'all'
-    } else if (selectedTrack === 'ALL') {
-      matchTrack = true
-    } else {
-      matchTrack = !lvl || lvl === 'both' || lvl === 'all' ||
-        (isFE ? lvl.includes('fe') : (!lvl.includes('fe') || lvl.includes('ip')))
+    const matchTrack = !lvl || lvl === 'both' || lvl === 'all' ||
+      (isFE ? lvl.includes('fe') : (!lvl.includes('fe') || lvl.includes('ip')))
+
+    let matchSection = true
+    if (isFE) {
+      if (feSection === 'FE Subject B') {
+        matchSection = isItemSubjectB(m) || String(m.fe_section || '').toLowerCase() === 'both'
+      } else {
+        matchSection = !isItemSubjectB(m) || String(m.fe_section || '').toLowerCase() === 'both'
+      }
     }
 
     const matchChip = !activeChip || m.subject === activeChip
@@ -818,7 +868,7 @@ export default function Library({ navigation }) {
       (m.subject && m.subject.toLowerCase().includes(search.toLowerCase())) ||
       (m.description && m.description.toLowerCase().includes(search.toLowerCase()))
     )
-    return matchTrack && matchChip && matchSearch
+    return matchTrack && matchSection && matchChip && matchSearch
   })
 
   // Dynamic available subjects from materials
@@ -854,18 +904,22 @@ export default function Library({ navigation }) {
   // Active topic for videos (top activeChip takes precedence, otherwise local videoTopicFilter)
   const activeVideoTopic = activeChip || videoTopicFilter
 
-  // Filter video lectures strictly matching target exam track and syllabus topics
+  // Filter video lectures strictly matching personal info target exam track (IP or FE) and Subject A / B section
   const trackVideos = videos.filter(v => {
     const lvl = (v.exam_level || '').toLowerCase().trim()
-    if (selectedTrack === 'FE') {
-      return lvl.includes('fe') || lvl === 'both' || lvl === 'all'
-    } else if (selectedTrack === 'IP') {
-      return !lvl.includes('fe') || lvl === 'both' || lvl === 'all'
-    } else if (selectedTrack === 'ALL') {
-      return true
-    }
-    return !lvl || lvl === 'both' || lvl === 'all' ||
+    const matchTrack = !lvl || lvl === 'both' || lvl === 'all' ||
       (isFE ? lvl.includes('fe') : (!lvl.includes('fe') || lvl.includes('ip')))
+
+    let matchSection = true
+    if (isFE) {
+      if (feSection === 'FE Subject B') {
+        matchSection = isItemSubjectB(v) || String(v.fe_section || '').toLowerCase() === 'both'
+      } else {
+        matchSection = !isItemSubjectB(v) || String(v.fe_section || '').toLowerCase() === 'both'
+      }
+    }
+
+    return matchTrack && matchSection
   })
 
   // Further filter video lectures by active topic and search
@@ -975,47 +1029,50 @@ export default function Library({ navigation }) {
           )}
         </View>
 
-        {/* Track Filter Pills (All / IP / FE) */}
-        <View style={styles.trackPillRow}>
-          <TouchableOpacity
-            style={[styles.trackPill, selectedTrack === 'ALL' && styles.trackPillActive]}
-            onPress={() => {
-              setSelectedTrack('ALL')
-              setActiveChip(null)
-            }}
-            activeOpacity={0.75}
-          >
-            <Text style={[styles.trackPillText, selectedTrack === 'ALL' && styles.trackPillTextActive]}>
-              All Modules ({materials.length})
-            </Text>
-          </TouchableOpacity>
+        {/* FE Subject A / Subject B Segmented Switcher */}
+        {isFE && (
+          <View style={styles.feTrackBar}>
+            <View style={styles.feTrackSegment}>
+              <TouchableOpacity
+                style={[styles.feTrackBtn, feSection === 'FE Subject A' && styles.feTrackBtnActive]}
+                onPress={() => {
+                  setFeSection('FE Subject A')
+                  setActiveChip(null)
+                  setVideoTopicFilter(null)
+                }}
+                activeOpacity={0.7}
+              >
+                <MaterialCommunityIcons
+                  name="laptop"
+                  size={14}
+                  color={feSection === 'FE Subject A' ? '#fff' : '#64748b'}
+                />
+                <Text style={[styles.feTrackBtnText, feSection === 'FE Subject A' && styles.feTrackBtnTextActive]}>
+                  Subject A (Morning)
+                </Text>
+              </TouchableOpacity>
 
-          <TouchableOpacity
-            style={[styles.trackPill, selectedTrack === 'IP' && styles.trackPillActive]}
-            onPress={() => {
-              setSelectedTrack('IP')
-              setActiveChip(null)
-            }}
-            activeOpacity={0.75}
-          >
-            <Text style={[styles.trackPillText, selectedTrack === 'IP' && styles.trackPillTextActive]}>
-              PhilNITS IP ({materials.filter(m => !(m.exam_level || '').toLowerCase().includes('fe')).length})
-            </Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[styles.trackPill, selectedTrack === 'FE' && styles.trackPillActive]}
-            onPress={() => {
-              setSelectedTrack('FE')
-              setActiveChip(null)
-            }}
-            activeOpacity={0.75}
-          >
-            <Text style={[styles.trackPillText, selectedTrack === 'FE' && styles.trackPillTextActive]}>
-              PhilNITS FE ({materials.filter(m => (m.exam_level || '').toLowerCase().includes('fe')).length})
-            </Text>
-          </TouchableOpacity>
-        </View>
+              <TouchableOpacity
+                style={[styles.feTrackBtn, feSection === 'FE Subject B' && styles.feTrackBtnActive]}
+                onPress={() => {
+                  setFeSection('FE Subject B')
+                  setActiveChip(null)
+                  setVideoTopicFilter(null)
+                }}
+                activeOpacity={0.7}
+              >
+                <MaterialCommunityIcons
+                  name="code-braces"
+                  size={14}
+                  color={feSection === 'FE Subject B' ? '#fff' : '#64748b'}
+                />
+                <Text style={[styles.feTrackBtnText, feSection === 'FE Subject B' && styles.feTrackBtnTextActive]}>
+                  Subject B (Afternoon)
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
 
         {/* Small Card Filter with Logo & Text */}
         <ScrollView
@@ -1107,6 +1164,11 @@ export default function Library({ navigation }) {
               <View style={styles.sectionTitleRow}>
                 <Feather name="book-open" size={20} color={NAVY} />
                 <Text style={styles.sectionHeaderText}>Reading Materials</Text>
+                <View style={styles.examTrackBadge}>
+                  <Text style={styles.examTrackBadgeText}>
+                    {isFE ? (feSection === 'FE Subject B' ? 'FE Subject B' : 'FE Subject A') : 'PhilNITS IP'}
+                  </Text>
+                </View>
               </View>
               <TouchableOpacity onPress={() => loadMaterials(true)}>
                 <Feather name="refresh-cw" size={16} color="#64748b" />
@@ -1220,22 +1282,29 @@ export default function Library({ navigation }) {
               <Text style={styles.categoryCount}>{items.length} {items.length === 1 ? 'book' : 'books'}</Text>
             </View>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.horizontalBookCards}>
-              {items.map(item => (
-                <MaterialCard
-                  key={item.id}
-                  item={item}
-                  onPress={() => navigation?.navigate('ReadingMaterial', {
-                    materialId: item.id,
-                    title: item.title,
-                    subject: item.subject,
-                    reviewSpeed: item.review_speed,
-                    learningObjective: item.learning_objective,
-                    pdfUrl: item.pdf_url,
-                    coverImageUrl: item.cover_image_url || item.cover_url || item.thumbnail_url,
-                    totalPages: item.total_pages || 1,
-                  })}
-                />
-              ))}
+              {items.map(item => {
+                const itemEffectiveSpeed = (item.review_speed && item.review_speed !== 'Standard')
+                  ? item.review_speed
+                  : (userReviewSpeed || item.review_speed)
+
+                return (
+                  <MaterialCard
+                    key={item.id}
+                    item={item}
+                    userReviewSpeed={userReviewSpeed}
+                    onPress={() => navigation?.navigate('ReadingMaterial', {
+                      materialId: item.id,
+                      title: item.title,
+                      subject: item.subject,
+                      reviewSpeed: itemEffectiveSpeed,
+                      learningObjective: item.learning_objective,
+                      pdfUrl: item.pdf_url,
+                      coverImageUrl: item.cover_image_url || item.cover_url || item.thumbnail_url,
+                      totalPages: item.total_pages || 1,
+                    })}
+                  />
+                )
+              })}
             </ScrollView>
           </View>
         ))}
@@ -1250,7 +1319,9 @@ export default function Library({ navigation }) {
                 <Ionicons name="videocam" size={20} color="#dc2626" />
                 <Text style={styles.sectionHeaderText}>Video Lectures</Text>
                 <View style={styles.examTrackBadge}>
-                  <Text style={styles.examTrackBadgeText}>{userTargetExam} Topics</Text>
+                  <Text style={styles.examTrackBadgeText}>
+                    {isFE ? (feSection === 'FE Subject B' ? 'FE Subject B' : 'FE Subject A') : 'PhilNITS IP'}
+                  </Text>
                 </View>
               </View>
               <Text style={styles.categoryCount}>
@@ -1727,6 +1798,43 @@ const styles = StyleSheet.create({
     color: '#3730a3',
   },
 
+  // FE Subject A / Subject B Segment Switcher
+  feTrackBar: {
+    marginBottom: 12,
+  },
+  feTrackSegment: {
+    flexDirection: 'row',
+    backgroundColor: '#f1f5f9',
+    borderRadius: 22,
+    padding: 3,
+  },
+  feTrackBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 8,
+    borderRadius: 18,
+    gap: 6,
+  },
+  feTrackBtnActive: {
+    backgroundColor: NAVY,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.12,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  feTrackBtnText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#64748b',
+  },
+  feTrackBtnTextActive: {
+    color: '#fff',
+    fontWeight: '800',
+  },
+
   // Video topic chips
   videoTopicScroll: {
     gap: 8,
@@ -1841,34 +1949,6 @@ const styles = StyleSheet.create({
     color: '#64748b',
     fontWeight: '600',
     flex: 1,
-  },
-
-  trackPillRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginBottom: 12,
-    paddingHorizontal: 4,
-  },
-  trackPill: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 20,
-    backgroundColor: '#f1f5f9',
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-  },
-  trackPillActive: {
-    backgroundColor: NAVY,
-    borderColor: NAVY,
-  },
-  trackPillText: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#64748b',
-  },
-  trackPillTextActive: {
-    color: '#ffffff',
   },
 
   // Bottom nav

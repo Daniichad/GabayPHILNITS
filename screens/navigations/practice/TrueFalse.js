@@ -21,6 +21,7 @@ export default function TrueOrFalse({ navigation, route }) {
   const subject = route?.params?.subject;
   const limit = route?.params?.limit ?? 10;
   const passedTargetExam = route?.params?.targetExam;
+  const feSection = route?.params?.feSection; // 'morning' | 'afternoon'
 
   const [questions, setQuestions] = useState([]);
   const [index, setIndex] = useState(0);
@@ -67,15 +68,31 @@ export default function TrueOrFalse({ navigation, route }) {
       }
 
       const IP_SUBJECTS = ['Technology', 'Management', 'Strategy'];
-      const FE_SUBJECTS = [
+      const FE_MORNING_SUBJECTS = [
         'Computer Systems & Architecture',
-        'Algorithms & Programming',
         'Networks & Security',
         'IT Management & Strategy',
         'Databases & SQL',
+        'Technology',
+        'Management',
+        'Strategy',
       ];
-      const trackSubjects = activeTrack === 'FE' ? FE_SUBJECTS : IP_SUBJECTS;
-      const cacheScope = `${activeTrack.toLowerCase()}_${subject || 'all'}`;
+      const FE_AFTERNOON_SUBJECTS = [
+        'Algorithms & Programming',
+        'Algorithms & Data Structures',
+        'Security & System Design',
+      ];
+
+      let trackSubjects = IP_SUBJECTS;
+      if (activeTrack === 'FE') {
+        const isSubjectB = String(feSection || '').toLowerCase().includes('b') || String(feSection || '').toLowerCase().includes('afternoon');
+        if (isSubjectB) {
+          trackSubjects = FE_AFTERNOON_SUBJECTS;
+        } else {
+          trackSubjects = FE_MORNING_SUBJECTS;
+        }
+      }
+      const cacheScope = `${activeTrack.toLowerCase()}_${feSection || 'all'}_${subject || 'all'}`;
 
       let loadedQuestions = [];
       const net = await NetInfo.fetch();

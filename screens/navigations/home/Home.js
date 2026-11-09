@@ -965,13 +965,11 @@ export default function Home({ session, navigation, route }) {
       {/* Sticky Top Bar */}
       <View style={[styles.topBar, { paddingTop: insets.top + 10, paddingHorizontal: 16, paddingBottom: 10, backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#e8edf5', marginBottom: 0 }]}>
         {/* Logo */}
-        <View style={styles.logoWrap}>
-          <Image
-            source={require('../../../assets/loading.png')}
-            style={styles.logoImage}
-            resizeMode="contain"
-          />
-        </View>
+        <Image
+          source={require('../../../assets/loading.png')}
+          style={styles.logoImage}
+          resizeMode="contain"
+        />
 
         <View style={styles.topRight}>
           {/* Streak badge */}
@@ -986,7 +984,7 @@ export default function Home({ session, navigation, route }) {
             }}
             activeOpacity={0.7}
           >
-            <Feather name="zap" size={15} color={NAVY} />
+            <Feather name="zap" size={18} color={NAVY} />
             <Text style={styles.streakText}>{streakDays}</Text>
           </TouchableOpacity>
 
@@ -1318,19 +1316,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 20,
   },
-  logoWrap: {
-    width: 46,
-    height: 46,
-    borderRadius: 14,
-    backgroundColor: '#fff',
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOpacity: 0.08,
-    shadowRadius: 6,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 3,
-  },
   logoImage: {
     width: 36,
     height: 36,
@@ -1338,44 +1323,31 @@ const styles = StyleSheet.create({
   topRight: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    gap: 16,
   },
   streakBadge: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    backgroundColor: '#fff',
-    borderRadius: 20,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    shadowColor: '#000',
-    shadowOpacity: 0.07,
-    shadowRadius: 4,
-    shadowOffset: { width: 0, height: 1 },
-    elevation: 2,
+    paddingHorizontal: 4,
+    paddingVertical: 4,
   },
   streakText: {
-    fontSize: 13,
+    fontSize: 15,
     fontWeight: '700',
     color: NAVY,
   },
   bellWrap: {
-    width: 44,
-    height: 44,
-    borderRadius: 14,
-    backgroundColor: '#fff',
+    width: 36,
+    height: 36,
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOpacity: 0.08,
-    shadowRadius: 6,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 3,
+    position: 'relative',
   },
   notifDot: {
     position: 'absolute',
-    top: 6,
-    right: 6,
+    top: 1,
+    right: 1,
     minWidth: 16,
     height: 16,
     borderRadius: 8,
@@ -1431,8 +1403,6 @@ const styles = StyleSheet.create({
     paddingVertical: 20,
     paddingHorizontal: 20,
     marginBottom: 14,
-    borderLeftWidth: 4,
-    borderLeftColor: '#f59e0b',
   },
   quoteHeader: {
     flexDirection: 'row',

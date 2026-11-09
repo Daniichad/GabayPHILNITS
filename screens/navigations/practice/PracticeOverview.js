@@ -50,13 +50,19 @@ const IP_SUBJECTS = [
   'Strategy',
 ]
 
-const FE_SUBJECTS = [
+const FE_MORNING_SUBJECTS = [
   'All',
   'Computer Systems & Architecture',
-  'Algorithms & Programming',
   'Networks & Security',
   'IT Management & Strategy',
   'Databases & SQL',
+]
+
+const FE_AFTERNOON_SUBJECTS = [
+  'All',
+  'Algorithms & Programming',
+  'Algorithms & Data Structures',
+  'Security & System Design',
 ]
 
 const ITEM_COUNTS = [10, 20, 30, 40, 50]
@@ -72,6 +78,7 @@ export default function PracticeOverview({ navigation, route }) {
 
   const [userTargetExam, setUserTargetExam] = useState(routeTargetExam || null)
   const [loadingExam, setLoadingExam] = useState(!routeTargetExam)
+  const [feSection, setFeSection] = useState('Subject A') // 'Subject A' | 'Subject B'
   const [selectedSubject, setSelectedSubject] = useState(routeSubject || 'All')
   const [selectedLimit, setSelectedLimit] = useState(10)
   const [selectedSets, setSelectedSets] = useState(1)
@@ -80,7 +87,9 @@ export default function PracticeOverview({ navigation, route }) {
   const [limitPickerOpen, setLimitPickerOpen] = useState(false)
 
   const isMatching = typeId === 'Matching'
-  const subjectsList = userTargetExam === 'FE' ? FE_SUBJECTS : IP_SUBJECTS
+  const subjectsList = userTargetExam === 'FE'
+    ? (feSection === 'Subject B' ? FE_AFTERNOON_SUBJECTS : FE_MORNING_SUBJECTS)
+    : IP_SUBJECTS
 
   useEffect(() => {
     let isMounted = true
@@ -104,7 +113,9 @@ export default function PracticeOverview({ navigation, route }) {
               ? 'FE'
               : 'IP'
             setUserTargetExam(track)
-            const validSubs = track === 'FE' ? FE_SUBJECTS : IP_SUBJECTS
+            const validSubs = track === 'FE'
+              ? (feSection === 'Subject B' ? FE_AFTERNOON_SUBJECTS : FE_MORNING_SUBJECTS)
+              : IP_SUBJECTS
             setSelectedSubject((curr) => (validSubs.includes(curr) ? curr : 'All'))
           } else if (!userTargetExam) {
             setUserTargetExam('IP')
@@ -123,7 +134,7 @@ export default function PracticeOverview({ navigation, route }) {
       isMounted = false
       unsubscribe?.()
     }
-  }, [navigation])
+  }, [navigation, feSection])
 
   const handleStart = () => {
     navigation.replace(typeId, {
@@ -131,6 +142,7 @@ export default function PracticeOverview({ navigation, route }) {
       limit: isMatching ? selectedSets * 6 : selectedLimit, // for Matching, 1 set = 6 pairs (12 cards)
       sets: selectedSets,
       targetExam: userTargetExam || 'IP',
+      feSection: userTargetExam === 'FE' ? feSection : null,
     })
   }
 
@@ -165,6 +177,50 @@ export default function PracticeOverview({ navigation, route }) {
           <Text style={styles.sectionHeader}>How to Practice</Text>
           <Text style={styles.sectionBody}>{info.how}</Text>
         </View>
+
+        {/* Morning / Afternoon Exam Session for FE */}
+        {userTargetExam === 'FE' && (
+          <View style={styles.flatSection}>
+            <Text style={styles.sectionHeader}>Exam Session</Text>
+            <View style={styles.feTrackSegment}>
+              <TouchableOpacity
+                style={[styles.feTrackBtn, feSection === 'Subject A' && styles.feTrackBtnActive]}
+                onPress={() => {
+                  setFeSection('Subject A')
+                  setSelectedSubject('All')
+                }}
+                activeOpacity={0.7}
+              >
+                <Ionicons
+                  name="sunny-outline"
+                  size={15}
+                  color={feSection === 'Subject A' ? '#fff' : '#64748b'}
+                />
+                <Text style={[styles.feTrackBtnText, feSection === 'Subject A' && styles.feTrackBtnTextActive]}>
+                  Subject A (Morning)
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.feTrackBtn, feSection === 'Subject B' && styles.feTrackBtnActive]}
+                onPress={() => {
+                  setFeSection('Subject B')
+                  setSelectedSubject('All')
+                }}
+                activeOpacity={0.7}
+              >
+                <Ionicons
+                  name="moon-outline"
+                  size={15}
+                  color={feSection === 'Subject B' ? '#fff' : '#64748b'}
+                />
+                <Text style={[styles.feTrackBtnText, feSection === 'Subject B' && styles.feTrackBtnTextActive]}>
+                  Subject B (Afternoon)
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
 
         {/* Subject Area Dropdown selection card */}
         <View style={styles.flatSection}>
@@ -483,5 +539,33 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontWeight: '800',
     fontSize: 15,
+  },
+  feTrackSegment: {
+    flexDirection: 'row',
+    backgroundColor: '#f1f5f9',
+    borderRadius: 12,
+    padding: 4,
+    gap: 4,
+    marginTop: 2,
+  },
+  feTrackBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 10,
+    borderRadius: 9,
+    gap: 6,
+  },
+  feTrackBtnActive: {
+    backgroundColor: NAVY,
+  },
+  feTrackBtnText: {
+    fontSize: 12.5,
+    fontWeight: '700',
+    color: '#64748b',
+  },
+  feTrackBtnTextActive: {
+    color: '#fff',
   },
 })

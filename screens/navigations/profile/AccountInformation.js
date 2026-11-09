@@ -5,11 +5,26 @@ import {
 } from 'react-native'
 import { Feather } from '@expo/vector-icons'
 import { supabase } from '../../../utils/supabase'
-import { saveUserSession } from '../../../utils/database'
+import { getActiveUserSession, saveUserSession } from '../../../utils/database'
 import { setCache } from '../../../utils/cache'
 
 const NAVY = '#0f2747'
 const ACCENT = '#d85e67'
+
+function formatToIsoDate(raw) {
+  if (!raw) return null
+  const str = String(raw).trim()
+  if (/^\d{4}-\d{2}-\d{2}$/.test(str)) return str
+
+  const d = new Date(str)
+  if (!isNaN(d.getTime())) {
+    const yyyy = d.getFullYear()
+    const mm = String(d.getMonth() + 1).padStart(2, '0')
+    const dd = String(d.getDate()).padStart(2, '0')
+    return `${yyyy}-${mm}-${dd}`
+  }
+  return str
+}
 
 const GENDER_OPTIONS = ['Male', 'Female', 'Prefer not to say']
 const EXAM_LEVEL_OPTIONS = ['Information Technology Passport (IP)', 'Fundamental IT Engineer (FE)']
@@ -106,7 +121,8 @@ const COUNTRIES = [
 ]
 
 // ── Main Screen ───────────────────────────────────────────────────
-export default function AccountInformation({ session: initialSession, navigation }) {
+export default function AccountInformation({ route, navigation }) {
+  const initialSession = route?.params?.session
   const [user, setUser] = useState(initialSession?.user || null)
   const [fullName, setFullName] = useState('')
   const [email, setEmail] = useState(initialSession?.user?.email || '')
@@ -134,7 +150,7 @@ export default function AccountInformation({ session: initialSession, navigation
     education: '',
   })
 
-  const hasChanges = 
+  const hasChanges =
     fullName.trim() !== initialData.fullName.trim() ||
     contactNumber.trim() !== initialData.contactNumber.trim() ||
     countryCode !== initialData.countryCode ||
@@ -152,18 +168,28 @@ export default function AccountInformation({ session: initialSession, navigation
 
   const loadData = async () => {
     try {
+      setLoading(true)
       let currentUser = user
-      if (!currentUser) {
+      if (!currentUser?.id) {
+        const { data: { user: aUser } } = await supabase.auth.getUser()
+        currentUser = aUser
+      }
+      if (!currentUser?.id) {
         const { data: { session: currentSession } } = await supabase.auth.getSession()
         currentUser = currentSession?.user
-        if (currentUser) {
-          setUser(currentUser)
-          setEmail(currentUser.email || '')
+      }
+      if (!currentUser?.id) {
+        const local = await getActiveUserSession()
+        if (local?.user_id) {
+          currentUser = { id: local.user_id, email: local.email }
         }
       }
 
       if (currentUser) {
-        // 1. Fetch from public.users
+        setUser(currentUser)
+        setEmail(currentUser.email || '')
+
+        // 1. Fetch from public.users or user metadata
         const { data: uData } = await supabase
           .from('users')
           .select('fullname')
@@ -171,10 +197,12 @@ export default function AccountInformation({ session: initialSession, navigation
           .maybeSingle()
 
         let dbName = ''
-        if (uData) {
-          dbName = uData.fullname || ''
-          setFullName(dbName)
+        if (uData?.fullname) {
+          dbName = uData.fullname
+        } else if (currentUser.user_metadata?.full_name) {
+          dbName = currentUser.user_metadata.full_name
         }
+        setFullName(dbName)
 
         // 2. Fetch from personal_info
         const { data: pData } = await supabase
@@ -221,7 +249,7 @@ export default function AccountInformation({ session: initialSession, navigation
           setGender(dbGender)
           setExamLevel(dbExamLevel)
           setEducation(dbEducation)
-          
+
           const rawNum = pData.contact_number ?? ''
           const sortedCountries = [...COUNTRIES].sort((a, b) => b.code.length - a.code.length)
           let matched = false
@@ -281,31 +309,38 @@ export default function AccountInformation({ session: initialSession, navigation
       return
     }
 
-    if (!user) {
-      showCustomAlert('Session Error', 'No active user session found.')
-      return
-    }
-
-    const fullContactNumber = `${countryCode}${cleanNum}`
-
     setSaving(true)
     try {
-      // 1. Update public.users
-      const { error: userError } = await supabase
-        .from('users')
-        .update({ fullname: fullName.trim() })
-        .eq('email', user.email)
+      // Resolve active user reliably
+      let currentAuthUser = user
+      if (!currentAuthUser?.id) {
+        const { data: { user: aUser } } = await supabase.auth.getUser()
+        currentAuthUser = aUser
+      }
+      if (!currentAuthUser?.id) {
+        const { data: { session: aSession } } = await supabase.auth.getSession()
+        currentAuthUser = aSession?.user
+      }
+      if (!currentAuthUser?.id) {
+        const local = await getActiveUserSession()
+        if (local?.user_id) {
+          currentAuthUser = { id: local.user_id, email: local.email }
+        }
+      }
 
-      if (userError) {
-        showCustomAlert('Update Error', 'Could not update your profile name. Please try again.')
+      if (!currentAuthUser?.id) {
+        showCustomAlert('Session Error', 'No active user session found. Please sign in again.')
         setSaving(false)
         return
       }
 
-      // 2. Update personal_info
+      const fullContactNumber = `${countryCode}${cleanNum}`
+      const normalizedBirthdate = formatToIsoDate(birthdate) || '2000-01-01'
+
+      // 1. Calculate age if required
       let calculatedAge = null
-      if (birthdate) {
-        const parts = birthdate.split('-')
+      if (normalizedBirthdate) {
+        const parts = normalizedBirthdate.split('-')
         if (parts.length === 3) {
           const yr = parseInt(parts[0], 10)
           const mo = parseInt(parts[1], 10) - 1
@@ -321,50 +356,70 @@ export default function AccountInformation({ session: initialSession, navigation
         }
       }
 
+      // 2. Primary update: public.personal_info
       const infoPayload = {
-        user_id: user.id,
-        birthdate: birthdate || null,
+        user_id: currentAuthUser.id,
+        birthdate: normalizedBirthdate,
         contact_number: fullContactNumber,
-        gender: gender || null,
-        target_exam_level: examLevel || null,
-        highest_educational_attainment: education || null,
+        gender: gender || 'Prefer not to say',
+        target_exam_level: examLevel || 'Information Technology Passport (IP)',
+        highest_educational_attainment: education || "Bachelor's Degree",
         updated_at: new Date().toISOString(),
       }
 
-      let { error: infoError } = await supabase
+      let { data: savedInfo, error: infoError } = await supabase
         .from('personal_info')
         .upsert(infoPayload, { onConflict: 'user_id' })
+        .select()
 
       if (infoError) {
         const errDetail = String(infoError.message || '') + ' ' + String(infoError.details || '')
         if (errDetail.toLowerCase().includes('age') || infoError.code === '23502') {
-          const retryResult = await supabase.from('personal_info').upsert(
-            {
-              ...infoPayload,
-              ...(calculatedAge !== null ? { age: calculatedAge } : {}),
-            },
-            { onConflict: 'user_id' }
-          )
+          const retryResult = await supabase
+            .from('personal_info')
+            .upsert(
+              {
+                ...infoPayload,
+                ...(calculatedAge !== null ? { age: calculatedAge } : { age: 24 }),
+              },
+              { onConflict: 'user_id' }
+            )
+            .select()
           infoError = retryResult.error
         }
       }
 
       if (infoError) {
-        showCustomAlert('Update Error', 'Could not update your account details. Please try again.')
+        console.error('Error updating personal_info:', infoError)
+        showCustomAlert('Update Error', infoError.message || 'Could not update your personal information.')
         setSaving(false)
         return
       }
 
-      // 3. Keep Auth Metadata synced (optional helper)
-      await supabase.auth.updateUser({
-        data: {
-          full_name: fullName.trim(),
-        },
-      })
-
-      // 4. Update local SQLite session & invalidate cached data for old target exam
+      // 3. Keep public.users in sync (non-blocking)
       try {
-        await saveUserSession(user, { target_exam_level: examLevel })
+        await supabase
+          .from('users')
+          .update({ fullname: fullName.trim() })
+          .eq('email', currentAuthUser.email)
+      } catch (uErr) {
+        console.warn('Note: public.users update skipped/failed:', uErr)
+      }
+
+      // 4. Keep Auth Metadata synced (non-blocking)
+      try {
+        await supabase.auth.updateUser({
+          data: {
+            full_name: fullName.trim(),
+          },
+        })
+      } catch (authErr) {
+        console.warn('Auth user metadata update note:', authErr)
+      }
+
+      // 5. Update local SQLite session & invalidate cached data for old target exam
+      try {
+        await saveUserSession(currentAuthUser, { target_exam_level: examLevel })
         await setCache('library_target_exam', null)
         await setCache('library_materials', null)
         await setCache('library_videos', null)
@@ -372,20 +427,21 @@ export default function AccountInformation({ session: initialSession, navigation
         console.warn('Note: Cache sync on examLevel update:', cacheErr)
       }
 
-      // Update baseline initial data
+      // 6. Update baseline initial data
       setInitialData({
         fullName: fullName.trim(),
         contactNumber: contactNumber.trim(),
         countryCode,
-        age,
-        birthdate,
+        birthdate: normalizedBirthdate,
         gender,
         examLevel,
         education,
       })
+      setBirthdate(normalizedBirthdate)
 
-      showCustomAlert('Success', 'Profile updated successfully!', 'success')
+      showCustomAlert('Success', 'Personal information updated successfully!', 'success')
     } catch (err) {
+      console.error('Unexpected error in handleUpdate:', err)
       showCustomAlert('Error', 'An unexpected error occurred. Please try again.')
     } finally {
       setSaving(false)
@@ -487,64 +543,64 @@ export default function AccountInformation({ session: initialSession, navigation
           </View>
         </Modal>
 
-      {/* Custom Alert Modal */}
-      <Modal
-        transparent
-        visible={alertVisible}
-        animationType="fade"
-        onRequestClose={() => setAlertVisible(false)}
-      >
-        <View style={{
-          flex: 1,
-          backgroundColor: 'rgba(15, 30, 53, 0.65)',
-          justifyContent: 'center',
-          alignItems: 'center',
-          padding: 24,
-        }}>
+        {/* Custom Alert Modal */}
+        <Modal
+          transparent
+          visible={alertVisible}
+          animationType="fade"
+          onRequestClose={() => setAlertVisible(false)}
+        >
           <View style={{
-            width: '90%',
-            maxWidth: 340,
-            backgroundColor: '#fff',
-            borderRadius: 24,
-            padding: 24,
+            flex: 1,
+            backgroundColor: 'rgba(15, 30, 53, 0.65)',
+            justifyContent: 'center',
             alignItems: 'center',
-            shadowColor: '#000',
-            shadowOpacity: 0.15,
-            shadowRadius: 10,
-            shadowOffset: { width: 0, height: 4 },
-            elevation: 5,
+            padding: 24,
           }}>
-            <View style={{ 
-              backgroundColor: alertType === 'success' ? '#ECFDF5' : '#FEE2E2', 
-              padding: 12, 
-              borderRadius: 32, 
-              marginBottom: 16 
+            <View style={{
+              width: '90%',
+              maxWidth: 340,
+              backgroundColor: '#fff',
+              borderRadius: 24,
+              padding: 24,
+              alignItems: 'center',
+              shadowColor: '#000',
+              shadowOpacity: 0.15,
+              shadowRadius: 10,
+              shadowOffset: { width: 0, height: 4 },
+              elevation: 5,
             }}>
-              <Feather 
-                name={alertType === 'success' ? 'check-circle' : 'alert-circle'} 
-                size={32} 
-                color={alertType === 'success' ? '#10B981' : '#EF4444'} 
-              />
+              <View style={{
+                backgroundColor: alertType === 'success' ? '#ECFDF5' : '#FEE2E2',
+                padding: 12,
+                borderRadius: 32,
+                marginBottom: 16
+              }}>
+                <Feather
+                  name={alertType === 'success' ? 'check-circle' : 'alert-circle'}
+                  size={32}
+                  color={alertType === 'success' ? '#10B981' : '#EF4444'}
+                />
+              </View>
+              <Text style={[styles.pickerTitle, { fontSize: 18, marginBottom: 8, textAlign: 'center' }]}>{alertTitle}</Text>
+              <Text style={{ color: '#4B5563', fontSize: 14, textAlign: 'center', lineHeight: 20, marginBottom: 20 }}>
+                {alertMessage}
+              </Text>
+              <TouchableOpacity
+                style={{
+                  backgroundColor: alertType === 'success' ? '#10B981' : '#EF4444',
+                  borderRadius: 12,
+                  paddingVertical: 13,
+                  alignItems: 'center',
+                  width: '100%'
+                }}
+                onPress={() => setAlertVisible(false)}
+              >
+                <Text style={{ color: '#fff', fontSize: 16, fontWeight: '600' }}>Okay</Text>
+              </TouchableOpacity>
             </View>
-            <Text style={[styles.pickerTitle, { fontSize: 18, marginBottom: 8, textAlign: 'center' }]}>{alertTitle}</Text>
-            <Text style={{ color: '#4B5563', fontSize: 14, textAlign: 'center', lineHeight: 20, marginBottom: 20 }}>
-              {alertMessage}
-            </Text>
-            <TouchableOpacity
-              style={{
-                backgroundColor: alertType === 'success' ? '#10B981' : '#EF4444',
-                borderRadius: 12,
-                paddingVertical: 13,
-                alignItems: 'center',
-                width: '100%'
-              }}
-              onPress={() => setAlertVisible(false)}
-            >
-              <Text style={{ color: '#fff', fontSize: 16, fontWeight: '600' }}>Okay</Text>
-            </TouchableOpacity>
           </View>
-        </View>
-      </Modal>
+        </Modal>
 
 
         {/* ── Birthdate ── */}
@@ -555,7 +611,7 @@ export default function AccountInformation({ session: initialSession, navigation
               style={[styles.input, { flex: 1 }]}
               value={birthdate}
               onChangeText={setBirthdate}
-              placeholder="January 1, 2002"
+              placeholder="YYYY-MM-DD (e.g. 2000-01-15)"
               placeholderTextColor="#94a3b8"
             />
             <Feather name="calendar" size={20} color="#64748b" style={styles.calIcon} />
