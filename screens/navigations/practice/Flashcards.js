@@ -2,7 +2,8 @@ import React, { useState, useRef, useEffect } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity,
   Animated, StatusBar, Platform, ActivityIndicator,
-  Modal, Switch, ScrollView, Dimensions } from 'react-native';
+  Modal, Switch, ScrollView, Dimensions, PanResponder
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -42,6 +43,34 @@ export default function Flashcards({ navigation, route }) {
   const [userId,    setUserId]    = useState(null);
   const [startTime, setStartTime] = useState(null);
   const [completed, setCompleted] = useState(false);
+
+  // ── Swipe & Review Session State ──
+  const [studyAgainCards, setStudyAgainCards] = useState([]);
+  const [masteredCount,   setMasteredCount]   = useState(0);
+  const [totalCardsCount, setTotalCardsCount] = useState(0);
+  const [round,           setRound]           = useState(1);
+
+  const pan = useRef(new Animated.ValueXY()).current;
+  const isSwipingRef = useRef(false);
+
+  // Synchronization refs to avoid stale closures in PanResponder
+  const cardsRef = useRef(cards);
+  const indexRef = useRef(index);
+  const studyAgainCardsRef = useRef(studyAgainCards);
+  const masteredCountRef = useRef(masteredCount);
+  const totalCardsCountRef = useRef(totalCardsCount);
+  const roundRef = useRef(round);
+  const flippedRef = useRef(flipped);
+  const autoResetSideRef = useRef(autoResetSide);
+
+  useEffect(() => { cardsRef.current = cards; }, [cards]);
+  useEffect(() => { indexRef.current = index; }, [index]);
+  useEffect(() => { studyAgainCardsRef.current = studyAgainCards; }, [studyAgainCards]);
+  useEffect(() => { masteredCountRef.current = masteredCount; }, [masteredCount]);
+  useEffect(() => { totalCardsCountRef.current = totalCardsCount; }, [totalCardsCount]);
+  useEffect(() => { roundRef.current = round; }, [round]);
+  useEffect(() => { flippedRef.current = flipped; }, [flipped]);
+  useEffect(() => { autoResetSideRef.current = autoResetSide; }, [autoResetSide]);
 
   // ── Flashcard Study Settings ──
   const [settingsVisible, setSettingsVisible] = useState(false);
@@ -83,10 +112,47 @@ export default function Flashcards({ navigation, route }) {
     if (rawCardsRef.current.length === 0) return;
     const base = [...rawCardsRef.current];
     const ordered = shufflePref ? base.sort(() => 0.5 - Math.random()) : base;
+    cardsRef.current = ordered;
+    indexRef.current = 0;
+    studyAgainCardsRef.current = [];
+    masteredCountRef.current = 0;
+    roundRef.current = 1;
+    totalCardsCountRef.current = base.length;
+    flippedRef.current = false;
+
+    setTotalCardsCount(base.length);
     setCards(ordered);
+    setStudyAgainCards([]);
+    setMasteredCount(0);
+    setRound(1);
     setIndex(0);
+    pan.setValue({ x: 0, y: 0 });
     flipAnim.setValue(0);
     setFlipped(false);
+  };
+
+  const restartDeck = () => {
+    pan.setValue({ x: 0, y: 0 });
+    flipAnim.setValue(0);
+    flippedRef.current = false;
+    setFlipped(false);
+    const base = [...rawCardsRef.current];
+    const ordered = isShuffle ? base.sort(() => 0.5 - Math.random()) : base;
+    cardsRef.current = ordered;
+    indexRef.current = 0;
+    studyAgainCardsRef.current = [];
+    masteredCountRef.current = 0;
+    roundRef.current = 1;
+    totalCardsCountRef.current = base.length;
+
+    setTotalCardsCount(base.length);
+    setCards(ordered);
+    setStudyAgainCards([]);
+    setMasteredCount(0);
+    setRound(1);
+    setIndex(0);
+    setCompleted(false);
+    setStartTime(Date.now());
   };
 
   // ------------------------------------------------------------
@@ -159,7 +225,8 @@ export default function Flashcards({ navigation, route }) {
       if (net.isConnected) {
         try {
           let cq = supabase.from('flashcards')
-            .select('*, flashcard_decks!inner(category_id, practice_categories!inner(name))');
+            .select('*, flashcard_decks!inner(category_id, exam_level, practice_categories!inner(name, exam_level))');
+          cq = cq.eq('flashcard_decks.exam_level', activeTrack);
           if (subject) {
             cq = cq.eq('flashcard_decks.practice_categories.name', subject);
           } else {
@@ -191,7 +258,20 @@ export default function Flashcards({ navigation, route }) {
 
       rawCardsRef.current = loadedCards;
       const initialCards = isShuffle ? [...loadedCards].sort(() => 0.5 - Math.random()) : [...loadedCards];
+      cardsRef.current = initialCards;
+      indexRef.current = 0;
+      studyAgainCardsRef.current = [];
+      masteredCountRef.current = 0;
+      roundRef.current = 1;
+      totalCardsCountRef.current = loadedCards.length;
+      flippedRef.current = false;
+
+      setTotalCardsCount(loadedCards.length);
       setCards(initialCards);
+      setStudyAgainCards([]);
+      setMasteredCount(0);
+      setRound(1);
+      setIndex(0);
 
       // Create session log
       if (uid && initialCards.length > 0) {
@@ -202,6 +282,10 @@ export default function Flashcards({ navigation, route }) {
           completed: false,
           created_at: new Date().toISOString(),
         };
+        const activeDeckId = deckId || initialCards[0]?.deck_id;
+        if (activeDeckId) {
+          payload.deck_id = activeDeckId;
+        }
 
         if (net.isConnected) {
           try {
@@ -250,40 +334,170 @@ export default function Flashcards({ navigation, route }) {
   const card = cards[index];
 
   const flipCard = () => {
+    const nextFlipped = !flippedRef.current;
     Animated.spring(flipAnim, {
-      toValue: flipped ? 0 : 180,
+      toValue: nextFlipped ? 180 : 0,
       friction: 8,
       tension: 40,
       useNativeDriver: true,
     }).start();
-    setFlipped(!flipped);
+    flippedRef.current = nextFlipped;
+    setFlipped(nextFlipped);
   };
 
-  const goToNext = () => {
-    const completing = index === cards.length - 1;
-    if (completing) {
-      updateSession(index + 1, true);
-      setCompleted(true);
-    } else {
-      if (autoResetSide) {
-        flipAnim.setValue(0);
-        setFlipped(false);
-      }
-      setIndex((p) => p + 1);
-      updateSession(index + 1, false);
+  const triggerSwipe = (direction) => {
+    if (isSwipingRef.current) return;
+    isSwipingRef.current = true;
+
+    const toX = direction === 'right' ? SCREEN_WIDTH * 1.5 : -SCREEN_WIDTH * 1.5;
+
+    Animated.timing(pan, {
+      toValue: { x: toX, y: 0 },
+      duration: 250,
+      useNativeDriver: false,
+    }).start(() => {
+      onSwipeComplete(direction);
+    });
+  };
+
+  const onSwipeComplete = (direction) => {
+    const currentCards = cardsRef.current;
+    const currentIndex = indexRef.current;
+    const currentCard = currentCards[currentIndex];
+    const isMastered = direction === 'right';
+
+    let nextStudyAgain = [...studyAgainCardsRef.current];
+    let nextMasteredCount = masteredCountRef.current;
+
+    if (isMastered) {
+      nextMasteredCount += 1;
+      masteredCountRef.current = nextMasteredCount;
+      setMasteredCount(nextMasteredCount);
+    } else if (currentCard) {
+      nextStudyAgain.push(currentCard);
+      studyAgainCardsRef.current = nextStudyAgain;
+      setStudyAgainCards(nextStudyAgain);
     }
-  };
 
-  const goToPrev = () => {
-    if (autoResetSide) {
+    pan.setValue({ x: 0, y: 0 });
+    if (autoResetSideRef.current) {
       flipAnim.setValue(0);
+      flippedRef.current = false;
       setFlipped(false);
     }
-    setIndex((p) => (p - 1 + cards.length) % cards.length);
+
+    // Check if this was the last card in the current active deck/round
+    const isLastInRound = currentIndex + 1 >= currentCards.length;
+
+    if (isLastInRound) {
+      if (nextStudyAgain.length === 0) {
+        // All cards completed and mastered!
+        updateSession(totalCardsCountRef.current, true);
+        setCompleted(true);
+      } else {
+        // Re-appear: Start next round with the cards marked for study again
+        const nextRoundDeck = [...nextStudyAgain];
+        cardsRef.current = nextRoundDeck;
+        indexRef.current = 0;
+        studyAgainCardsRef.current = [];
+        roundRef.current = roundRef.current + 1;
+
+        setCards(nextRoundDeck);
+        setStudyAgainCards([]);
+        setIndex(0);
+        setRound(roundRef.current);
+        updateSession(nextMasteredCount, false);
+      }
+    } else {
+      const nextIndex = currentIndex + 1;
+      indexRef.current = nextIndex;
+      setIndex(nextIndex);
+      updateSession(nextMasteredCount, false);
+    }
+
+    isSwipingRef.current = false;
   };
+
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: (_, gestureState) => {
+        return Math.abs(gestureState.dx) > 5 || Math.abs(gestureState.dy) > 5;
+      },
+      onPanResponderGrant: () => {
+        pan.setValue({ x: 0, y: 0 });
+      },
+      onPanResponderMove: Animated.event(
+        [null, { dx: pan.x, dy: pan.y }],
+        { useNativeDriver: false }
+      ),
+      onPanResponderRelease: (_, gestureState) => {
+        if (isSwipingRef.current) return;
+
+        const { dx, dy, vx } = gestureState;
+
+        // Tap detected if very little movement (tap to flip)
+        if (Math.abs(dx) < 15 && Math.abs(dy) < 15) {
+          flipCard();
+          return;
+        }
+
+        // Swipe right -> Mastered
+        if (dx > 100 || vx > 0.6) {
+          triggerSwipe('right');
+        }
+        // Swipe left -> Study Again
+        else if (dx < -100 || vx < -0.6) {
+          triggerSwipe('left');
+        }
+        // Return to center (hover returned)
+        else {
+          Animated.spring(pan, {
+            toValue: { x: 0, y: 0 },
+            friction: 6,
+            tension: 40,
+            useNativeDriver: false,
+          }).start();
+        }
+      },
+    })
+  ).current;
 
   const frontAnim = flipAnim.interpolate({ inputRange: [0, 180], outputRange: ['0deg', '180deg'] });
   const backAnim  = flipAnim.interpolate({ inputRange: [0, 180], outputRange: ['180deg', '360deg'] });
+
+  const rotate = pan.x.interpolate({
+    inputRange: [-SCREEN_WIDTH * 1.5, 0, SCREEN_WIDTH * 1.5],
+    outputRange: ['-25deg', '0deg', '25deg'],
+    extrapolate: 'clamp',
+  });
+
+  const animatedCardStyle = {
+    transform: [
+      { translateX: pan.x },
+      { translateY: pan.y },
+      { rotate },
+    ],
+  };
+
+  // Content opacity drops to 50% when dragging / hovering
+  const contentOpacity = pan.x.interpolate({
+    inputRange: [-120, 0, 120],
+    outputRange: [0.5, 1, 0.5],
+    extrapolate: 'clamp',
+  });
+
+  const studyAgainOpacity = pan.x.interpolate({
+    inputRange: [-120, -20, 0],
+    outputRange: [1, 0.35, 0],
+    extrapolate: 'clamp',
+  });
+
+  const masteredOpacity = pan.x.interpolate({
+    inputRange: [0, 20, 120],
+    outputRange: [0, 0.35, 1],
+    extrapolate: 'clamp',
+  });
 
   // ------------------------------------------------------------
   // LOADING
@@ -341,20 +555,14 @@ export default function Flashcards({ navigation, route }) {
           </View>
           <Text style={styles.completedTitle}>Deck Completed!</Text>
           <Text style={styles.completedSubtitle}>
-            You have successfully reviewed all {cards.length} cards in this deck.
+            You have successfully mastered all {totalCardsCount || cards.length} cards in this deck.
           </Text>
         </View>
 
         <View style={styles.completedFooter}>
           <TouchableOpacity
             style={styles.primaryButton}
-            onPress={() => {
-              flipAnim.setValue(0);
-              setFlipped(false);
-              setIndex(0);
-              setCompleted(false);
-              setStartTime(Date.now());
-            }}
+            onPress={restartDeck}
           >
             <Text style={styles.primaryButtonText}>Practice Again</Text>
             <Ionicons name="refresh" size={16} color="#FFFFFF" style={{ marginLeft: 6 }} />
@@ -370,8 +578,8 @@ export default function Flashcards({ navigation, route }) {
 
   // MAIN
   const isFrontTerm = frontSide === 'term';
-  const frontContent = isFrontTerm ? card.term : card.definition;
-  const backContent = isFrontTerm ? card.definition : card.term;
+  const frontContent = isFrontTerm ? card?.term : card?.definition;
+  const backContent = isFrontTerm ? card?.definition : card?.term;
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -389,48 +597,155 @@ export default function Flashcards({ navigation, route }) {
       <View style={styles.cardArea}>
         {/* Top Meta info row */}
         <View style={styles.topMetaRow}>
-          <Text style={styles.metaSubjectText}>{subject || 'All Subjects'}</Text>
-          <Text style={styles.metaProgressText}>{index + 1} / {cards.length}</Text>
+          <View style={styles.metaLeftGroup}>
+            <Text style={styles.metaSubjectText}>{subject || 'All Subjects'}</Text>
+            {round > 1 && (
+              <View style={styles.roundBadge}>
+                <Text style={styles.roundBadgeText}>Round {round}</Text>
+              </View>
+            )}
+          </View>
+          <View style={styles.metaRightGroup}>
+            <Text style={styles.metaProgressText}>
+              {index + 1} / {cards.length}
+            </Text>
+            {totalCardsCount > 0 && (
+              <Text style={styles.metaMasteredSub}>
+                ({masteredCount}/{totalCardsCount} Mastered)
+              </Text>
+            )}
+          </View>
         </View>
 
-        <TouchableOpacity activeOpacity={0.9} onPress={flipCard} style={styles.cardTouchable}>
-          <View style={styles.cardWrapper}>
+        {/* Card Stack Container */}
+        <View style={styles.cardStackContainer}>
+          {/* Card Underneath (Next Card Preview) */}
+          {index + 1 < cards.length && (
+            <View style={[styles.cardWrapper, styles.cardUnderneath]}>
+              <View style={[styles.card, styles.cardFront]}>
+                <Text style={styles.cardBadge}>{isFrontTerm ? 'TERM' : 'DEFINITION'}</Text>
+                <View style={styles.cardContentWrapper}>
+                  <Text
+                    style={isFrontTerm ? styles.termTextFront : styles.definitionText}
+                    adjustsFontSizeToFit
+                    minimumFontScale={0.7}
+                  >
+                    {isFrontTerm ? cards[index + 1].term : cards[index + 1].definition}
+                  </Text>
+                </View>
+              </View>
+            </View>
+          )}
+
+          {/* Active Swipeable Card */}
+          <Animated.View
+            {...panResponder.panHandlers}
+            style={[styles.cardWrapper, animatedCardStyle]}
+          >
+            {/* Front Card Face */}
             <Animated.View style={[styles.card, styles.cardFront, { transform: [{ rotateY: frontAnim }] }]}>
-              <Text style={styles.cardBadge}>{isFrontTerm ? 'TERM' : 'DEFINITION'}</Text>
-              <View style={styles.cardContentWrapper}>
-                <Text
-                  style={isFrontTerm ? styles.termTextFront : styles.definitionText}
-                  adjustsFontSizeToFit
-                  minimumFontScale={0.7}
-                >
-                  {frontContent}
-                </Text>
-              </View>
+              <Animated.View style={[styles.cardInnerContent, { opacity: contentOpacity }]}>
+                <Text style={styles.cardBadge}>{isFrontTerm ? 'TERM' : 'DEFINITION'}</Text>
+                <View style={styles.cardContentWrapper}>
+                  <Text
+                    style={isFrontTerm ? styles.termTextFront : styles.definitionText}
+                    adjustsFontSizeToFit
+                    minimumFontScale={0.7}
+                  >
+                    {frontContent}
+                  </Text>
+                </View>
+              </Animated.View>
+
+              {/* Inside Overlay: Study Again (Red border + frosted dim + stamp) */}
+              <Animated.View
+                pointerEvents="none"
+                style={[styles.cardOverlayInside, styles.studyAgainOverlayInside, { opacity: studyAgainOpacity }]}
+              >
+                <View style={[StyleSheet.absoluteFillObject, styles.frostedBackdropLight]} />
+                <View style={styles.stampContainerLeft}>
+                  <View style={styles.studyAgainStamp}>
+                    <Ionicons name="refresh" size={18} color="#EF4444" style={{ marginRight: 6 }} />
+                    <Text style={styles.studyAgainStampText}>STUDY AGAIN</Text>
+                  </View>
+                </View>
+              </Animated.View>
+
+              {/* Inside Overlay: Mastered (Green border + frosted dim + stamp) */}
+              <Animated.View
+                pointerEvents="none"
+                style={[styles.cardOverlayInside, styles.masteredOverlayInside, { opacity: masteredOpacity }]}
+              >
+                <View style={[StyleSheet.absoluteFillObject, styles.frostedBackdropLight]} />
+                <View style={styles.stampContainerRight}>
+                  <View style={styles.masteredStamp}>
+                    <Ionicons name="checkmark-circle" size={18} color="#10B981" style={{ marginRight: 6 }} />
+                    <Text style={styles.masteredStampText}>MASTERED</Text>
+                  </View>
+                </View>
+              </Animated.View>
             </Animated.View>
+
+            {/* Back Card Face */}
             <Animated.View style={[styles.card, styles.cardBack, styles.cardAbsolute, { transform: [{ rotateY: backAnim }] }]}>
-              <Text style={styles.cardBadgeBack}>{isFrontTerm ? 'DEFINITION' : 'TERM'}</Text>
-              <View style={styles.cardContentWrapper}>
-                <Text
-                  style={isFrontTerm ? styles.definitionTextBack : styles.termText}
-                  adjustsFontSizeToFit
-                  minimumFontScale={0.7}
-                >
-                  {backContent}
-                </Text>
-              </View>
+              <Animated.View style={[styles.cardInnerContent, { opacity: contentOpacity }]}>
+                <Text style={styles.cardBadgeBack}>{isFrontTerm ? 'DEFINITION' : 'TERM'}</Text>
+                <View style={styles.cardContentWrapper}>
+                  <Text
+                    style={isFrontTerm ? styles.definitionTextBack : styles.termText}
+                    adjustsFontSizeToFit
+                    minimumFontScale={0.7}
+                  >
+                    {backContent}
+                  </Text>
+                </View>
+              </Animated.View>
+
+              {/* Inside Overlay: Study Again (Red border + frosted dim + stamp) */}
+              <Animated.View
+                pointerEvents="none"
+                style={[styles.cardOverlayInside, styles.studyAgainOverlayInside, { opacity: studyAgainOpacity }]}
+              >
+                <View style={[StyleSheet.absoluteFillObject, styles.frostedBackdropDark]} />
+                <View style={styles.stampContainerLeft}>
+                  <View style={styles.studyAgainStamp}>
+                    <Ionicons name="refresh" size={18} color="#EF4444" style={{ marginRight: 6 }} />
+                    <Text style={styles.studyAgainStampText}>STUDY AGAIN</Text>
+                  </View>
+                </View>
+              </Animated.View>
+
+              {/* Inside Overlay: Mastered (Green border + frosted dim + stamp) */}
+              <Animated.View
+                pointerEvents="none"
+                style={[styles.cardOverlayInside, styles.masteredOverlayInside, { opacity: masteredOpacity }]}
+              >
+                <View style={[StyleSheet.absoluteFillObject, styles.frostedBackdropDark]} />
+                <View style={styles.stampContainerRight}>
+                  <View style={styles.masteredStamp}>
+                    <Ionicons name="checkmark-circle" size={18} color="#10B981" style={{ marginRight: 6 }} />
+                    <Text style={styles.masteredStampText}>MASTERED</Text>
+                  </View>
+                </View>
+              </Animated.View>
             </Animated.View>
-          </View>
-        </TouchableOpacity>
+          </Animated.View>
+        </View>
+
         <Text style={styles.hintText}>Tap card to flip</Text>
       </View>
 
-      <View style={styles.actionsRow}>
-        <TouchableOpacity style={styles.actionButton} onPress={goToPrev}>
-          <Ionicons name="arrow-back" size={22} color={NAVY} />
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.actionButton} onPress={goToNext}>
-          <Ionicons name="arrow-forward" size={22} color={NAVY} />
-        </TouchableOpacity>
+      {/* Swipe Gesture Guide Bar (Replaces old arrow buttons) */}
+      <View style={styles.gestureHintBar}>
+        <View style={styles.gestureHintLeft}>
+          <Ionicons name="arrow-back" size={14} color="#EF4444" />
+          <Text style={styles.gestureHintTextLeft}>Swipe left to Study again</Text>
+        </View>
+        <View style={styles.gestureHintDivider} />
+        <View style={styles.gestureHintRight}>
+          <Text style={styles.gestureHintTextRight}>Swipe right for Mastered</Text>
+          <Ionicons name="arrow-forward" size={14} color="#10B981" />
+        </View>
       </View>
 
       {/* ── Settings Bottom Sheet Modal ── */}
@@ -531,7 +846,7 @@ export default function Flashcards({ navigation, route }) {
               <TouchableOpacity
                 style={styles.restartDeckBtn}
                 onPress={() => {
-                  applyDeckOrder(isShuffle);
+                  restartDeck();
                   setSettingsVisible(false);
                 }}
               >
@@ -564,21 +879,143 @@ const styles = StyleSheet.create({
   retryBtn:      { marginTop: 16, paddingHorizontal: 24, paddingVertical: 10, backgroundColor: NAVY, borderRadius: 20 },
   retryText:     { color: '#fff', fontWeight: '700', fontSize: 14 },
   cardArea:      { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 20 },
-  cardTouchable: { width: CARD_WIDTH, height: CARD_HEIGHT, alignItems: 'center', justifyContent: 'center' },
+  cardStackContainer: { width: CARD_WIDTH, height: CARD_HEIGHT, alignItems: 'center', justifyContent: 'center' },
   cardWrapper:   { width: CARD_WIDTH, height: CARD_HEIGHT, borderRadius: 22, shadowColor: '#000', shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.08, shadowRadius: 12, elevation: 3 },
+  cardUnderneath:{ position: 'absolute', top: 0, left: 0, transform: [{ scale: 0.95 }, { translateY: 10 }], opacity: 0.55, zIndex: 0 },
   card:          { width: CARD_WIDTH, height: CARD_HEIGHT, borderRadius: 22, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 24, paddingTop: 40, paddingBottom: 24, backfaceVisibility: 'hidden', overflow: 'hidden' },
   cardAbsolute:  { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 },
   cardContentWrapper: { flex: 1, width: '100%', alignItems: 'center', justifyContent: 'center' },
+  cardInnerContent: { width: '100%', height: '100%', alignItems: 'center', justifyContent: 'center' },
   cardFront:     { backgroundColor: '#FFFFFF', borderWidth: 1.5, borderColor: '#D7DEE8' },
   cardBack:      { backgroundColor: NAVY, borderWidth: 1.5, borderColor: NAVY },
   definitionText:{ fontSize: 19, lineHeight: 28, fontWeight: '600', color: NAVY, textAlign: 'center' },
   termText:      { fontSize: 24, fontWeight: '700', color: '#FFFFFF', textAlign: 'center' },
   hintText:      { marginTop: 18, fontSize: 13, color: '#9AA5B1' },
-  actionsRow:    { flexDirection: 'row', justifyContent: 'center', gap: 24, paddingBottom: 30, paddingTop: 8 },
-  actionButton:  { width: 56, height: 56, borderRadius: 28, alignItems: 'center', justifyContent: 'center', borderWidth: 1.5, borderColor: '#D7DEE8', backgroundColor: '#F5F7FA' },
+
+  // Inside-card Tinder-style Swipe Feedback Overlays
+  cardOverlayInside: {
+    ...StyleSheet.absoluteFillObject,
+    borderRadius: 22,
+    overflow: 'hidden',
+    zIndex: 10,
+  },
+  studyAgainOverlayInside: {
+    backgroundColor: 'rgba(239, 68, 68, 0.16)',
+    borderWidth: 3.5,
+    borderColor: '#EF4444',
+  },
+  masteredOverlayInside: {
+    backgroundColor: 'rgba(16, 185, 129, 0.16)',
+    borderWidth: 3.5,
+    borderColor: '#10B981',
+  },
+
+  // Tinder-style Stamps
+  stampContainerLeft: {
+    position: 'absolute',
+    top: 20,
+    right: 18,
+    transform: [{ rotate: '12deg' }],
+  },
+  studyAgainStamp: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderRadius: 10,
+    borderWidth: 2.5,
+    borderColor: '#EF4444',
+    backgroundColor: '#FFFFFF',
+    shadowColor: '#EF4444',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.25,
+    shadowRadius: 6,
+    elevation: 6,
+  },
+  studyAgainStampText: {
+    fontSize: 15,
+    fontWeight: '900',
+    color: '#EF4444',
+    letterSpacing: 1,
+  },
+
+  stampContainerRight: {
+    position: 'absolute',
+    top: 20,
+    left: 18,
+    transform: [{ rotate: '-12deg' }],
+  },
+  masteredStamp: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderRadius: 10,
+    borderWidth: 2.5,
+    borderColor: '#10B981',
+    backgroundColor: '#FFFFFF',
+    shadowColor: '#10B981',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.25,
+    shadowRadius: 6,
+    elevation: 6,
+  },
+  masteredStampText: {
+    fontSize: 15,
+    fontWeight: '900',
+    color: '#10B981',
+    letterSpacing: 1,
+  },
+  frostedBackdropLight: {
+    backgroundColor: 'rgba(255, 255, 255, 0.75)',
+  },
+  frostedBackdropDark: {
+    backgroundColor: 'rgba(11, 37, 64, 0.78)',
+  },
+
+  // Gesture Hint Bar
+  gestureHintBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 20,
+    paddingHorizontal: 16,
+    gap: 14,
+  },
+  gestureHintLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  gestureHintRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  gestureHintTextLeft: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#DC2626',
+  },
+  gestureHintTextRight: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#059669',
+  },
+  gestureHintDivider: {
+    width: 1,
+    height: 14,
+    backgroundColor: '#CBD5E1',
+  },
+
   topMetaRow:    { width: CARD_WIDTH, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, paddingHorizontal: 4 },
+  metaLeftGroup: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  metaRightGroup:{ flexDirection: 'row', alignItems: 'baseline', gap: 6 },
   metaSubjectText: { fontSize: 13, fontWeight: '700', color: NAVY, textTransform: 'uppercase', letterSpacing: 0.5 },
-  metaProgressText: { fontSize: 13, fontWeight: '600', color: '#9AA5B1' },
+  roundBadge:    { backgroundColor: '#FEF3C7', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 8, borderWidth: 1, borderColor: '#F59E0B' },
+  roundBadgeText:{ fontSize: 11, fontWeight: '700', color: '#B45309' },
+  metaProgressText: { fontSize: 13, fontWeight: '700', color: NAVY },
+  metaMasteredSub: { fontSize: 11, fontWeight: '600', color: '#10B981' },
   completedBody: {
     flex: 1,
     alignItems: 'center',

@@ -1,0 +1,17 @@
+preset = "basic"
+python-version = "3.12"
+python-platform = "windows"
+skip-interpreter-query = true
+search-path = [
+    "backend",
+    ".",
+    "C:/Users/Daniel/AppData/Roaming/uv/python/cpython-3.12.15-windows-x86_64-none/Lib/site-packages",
+    "D:/College sucks/4th year/4th year 2nd/capstone/mobile app/GabayPHILCSE/backend/.venv/Lib/site-packages"
+]
+site-package-path = [
+    "C:/Users/Daniel/AppData/Roaming/uv/python/cpython-3.12.15-windows-x86_64-none/Lib/site-packages",
+    "D:/College sucks/4th year/4th year 2nd/capstone/mobile app/GabayPHILCSE/backend/.venv/Lib/site-packages"
+]
+
+[errors]
+missing-import = "ignore"

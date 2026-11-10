@@ -820,16 +820,39 @@ export default function Home({ session, navigation, route }) {
 
       setTargetExamType(isFE ? 'FE' : 'IP')
       const targetDefaultSubjects = isFE ? FE_DEFAULT_SUBJECTS : IP_DEFAULT_SUBJECTS
+      const activeTrack = isFE ? 'FE' : 'IP'
 
-      // 4. Fetch MCQ + TF results to calculate subject progress strictly for target exam
+      // 4. Fetch MCQ + TF results strictly isolated to user's target exam
       const { data: mcqPerformance } = await supabase
         .from('multiple_choice_results')
-        .select('is_correct, multiple_choice_questions(practice_categories(name))')
+        .select(`
+          is_correct,
+          multiple_choice_questions (
+            exam_level,
+            fe_section,
+            practice_categories (
+              name,
+              exam_level,
+              fe_section
+            )
+          )
+        `)
         .eq('user_id', uid)
 
       const { data: tfPerformance } = await supabase
         .from('true_false_results')
-        .select('is_correct, true_false_questions(practice_categories(name))')
+        .select(`
+          is_correct,
+          true_false_questions (
+            exam_level,
+            fe_section,
+            practice_categories (
+              name,
+              exam_level,
+              fe_section
+            )
+          )
+        `)
         .eq('user_id', uid)
 
       const performanceMap = {}
@@ -841,10 +864,10 @@ export default function Home({ session, navigation, route }) {
         if (!name) return null
         const n = String(name).trim()
         if (isFE) {
-          if (n.includes('Architecture') || n.includes('Computer Systems') || n.includes('Hardware') || n === 'Technology' || n === 'Subject A') return 'Computer Systems & Architecture'
-          if (n.includes('Algorithms & Programming') || n.includes('Programming') || (n.includes('Algorithm') && !n.includes('Data Structure')) || n === 'Subject B') return 'Algorithms & Programming'
-          if (n.includes('Network') || n.includes('Security')) return 'Networks & Security'
-          if (n.includes('Management') || n.includes('Strategy') || n.includes('Project')) return 'IT Management & Strategy'
+          if (n === 'Computer Systems & Architecture' || n.includes('Architecture') || n.includes('Computer Systems') || n === 'Subject A') return 'Computer Systems & Architecture'
+          if (n === 'Algorithms & Programming' || n.includes('Algorithms & Programming') || (n.includes('Programming') && !n.includes('Data Structure')) || n === 'Subject B') return 'Algorithms & Programming'
+          if (n === 'Networks & Security' || n.includes('Networks & Security') || n.includes('Network') || (n.includes('Security') && !n.includes('Design'))) return 'Networks & Security'
+          if (n === 'IT Management & Strategy' || n.includes('IT Management & Strategy') || n.includes('Management & Strategy')) return 'IT Management & Strategy'
           return null
         } else {
           if (n === 'Technology' || n.includes('Hardware') || n.includes('Software') || n.includes('Database') || n.includes('Network') || n.includes('Security') || n.includes('Computer Systems')) return 'Technology'
@@ -856,7 +879,10 @@ export default function Home({ session, navigation, route }) {
 
       if (mcqPerformance) {
         mcqPerformance.forEach(r => {
-          const rawName = r.multiple_choice_questions?.practice_categories?.name
+          const q = r.multiple_choice_questions
+          const itemTrack = q?.exam_level || q?.practice_categories?.exam_level
+          if (itemTrack && itemTrack.toUpperCase() !== activeTrack) return // STRICT SEPARATION: Never mix IP and FE
+          const rawName = q?.practice_categories?.name
           const mapped = mapCategory(rawName)
           if (mapped && performanceMap[mapped] !== undefined) {
             performanceMap[mapped].total++
@@ -867,7 +893,10 @@ export default function Home({ session, navigation, route }) {
 
       if (tfPerformance) {
         tfPerformance.forEach(r => {
-          const rawName = r.true_false_questions?.practice_categories?.name
+          const q = r.true_false_questions
+          const itemTrack = q?.exam_level || q?.practice_categories?.exam_level
+          if (itemTrack && itemTrack.toUpperCase() !== activeTrack) return // STRICT SEPARATION: Never mix IP and FE
+          const rawName = q?.practice_categories?.name
           const mapped = mapCategory(rawName)
           if (mapped && performanceMap[mapped] !== undefined) {
             performanceMap[mapped].total++

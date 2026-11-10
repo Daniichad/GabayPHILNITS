@@ -102,9 +102,10 @@ def get_supabase_client():
         print(f"[Warning] Could not initialize Supabase client: {e}")
         return None
 
-def fetch_user_data(user_id: str) -> Dict[str, Any]:
+def fetch_user_data(user_id: str, requested_exam: Optional[str] = None) -> Dict[str, Any]:
     """
-    Pulls live student study logs across all practice and mock exam tables from Supabase.
+    Pulls live student study logs across all practice and mock exam tables from Supabase,
+    strictly isolated by the user's target exam (IP or FE).
     """
     client = get_supabase_client()
     if not client or not user_id:
@@ -112,37 +113,40 @@ def fetch_user_data(user_id: str) -> Dict[str, Any]:
 
     try:
         # 1. Target exam level
-        p_res = client.from_("personal_info").select("target_exam_level").eq("user_id", user_id).maybe_single().execute()
         target_exam = "IP"
-        if p_res.data and p_res.data.get("target_exam_level"):
-            lvl = p_res.data["target_exam_level"].lower()
-            if "fe" in lvl or "fundamental" in lvl:
-                target_exam = "FE"
+        if requested_exam:
+            target_exam = requested_exam.strip().upper()
+        else:
+            p_res = client.from_("personal_info").select("target_exam_level").eq("user_id", user_id).maybe_single().execute()
+            if p_res and getattr(p_res, "data", None) and isinstance(p_res.data, dict) and p_res.data.get("target_exam_level"):
+                lvl = str(p_res.data["target_exam_level"]).lower()
+                if "fe" in lvl or "fundamental" in lvl:
+                    target_exam = "FE"
 
         # 2. Mock exam attempts
         mock_res = client.from_("mock_exam_attempts") \
             .select("score, total_questions, correct_count, duration_seconds, completed_at, mock_exam_configs(title, level_key)") \
             .eq("user_id", user_id).eq("status", "completed") \
-            .order("completed_at", desc=True).limit(20).execute()
+            .order("completed_at", desc=True).limit(30).execute()
 
-        # 3. MCQ results
+        # 3. MCQ results with exam_level
         mcq_res = client.from_("multiple_choice_results") \
-            .select("is_correct, answered_at, multiple_choice_questions(practice_categories(name))") \
+            .select("is_correct, answered_at, multiple_choice_questions(exam_level, fe_section, practice_categories(name, exam_level, fe_section))") \
             .eq("user_id", user_id).execute()
 
-        # 4. True/False results
+        # 4. True/False results with exam_level
         tf_res = client.from_("true_false_results") \
-            .select("is_correct, answered_at, true_false_questions(practice_categories(name))") \
+            .select("is_correct, answered_at, true_false_questions(exam_level, fe_section, practice_categories(name, exam_level, fe_section))") \
             .eq("user_id", user_id).execute()
 
         # 5. Matching results
         match_res = client.from_("matching_results") \
-            .select("pairs_matched, pairs_total, mistakes, completed, duration_seconds") \
+            .select("set_title, pairs_matched, pairs_total, mistakes, completed, duration_seconds") \
             .eq("user_id", user_id).execute()
 
-        # 6. Flashcard sessions
+        # 6. Flashcard sessions with deck exam_level
         fc_res = client.from_("flashcard_sessions") \
-            .select("cards_seen, cards_total, duration_seconds, completed") \
+            .select("cards_seen, cards_total, duration_seconds, completed, flashcard_decks(exam_level, practice_categories(name, exam_level))") \
             .eq("user_id", user_id).execute()
 
         return {
@@ -211,17 +215,17 @@ class PerformanceAnalyticsEngine:
             return None
         c = cat_name.strip()
         if exam_level == "IP":
-            if "Tech" in c or c == "Technology": return "Technology"
-            if "Manage" in c or c == "Management": return "Management"
-            if "Strat" in c or c == "Strategy": return "Strategy"
+            if c == "Technology" or "Tech" in c: return "Technology"
+            if c == "Management" or "Manage" in c: return "Management"
+            if c == "Strategy" or "Strat" in c: return "Strategy"
             if any(k in c for k in ["Hardware", "Software", "Database", "Network", "Security"]): return "Technology"
             if any(k in c for k in ["Project", "Service", "Audit"]): return "Management"
             if any(k in c for k in ["Corporate", "Business", "Legal"]): return "Strategy"
         else: # FE
             if any(k in c for k in ["Architecture", "Computer Systems"]): return "Computer Systems & Architecture"
-            if any(k in c for k in ["Programming", "Algorithm"]): return "Algorithms & Programming"
-            if any(k in c for k in ["Network", "Security"]): return "Networks & Security"
-            if any(k in c for k in ["Management", "Strategy"]): return "IT Management & Strategy"
+            if any(k in c for k in ["Algorithms & Programming", "Programming", "Algorithm"]) and "Data Structure" not in c: return "Algorithms & Programming"
+            if any(k in c for k in ["Networks & Security", "Network", "Security"]): return "Networks & Security"
+            if any(k in c for k in ["IT Management & Strategy", "Management & Strategy", "IT Management"]): return "IT Management & Strategy"
             if "Database" in c or "SQL" in c: return "Databases & SQL"
         return None
 
@@ -229,6 +233,7 @@ class PerformanceAnalyticsEngine:
     def compute_domain_mastery(cls, raw_data: Dict[str, Any], exam_level: str) -> Dict[str, Dict[str, Any]]:
         """
         Computes Bayesian Domain Mastery (Beta-Binomial) + Confidence Scaling + Retention.
+        Strictly excludes any practice questions that do not belong to the target exam level.
         """
         syllabus = SYLLABI.get(exam_level, SYLLABI["IP"])
         domains = syllabus["domains"]
@@ -250,20 +255,22 @@ class PerformanceAnalyticsEngine:
                     except Exception:
                         pass
 
-        # Tally MCQ
+        # Tally MCQ strictly filtered by target exam
         for item in raw_data.get("mcq", []):
-            cat = None
-            q = item.get("multiple_choice_questions")
-            if q and q.get("practice_categories"):
-                cat = q["practice_categories"].get("name")
+            q = item.get("multiple_choice_questions") or {}
+            item_lvl = item.get("exam_level") or q.get("exam_level") or (q.get("practice_categories") or {}).get("exam_level")
+            if item_lvl and item_lvl.strip().upper() != exam_level.strip().upper():
+                continue  # Never let other exam data cross over
+            cat = (q.get("practice_categories") or {}).get("name")
             record_answer(cat, item.get("is_correct", False), item.get("answered_at"))
 
-        # Tally TF
+        # Tally TF strictly filtered by target exam
         for item in raw_data.get("tf", []):
-            cat = None
-            q = item.get("true_false_questions")
-            if q and q.get("practice_categories"):
-                cat = q["practice_categories"].get("name")
+            q = item.get("true_false_questions") or {}
+            item_lvl = item.get("exam_level") or q.get("exam_level") or (q.get("practice_categories") or {}).get("exam_level")
+            if item_lvl and item_lvl.strip().upper() != exam_level.strip().upper():
+                continue  # Never let other exam data cross over
+            cat = (q.get("practice_categories") or {}).get("name")
             record_answer(cat, item.get("is_correct", False), item.get("answered_at"))
 
         now = datetime.now(timezone.utc)
@@ -287,7 +294,6 @@ class PerformanceAnalyticsEngine:
             confidence = min(1.0, attempts / target) if target > 0 else 0.0
 
             # 4. Confidence-Scaled Competency Score:
-            # score = accuracy * min(1, attempts / target)
             scaled_score = raw_acc * confidence
 
             # 5. Ebbinghaus Knowledge Retention Decay (Half-life = 14 days)
@@ -312,10 +318,20 @@ class PerformanceAnalyticsEngine:
     @classmethod
     def compute_practice_and_mock_scores(cls, raw_data: Dict[str, Any], exam_level: str) -> Dict[str, Any]:
         """
-        Computes confidence-scaled scores across the 4 practice types and mock exams.
+        Computes confidence-scaled scores across the 4 practice types and mock exams,
+        strictly isolating attempts by target exam level.
         """
+        target_norm = exam_level.strip().upper()
+
         # 1. MCQ
-        mcq_list = raw_data.get("mcq", [])
+        raw_mcq = raw_data.get("mcq", [])
+        mcq_list = []
+        for m in raw_mcq:
+            q = m.get("multiple_choice_questions") or {}
+            item_lvl = m.get("exam_level") or q.get("exam_level") or (q.get("practice_categories") or {}).get("exam_level")
+            if not item_lvl or item_lvl.strip().upper() == target_norm:
+                mcq_list.append(m)
+
         mcq_attempts = len(mcq_list)
         mcq_correct = sum(1 for m in mcq_list if m.get("is_correct"))
         mcq_acc = (mcq_correct / mcq_attempts) if mcq_attempts > 0 else 0.0
@@ -323,7 +339,21 @@ class PerformanceAnalyticsEngine:
         mcq_score = mcq_acc * mcq_conf
 
         # 2. Matching
-        match_list = raw_data.get("matching", [])
+        raw_match = raw_data.get("matching", [])
+        match_list = []
+        for m in raw_match:
+            title = m.get("set_title", "")
+            m_lvl = m.get("exam_level")
+            if m_lvl:
+                if m_lvl.strip().upper() == target_norm:
+                    match_list.append(m)
+            elif target_norm == "FE":
+                if "[FE]" in title or any(d in title for d in SYLLABI["FE"]["domains"]):
+                    match_list.append(m)
+            else:
+                if "[FE]" not in title:
+                    match_list.append(m)
+
         match_matched = sum(m.get("pairs_matched", 0) for m in match_list)
         match_mistakes = sum(m.get("mistakes", 0) for m in match_list)
         match_trials = match_matched + match_mistakes
@@ -332,7 +362,14 @@ class PerformanceAnalyticsEngine:
         match_score = match_acc * match_conf
 
         # 3. True / False
-        tf_list = raw_data.get("tf", [])
+        raw_tf = raw_data.get("tf", [])
+        tf_list = []
+        for t in raw_tf:
+            q = t.get("true_false_questions") or {}
+            item_lvl = t.get("exam_level") or q.get("exam_level") or (q.get("practice_categories") or {}).get("exam_level")
+            if not item_lvl or item_lvl.strip().upper() == target_norm:
+                tf_list.append(t)
+
         tf_attempts = len(tf_list)
         tf_correct = sum(1 for t in tf_list if t.get("is_correct"))
         tf_acc = (tf_correct / tf_attempts) if tf_attempts > 0 else 0.0
@@ -340,7 +377,14 @@ class PerformanceAnalyticsEngine:
         tf_score = tf_acc * tf_conf
 
         # 4. Flashcards
-        fc_list = raw_data.get("flashcards", [])
+        raw_fc = raw_data.get("flashcards", [])
+        fc_list = []
+        for f in raw_fc:
+            d = f.get("flashcard_decks") or {}
+            f_lvl = f.get("exam_level") or d.get("exam_level")
+            if not f_lvl or f_lvl.strip().upper() == target_norm:
+                fc_list.append(f)
+
         fc_seen = sum(f.get("cards_seen", f.get("cards_total", 10)) for f in fc_list)
         fc_acc = 1.0 if fc_seen > 0 else 0.0
         fc_conf = min(1.0, fc_seen / PRACTICE_WEIGHTS["flashcards"]["target"])
@@ -354,15 +398,16 @@ class PerformanceAnalyticsEngine:
             PRACTICE_WEIGHTS["flashcards"]["weight"] * fc_score
         )
 
-        # 5. Mock Exams (Filtered by Exam Track)
+        # 5. Mock Exams (Strictly Filtered by Exam Track)
         raw_mocks = raw_data.get("mocks", [])
         track_mocks = []
         for m in raw_mocks:
             cfg = m.get("mock_exam_configs") or {}
             lk = (cfg.get("level_key") or "").lower()
-            if exam_level == "IP" and "ip" in lk:
+            title = (cfg.get("title") or "").lower()
+            if target_norm == "IP" and ("ip" in lk or "passport" in title) and "fe" not in lk:
                 track_mocks.append(m)
-            elif exam_level == "FE" and ("fe" in lk):
+            elif target_norm == "FE" and ("fe" in lk or "fundamental" in title) and "ip" not in lk:
                 track_mocks.append(m)
 
         mocks_count = len(track_mocks)
@@ -450,10 +495,53 @@ class PerformanceAnalyticsEngine:
                 "action": f"Refresh {d['domain']} flashcard deck and practice 1 matching set to rebuild recognition memory.",
             })
 
+        readiness_pct = readiness_info["readiness_percent"]
+        if readiness_pct < 50:
+            rec_pace = "Detailed"
+            daily_target = 35
+            daily_mins = 45
+        elif readiness_pct < 80:
+            rec_pace = "Standard"
+            daily_target = 25
+            daily_mins = 30
+        else:
+            rec_pace = "Quick"
+            daily_target = 15
+            daily_mins = 15
+
+        pace_profiles = {
+            "Detailed": {
+                "name": "Detailed",
+                "tag": "Foundational Deep-Dive",
+                "daily_question_target": 35,
+                "daily_goal_mins": 45,
+                "focus": "Comprehensive concept reinforcement & flashcards",
+                "description": "High-frequency drills and thorough reading material review to eliminate knowledge gaps.",
+            },
+            "Standard": {
+                "name": "Standard",
+                "tag": "Balanced Progression",
+                "daily_question_target": 25,
+                "daily_goal_mins": 30,
+                "focus": "Balanced domain drills & weekly mock exam",
+                "description": "Consistent, steady preparation with mixed practice drills and regular mock calibration.",
+            },
+            "Quick": {
+                "name": "Quick",
+                "tag": "High-Velocity Maintenance",
+                "daily_question_target": 15,
+                "daily_goal_mins": 15,
+                "focus": "High-yield speed drills & memory retention",
+                "description": "Fast-paced diagnostic refreshes and timed speed drills to maintain peak performance.",
+            },
+        }
+
         return {
             "primary_focus_domain": weak_domains[0]["domain"] if weak_domains else "Exam Calibration",
-            "study_pace_recommendation": "Detailed" if readiness_info["readiness_percent"] < 45 else ("Standard" if readiness_info["readiness_percent"] < 75 else "Quick"),
-            "daily_question_target": 25 if readiness_info["readiness_percent"] < 60 else 15,
+            "study_pace_recommendation": rec_pace,
+            "daily_question_target": daily_target,
+            "daily_goal_mins": daily_mins,
+            "pace_profiles": pace_profiles,
             "prescriptions": actions,
         }
 
@@ -576,7 +664,7 @@ def health_check():
 @app.get("/api/performance/overview")
 def get_performance_overview(user_id: str = Query("demo-user", description="UUID of the student"), exam_level: Optional[str] = None):
     """Returns dual-weighted exam readiness, stats, and domain competency scores."""
-    raw = fetch_user_data(user_id)
+    raw = fetch_user_data(user_id, exam_level)
     target_track = exam_level.upper() if exam_level else raw.get("target_exam", "IP")
 
     readiness = PerformanceAnalyticsEngine.compute_practice_and_mock_scores(raw, target_track)
@@ -592,7 +680,7 @@ def get_performance_overview(user_id: str = Query("demo-user", description="UUID
 @app.get("/api/performance/predictive")
 def get_predictive_analytics(user_id: str = Query("demo-user"), exam_level: Optional[str] = None):
     """Returns probability of passing, expected score confidence intervals, and trajectory charts."""
-    raw = fetch_user_data(user_id)
+    raw = fetch_user_data(user_id, exam_level)
     target_track = exam_level.upper() if exam_level else raw.get("target_exam", "IP")
 
     readiness = PerformanceAnalyticsEngine.compute_practice_and_mock_scores(raw, target_track)
@@ -616,7 +704,7 @@ def get_predictive_analytics(user_id: str = Query("demo-user"), exam_level: Opti
 @app.get("/api/performance/prescriptive")
 def get_prescriptive_plan(user_id: str = Query("demo-user"), exam_level: Optional[str] = None):
     """Returns gap analysis, prioritized focus areas, and daily question allocation."""
-    raw = fetch_user_data(user_id)
+    raw = fetch_user_data(user_id, exam_level)
     target_track = exam_level.upper() if exam_level else raw.get("target_exam", "IP")
 
     readiness = PerformanceAnalyticsEngine.compute_practice_and_mock_scores(raw, target_track)
@@ -632,7 +720,7 @@ def get_prescriptive_plan(user_id: str = Query("demo-user"), exam_level: Optiona
 
 @app.get("/api/performance/charts/radar.png")
 def get_radar_chart_image(user_id: str = Query("demo-user"), exam_level: str = "IP"):
-    raw = fetch_user_data(user_id)
+    raw = fetch_user_data(user_id, exam_level)
     target_track = exam_level.upper() if exam_level else raw.get("target_exam", "IP")
     domain_mastery = PerformanceAnalyticsEngine.compute_domain_mastery(raw, target_track)
     b64 = ChartGenerator.create_radar_chart(domain_mastery)

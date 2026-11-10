@@ -134,9 +134,13 @@ export default function DiagnosticAssessment({ navigation, route }) {
   const answersRef = React.useRef(answers)
   const selectedAnswerRef = React.useRef(selectedAnswer)
   const currentQuestionRef = React.useRef(/** @type {any} */ (null))
+  const questionScrollRef = React.useRef(/** @type {any} */ (null))
 
   React.useEffect(() => { answersRef.current = answers }, [answers])
   React.useEffect(() => { selectedAnswerRef.current = selectedAnswer }, [selectedAnswer])
+  React.useEffect(() => {
+    questionScrollRef.current?.scrollTo({ y: 0, animated: false })
+  }, [questionIndex])
 
   // ── Load exam type & questions ─────────────────────────────
   React.useEffect(() => { loadQuestions() }, [])
@@ -1056,44 +1060,50 @@ export default function DiagnosticAssessment({ navigation, route }) {
             <View style={styles.backSpacer} />
           </View>
 
-          <View style={styles.introCard}>
-            <View style={styles.iconContainer}>
-              <MaterialCommunityIcons name="clipboard-check-outline" size={50} color="#0F2747" />
+          <ScrollView
+            style={styles.introScroll}
+            contentContainerStyle={styles.introScrollContent}
+            showsVerticalScrollIndicator={false}
+          >
+            <View style={styles.introCard}>
+              <View style={styles.iconContainer}>
+                <MaterialCommunityIcons name="clipboard-check-outline" size={50} color="#0F2747" />
+              </View>
+              <Text style={styles.introTitle}>Diagnostic Assessment</Text>
+              <Text style={styles.introSubtitle}>
+                {examType === 'fe' ? 'Fundamental IT Engineer (FE)' : 'Information Technology Passport (IP)'}
+              </Text>
+              <Text style={styles.introBody}>
+                {examType === 'fe'
+                  ? 'This 30-item diagnostic test evaluates your readiness across Subject A (22 questions) and Subject B (8 questions) according to official ITPEC format, and automatically sets your optimal review speed.'
+                  : 'This 30-item diagnostic test evaluates your readiness across Technology (10), Management (10), and Strategy (10) according to official ITPEC format, and automatically sets your optimal review speed.'}
+              </Text>
+              <View style={styles.bulletBox}>
+                <View style={styles.bulletRow}>
+                  <MaterialCommunityIcons name="check-circle" size={20} color="#d85e67" style={styles.bulletIcon} />
+                  <Text style={styles.bulletText}>
+                    {examType === 'fe'
+                      ? '30 questions (Subject A: 22 items · 73.3%, Subject B: 8 items · 26.7%)'
+                      : '30 questions (10 items each: Technology, Management, Strategy)'}
+                  </Text>
+                </View>
+                <View style={styles.bulletRow}>
+                  <MaterialCommunityIcons name="clock-outline" size={20} color="#d85e67" style={styles.bulletIcon} />
+                  <Text style={styles.bulletText}>Time limit: 30 minutes (1 minute per question)</Text>
+                </View>
+                <View style={styles.bulletRow}>
+                  <MaterialCommunityIcons name="speedometer" size={20} color="#d85e67" style={styles.bulletIcon} />
+                  <Text style={styles.bulletText}>Auto-configures study speed (Detailed, Standard, or Quick)</Text>
+                </View>
+              </View>
+              <TouchableOpacity style={styles.startButton} activeOpacity={0.85} onPress={() => setStarted(true)}>
+                <Text style={styles.startButtonText}>START ASSESSMENT ({questions.length || 30} ITEMS)</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => navigation?.replace('Home')}>
+                <Text style={styles.laterText}>Maybe Later</Text>
+              </TouchableOpacity>
             </View>
-            <Text style={styles.introTitle}>Diagnostic Assessment</Text>
-            <Text style={styles.introSubtitle}>
-              {examType === 'fe' ? 'Fundamental IT Engineer (FE)' : 'Information Technology Passport (IP)'}
-            </Text>
-            <Text style={styles.introBody}>
-              {examType === 'fe'
-                ? 'This 30-item diagnostic test evaluates your readiness across Subject A (22 questions) and Subject B (8 questions) according to official ITPEC format, and automatically sets your optimal review speed.'
-                : 'This 30-item diagnostic test evaluates your readiness across Technology (10), Management (10), and Strategy (10) according to official ITPEC format, and automatically sets your optimal review speed.'}
-            </Text>
-            <View style={styles.bulletBox}>
-              <View style={styles.bulletRow}>
-                <MaterialCommunityIcons name="check-circle" size={20} color="#d85e67" style={styles.bulletIcon} />
-                <Text style={styles.bulletText}>
-                  {examType === 'fe'
-                    ? '30 questions (Subject A: 22 items · 73.3%, Subject B: 8 items · 26.7%)'
-                    : '30 questions (10 items each: Technology, Management, Strategy)'}
-                </Text>
-              </View>
-              <View style={styles.bulletRow}>
-                <MaterialCommunityIcons name="clock-outline" size={20} color="#d85e67" style={styles.bulletIcon} />
-                <Text style={styles.bulletText}>Time limit: 30 minutes (1 minute per question)</Text>
-              </View>
-              <View style={styles.bulletRow}>
-                <MaterialCommunityIcons name="speedometer" size={20} color="#d85e67" style={styles.bulletIcon} />
-                <Text style={styles.bulletText}>Auto-configures study speed (Detailed, Standard, or Quick)</Text>
-              </View>
-            </View>
-            <TouchableOpacity style={styles.startButton} activeOpacity={0.85} onPress={() => setStarted(true)}>
-              <Text style={styles.startButtonText}>START ASSESSMENT ({questions.length || 30} ITEMS)</Text>
-            </TouchableOpacity>
-            <TouchableOpacity onPress={() => navigation?.replace('Home')}>
-              <Text style={styles.laterText}>Maybe Later</Text>
-            </TouchableOpacity>
-          </View>
+          </ScrollView>
 
           <Modal transparent visible={exitVisible} animationType="fade" onRequestClose={() => setExitVisible(false)}>
             <View style={styles.exitOverlay}>
@@ -1140,47 +1150,55 @@ export default function DiagnosticAssessment({ navigation, route }) {
           <View style={[styles.progressFill, { width: `${((questionIndex + 1) / questions.length) * 100}%` }]} />
         </View>
 
-        <Text style={styles.questionHeader}>
-          {currentQuestion?.category} ({examType === 'fe' ? 'FE' : 'IP'})
-        </Text>
-        <Text style={styles.questionText}>{currentQuestion?.question}</Text>
-
-        {currentQuestion?.image_url ? (
-          <View style={styles.questionImageContainer}>
-            <Image
-              source={{ uri: currentQuestion.image_url }}
-              style={styles.questionImage}
-              resizeMode="contain"
-            />
-          </View>
-        ) : null}
-
-        <View style={styles.optionsWrap}>
-          {(Array.isArray(currentQuestion?.options) ? currentQuestion.options : []).map((/** @type {any} */ option) => {
-            const active = selectedAnswer === option
-            return (
-              <TouchableOpacity
-                key={option}
-                style={[styles.optionButton, active && styles.optionButtonActive]}
-                activeOpacity={0.85}
-                onPress={() => handleChoose(option)}
-              >
-                <Text style={[styles.optionText, active && styles.optionTextActive]}>{option}</Text>
-              </TouchableOpacity>
-            )
-          })}
-        </View>
-
-        <TouchableOpacity
-          style={[styles.questionNextButton, !selectedAnswer && styles.questionNextButtonDisabled]}
-          activeOpacity={0.85}
-          disabled={!selectedAnswer}
-          onPress={handleNext}
+        <ScrollView
+          ref={questionScrollRef}
+          style={styles.questionScroll}
+          contentContainerStyle={styles.questionScrollContent}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
         >
-          <Text style={[styles.questionNextButtonText, !selectedAnswer && styles.questionNextButtonTextDisabled]}>
-            {questionIndex === questions.length - 1 ? 'FINISH' : 'NEXT'}
+          <Text style={styles.questionHeader}>
+            {currentQuestion?.category} ({examType === 'fe' ? 'FE' : 'IP'})
           </Text>
-        </TouchableOpacity>
+          <Text style={styles.questionText}>{currentQuestion?.question}</Text>
+
+          {currentQuestion?.image_url ? (
+            <View style={styles.questionImageContainer}>
+              <Image
+                source={{ uri: currentQuestion.image_url }}
+                style={styles.questionImage}
+                resizeMode="contain"
+              />
+            </View>
+          ) : null}
+
+          <View style={styles.optionsWrap}>
+            {(Array.isArray(currentQuestion?.options) ? currentQuestion.options : []).map((/** @type {any} */ option) => {
+              const active = selectedAnswer === option
+              return (
+                <TouchableOpacity
+                  key={option}
+                  style={[styles.optionButton, active && styles.optionButtonActive]}
+                  activeOpacity={0.85}
+                  onPress={() => handleChoose(option)}
+                >
+                  <Text style={[styles.optionText, active && styles.optionTextActive]}>{option}</Text>
+                </TouchableOpacity>
+              )
+            })}
+          </View>
+
+          <TouchableOpacity
+            style={[styles.questionNextButton, !selectedAnswer && styles.questionNextButtonDisabled]}
+            activeOpacity={0.85}
+            disabled={!selectedAnswer}
+            onPress={handleNext}
+          >
+            <Text style={[styles.questionNextButtonText, !selectedAnswer && styles.questionNextButtonTextDisabled]}>
+              {questionIndex === questions.length - 1 ? 'FINISH' : 'NEXT'}
+            </Text>
+          </TouchableOpacity>
+        </ScrollView>
 
         <Modal transparent visible={exitVisible} animationType="fade" onRequestClose={() => setExitVisible(false)}>
           <View style={styles.exitOverlay}>
@@ -1210,7 +1228,11 @@ const styles = StyleSheet.create({
   retryText: { color: '#fff', fontWeight: '700', fontSize: 14 },
   laterLinkBtn: { padding: 8 },
   introContainer: { flex: 1, backgroundColor: '#ffffff', paddingHorizontal: 22, paddingTop: 18 },
+  introScroll: { flex: 1 },
+  introScrollContent: { flexGrow: 1, paddingBottom: 24 },
   questionContainer: { flex: 1, backgroundColor: '#ffffff', paddingHorizontal: 22, paddingTop: 18 },
+  questionScroll: { flex: 1 },
+  questionScrollContent: { flexGrow: 1, paddingTop: 12, paddingBottom: 32 },
   resultContainer: { flex: 1, backgroundColor: '#ffffff' },
   resultScroll: { flex: 1, backgroundColor: '#ffffff' },
   resultScrollContent: { paddingHorizontal: 16, paddingVertical: 18, backgroundColor: '#ffffff', flexGrow: 1 },
@@ -1272,7 +1294,7 @@ const styles = StyleSheet.create({
     width: '100%',
     height: 200,
   },
-  optionsWrap: { flex: 1 },
+  optionsWrap: { width: '100%', marginBottom: 16 },
   optionButton: { borderWidth: 1, borderColor: '#d1d5db', borderRadius: 14, paddingVertical: 13, paddingHorizontal: 14, marginBottom: 12, backgroundColor: '#fff' },
   optionButtonActive: { borderColor: '#0F2747', backgroundColor: '#eef2ff' },
   optionText: { fontSize: 15, color: '#111827' },

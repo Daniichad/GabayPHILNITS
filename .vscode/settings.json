@@ -1,0 +1,15 @@
+{
+  "python.defaultInterpreterPath": "C:\\Users\\Daniel\\AppData\\Roaming\\uv\\python\\cpython-3.12.15-windows-x86_64-none\\python.exe",
+  "python.pyrefly.configPath": "${workspaceFolder}/backend/pyrefly.toml",
+  "python.pyrefly.typeCheckingMode": "basic",
+  "python.analysis.extraPaths": [
+    "C:/Users/Daniel/AppData/Roaming/uv/python/cpython-3.12.15-windows-x86_64-none/Lib/site-packages",
+    "${workspaceFolder}/backend/.venv/Lib/site-packages",
+    "${workspaceFolder}/backend"
+  ],
+  "python.autoComplete.extraPaths": [
+    "C:/Users/Daniel/AppData/Roaming/uv/python/cpython-3.12.15-windows-x86_64-none/Lib/site-packages",
+    "${workspaceFolder}/backend/.venv/Lib/site-packages",
+    "${workspaceFolder}/backend"
+  ]
+}

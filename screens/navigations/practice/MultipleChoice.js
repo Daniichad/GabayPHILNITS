@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity,
-  StatusBar, Platform, ActivityIndicator
+  StatusBar, Platform, ActivityIndicator, ScrollView
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -30,6 +30,12 @@ export default function MultipleChoice({ navigation, route }) {
   const [error, setError] = useState(null);
   const [userId, setUserId] = useState(null);
   const [score, setScore] = useState(0);
+
+  const scrollRef = useRef(null);
+
+  useEffect(() => {
+    scrollRef.current?.scrollTo({ y: 0, animated: false });
+  }, [index]);
 
   useEffect(() => { loadData(); }, []);
 
@@ -101,8 +107,9 @@ export default function MultipleChoice({ navigation, route }) {
       if (net.isConnected) {
         try {
           let q = supabase.from('multiple_choice_questions')
-            .select('*, practice_categories!inner(name)')
-            .eq('is_published', true);
+            .select('*, practice_categories!inner(name, exam_level)')
+            .eq('is_published', true)
+            .eq('exam_level', activeTrack);
           if (subject) {
             q = q.eq('practice_categories.name', subject);
           } else {
@@ -261,7 +268,13 @@ export default function MultipleChoice({ navigation, route }) {
         </TouchableOpacity>
       </View>
 
-      <View style={styles.body}>
+      <ScrollView
+        ref={scrollRef}
+        style={styles.bodyScroll}
+        contentContainerStyle={styles.bodyScrollContent}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+      >
         {/* Top Meta info row */}
         <View style={styles.topMetaRow}>
           <Text style={styles.metaSubjectText}>{subject || 'All Subjects'}</Text>
@@ -308,16 +321,16 @@ export default function MultipleChoice({ navigation, route }) {
             <Text style={styles.explanationText}>{question.explanation}</Text>
           </View>
         )}
-      </View>
 
-      {hasAnswered && (
-        <View style={styles.footer}>
-          <TouchableOpacity style={styles.nextButton} onPress={goToNext}>
-            <Text style={styles.nextButtonText}>{isLast ? 'Start over' : 'Next'}</Text>
-            <Ionicons name="arrow-forward" size={18} color="#FFFFFF" />
-          </TouchableOpacity>
-        </View>
-      )}
+        {hasAnswered && (
+          <View style={styles.footer}>
+            <TouchableOpacity style={styles.nextButton} onPress={goToNext}>
+              <Text style={styles.nextButtonText}>{isLast ? 'Start over' : 'Next'}</Text>
+              <Ionicons name="arrow-forward" size={18} color="#FFFFFF" />
+            </TouchableOpacity>
+          </View>
+        )}
+      </ScrollView>
     </SafeAreaView>
   );
 }
@@ -333,6 +346,8 @@ const styles = StyleSheet.create({
   retryBtn: { marginTop: 16, paddingHorizontal: 24, paddingVertical: 10, backgroundColor: NAVY, borderRadius: 20 },
   retryText: { color: '#fff', fontWeight: '700', fontSize: 14 },
   body: { flex: 1, justifyContent: 'flex-start', paddingHorizontal: 28, paddingTop: 16 },
+  bodyScroll: { flex: 1 },
+  bodyScrollContent: { flexGrow: 1, paddingHorizontal: 28, paddingTop: 16, paddingBottom: 40 },
   card: { width: '100%', minHeight: 90, borderRadius: 20, borderWidth: 1, borderColor: '#D7DEE8', backgroundColor: '#FFFFFF', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 24, paddingVertical: 18, shadowColor: '#000', shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.08, shadowRadius: 12, elevation: 3 },
   promptText: { fontSize: 16, lineHeight: 22, fontWeight: '600', color: NAVY, textAlign: 'center' },
   optionsList: { marginTop: 16 },
@@ -348,7 +363,7 @@ const styles = StyleSheet.create({
   resultRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 },
   resultText: { fontSize: 14, fontWeight: '700' },
   explanationText: { fontSize: 13, lineHeight: 19, color: '#4A5563' },
-  footer: { alignItems: 'center', paddingBottom: 30, paddingTop: 4 },
+  footer: { alignItems: 'center', paddingTop: 20, paddingBottom: 24 },
   nextButton: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 22, paddingVertical: 12, borderRadius: 24, backgroundColor: NAVY },
   nextButtonText: { color: '#FFFFFF', fontWeight: '700', fontSize: 14 },
   topMetaRow: { width: '100%', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, paddingHorizontal: 4 },

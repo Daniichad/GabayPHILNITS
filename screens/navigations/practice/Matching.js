@@ -101,8 +101,9 @@ export default function Matching({ navigation, route }) {
       }
 
       let q = supabase.from('matching_pairs')
-        .select('*, practice_categories!inner(name)')
-        .eq('is_published', true);
+        .select('*, practice_categories!inner(name, exam_level)')
+        .eq('is_published', true)
+        .eq('exam_level', activeTrack);
       if (subject) {
         q = q.eq('practice_categories.name', subject);
       } else {
@@ -127,9 +128,12 @@ export default function Matching({ navigation, route }) {
   const logResult = async (allMatched) => {
     if (!userId) return;
     const duration = startTime ? Math.round((Date.now() - startTime) / 1000) : null;
+    const rawSetTitle = pairs[0]?.set_title || subject || 'Matching';
+    const taggedTitle = rawSetTitle.includes(`[${activeTrack}]`) ? rawSetTitle : `${rawSetTitle} [${activeTrack}]`;
+
     await supabase.from('matching_results').insert({
       user_id:         userId,
-      set_title:       pairs[0]?.set_title ?? 'Matching',
+      set_title:       taggedTitle,
       pairs_total:     pairs.length,
       pairs_matched:   allMatched,
       mistakes,

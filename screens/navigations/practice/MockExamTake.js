@@ -103,6 +103,11 @@ export default function MockExamTake({ navigation, route }) {
 
   const answersRef = useRef(answers);
   const secondsLeftRef = useRef(secondsLeft);
+  const quizScrollRef = useRef(null);
+
+  useEffect(() => {
+    quizScrollRef.current?.scrollTo({ y: 0, animated: false });
+  }, [questionIndex]);
   
   const appStateRef = useRef(AppState.currentState);
   const backgroundWarningCountRef = useRef(0);
@@ -828,9 +833,11 @@ export default function MockExamTake({ navigation, route }) {
 
         <View style={styles.quizBody}>
           <ScrollView
+            ref={quizScrollRef}
             style={styles.quizScroll}
             contentContainerStyle={styles.quizScrollContent}
             showsVerticalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
           >
             <View style={styles.questionHeaderRow}>
               <Text style={styles.questionCounter}>Question {questionIndex + 1} of {questions.length}</Text>
@@ -1010,7 +1017,7 @@ const styles = StyleSheet.create({
   timerText:             { fontSize: 12, fontWeight: '700', color: NAVY },
   quizBody:              { flex: 1, paddingHorizontal: 20, paddingTop: 16 },
   quizScroll:            { flex: 1 },
-  quizScrollContent:     { paddingBottom: 24 },
+  quizScrollContent:     { paddingBottom: 32, flexGrow: 1 },
   questionHeaderRow:     { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 },
   questionCounter:       { fontSize: 13, color: '#9AA5B1', fontWeight: '700' },
   categoryBadge:         { backgroundColor: '#EDF2FA', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12 },
