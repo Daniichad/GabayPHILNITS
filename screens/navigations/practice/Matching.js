@@ -5,6 +5,8 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';;
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../../../supabase';
+import { resolveUserTargetExam } from '../../../utils/targetExam';
+import { getCache, setCache } from '../../../utils/cache';
 
 const NAVY        = '#0B2540';
 const MATCH_DELAY   = 450;
@@ -28,7 +30,8 @@ export default function Matching({ navigation, route }) {
   const subject = route?.params?.subject;
   const limit   = route?.params?.limit ?? 6; // 6 pairs = 12 cards (1 set default)
   const passedTargetExam = route?.params?.targetExam;
-  const feSection = route?.params?.feSection; // 'morning' | 'afternoon'
+  const feSection = route?.params?.feSection; // 'Subject A' | 'Subject B'
+  const passedReviewSpeed = route?.params?.reviewSpeed; // 'Quick' | 'Standard' | 'Detailed'
 
   const [pairs,     setPairs]     = useState([]);
   const [loading,   setLoading]   = useState(true);
@@ -43,6 +46,7 @@ export default function Matching({ navigation, route }) {
   const [wrongFlash,setWrongFlash]= useState([]);
   const [locked,    setLocked]    = useState(false);
   const [mistakes,  setMistakes]  = useState(0);
+  const [activeTrack, setActiveTrack] = useState(passedTargetExam || 'IP');
 
   const timeoutRef = useRef(null);
 
@@ -54,25 +58,29 @@ export default function Matching({ navigation, route }) {
       setLoading(true); setError(null);
       const { data: { session } } = await supabase.auth.getSession();
       const uid = session?.user?.id ?? null;
+      const uemail = session?.user?.email ?? null;
       setUserId(uid);
 
       // Resolve user's target exam (IP or FE)
-      let activeTrack = passedTargetExam || 'IP';
-      if (!passedTargetExam && uid) {
-        try {
-          const { data: pData } = await supabase
-            .from('personal_info')
-            .select('target_exam_level')
-            .eq('user_id', uid)
-            .maybeSingle();
-          if (pData?.target_exam_level) {
-            const lvl = pData.target_exam_level.toLowerCase();
-            activeTrack = (lvl.includes('fe') || lvl.includes('fundamental') || (lvl.includes('pro') && !lvl.includes('sub')))
-              ? 'FE'
-              : 'IP';
-          }
-        } catch (_) {}
+      const track = await resolveUserTargetExam(uid, passedTargetExam || 'IP');
+      setActiveTrack(track);
+
+      // Resolve user's review speed ('Quick' | 'Standard' | 'Detailed')
+      let activeSpeed = passedReviewSpeed;
+      if (!activeSpeed) {
+        const cachedSpeed = await getCache('user_review_speed');
+        if (cachedSpeed) activeSpeed = cachedSpeed;
+        else if (uemail) {
+          try {
+            const { data: uData } = await supabase.from('users').select('review_speed').ilike('email', uemail).maybeSingle();
+            if (uData?.review_speed) {
+              activeSpeed = String(uData.review_speed).trim();
+              setCache('user_review_speed', activeSpeed).catch(() => {});
+            }
+          } catch (_) {}
+        }
       }
+      if (!activeSpeed) activeSpeed = 'Standard';
 
       const IP_SUBJECTS = ['Technology', 'Management', 'Strategy'];
       const FE_MORNING_SUBJECTS = [
@@ -80,9 +88,6 @@ export default function Matching({ navigation, route }) {
         'Networks & Security',
         'IT Management & Strategy',
         'Databases & SQL',
-        'Technology',
-        'Management',
-        'Strategy',
       ];
       const FE_AFTERNOON_SUBJECTS = [
         'Algorithms & Programming',
@@ -90,32 +95,65 @@ export default function Matching({ navigation, route }) {
         'Security & System Design',
       ];
 
-      let trackSubjects = IP_SUBJECTS;
-      if (activeTrack === 'FE') {
-        const isSubjectB = String(feSection || '').toLowerCase().includes('b') || String(feSection || '').toLowerCase().includes('afternoon');
-        if (isSubjectB) {
-          trackSubjects = FE_AFTERNOON_SUBJECTS;
+      const normSection = String(feSection || '').trim().toLowerCase().replace(/_/g, ' ');
+      const isSubjectB = /\b(b|afternoon)\b/i.test(normSection);
+      const activeSection = track === 'FE' ? (isSubjectB ? 'Subject B' : 'Subject A') : null;
+      const trackSubjects = track === 'FE'
+        ? (isSubjectB ? FE_AFTERNOON_SUBJECTS : FE_MORNING_SUBJECTS)
+        : IP_SUBJECTS;
+
+      // Base query matching target exam and session
+      const buildBaseQuery = () => {
+        let q = supabase.from('matching_pairs')
+          .select('*, practice_categories!inner(name, exam_level)')
+          .eq('is_published', true)
+          .eq('exam_level', track);
+
+        if (track === 'FE' && activeSection) {
+          q = q.eq('fe_section', activeSection);
+        }
+
+        if (subject && subject !== 'All') {
+          q = q.eq('practice_categories.name', subject);
         } else {
-          trackSubjects = FE_MORNING_SUBJECTS;
+          q = q.in('practice_categories.name', trackSubjects);
+        }
+        return q;
+      };
+
+      // Prioritize pairs strictly matching user's review speed
+      const normalizedSpeed = (activeSpeed === 'Quick' || activeSpeed === 'Detailed') ? activeSpeed : 'Standard';
+      let speedQ = buildBaseQuery().ilike('review_speed', normalizedSpeed);
+
+      const { data: speedMatched, error: qErr } = await speedQ.limit(limit);
+      if (qErr) throw qErr;
+
+      let loadedPairs = speedMatched ? [...speedMatched] : [];
+
+      // Fallback / pad if specific speed has fewer items than requested limit
+      if (loadedPairs.length < limit) {
+        const existingIds = new Set(loadedPairs.map(p => p.id));
+        const fallbackQ = buildBaseQuery();
+        const { data: fallbackPairs } = await fallbackQ.limit(limit * 2);
+        if (fallbackPairs) {
+          for (const p of fallbackPairs) {
+            if (!existingIds.has(p.id)) {
+              loadedPairs.push(p);
+              existingIds.add(p.id);
+              if (loadedPairs.length >= limit) break;
+            }
+          }
         }
       }
 
-      let q = supabase.from('matching_pairs')
-        .select('*, practice_categories!inner(name, exam_level)')
-        .eq('is_published', true)
-        .eq('exam_level', activeTrack);
-      if (subject) {
-        q = q.eq('practice_categories.name', subject);
-      } else {
-        q = q.in('practice_categories.name', trackSubjects);
+      if (loadedPairs.length === 0) {
+        setError('No matching pairs found for this configuration.');
+        return;
       }
 
-      const { data, error: qErr } = await q.limit(limit);
-      if (qErr) throw qErr;
-
-      const loadedPairs = (data ?? []).sort(() => 0.5 - Math.random());
-      setPairs(loadedPairs);
-      setCards(buildCards(loadedPairs));
+      const shuffledPairs = [...loadedPairs].sort(() => 0.5 - Math.random());
+      setPairs(shuffledPairs);
+      setCards(buildCards(shuffledPairs));
       setStartTime(Date.now());
     } catch (err) {
       console.error('Matching load error:', err);
@@ -139,6 +177,7 @@ export default function Matching({ navigation, route }) {
       mistakes,
       completed:       allMatched === pairs.length,
       duration_seconds: duration,
+      exam_level:      activeTrack,
     });
   };
 
@@ -243,9 +282,7 @@ export default function Matching({ navigation, route }) {
           <Ionicons name="chevron-back" size={26} color={NAVY} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Matching</Text>
-        <TouchableOpacity style={styles.iconButton}>
-          <Ionicons name="settings-outline" size={22} color={NAVY} />
-        </TouchableOpacity>
+        <View style={styles.iconButton} />
       </View>
 
       {/* Top Meta info row */}

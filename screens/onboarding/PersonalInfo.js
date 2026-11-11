@@ -11,8 +11,10 @@ import {
   Platform,
   Image,
   Modal,
+  StatusBar,
 } from 'react-native'
 import { Ionicons } from '@expo/vector-icons'
+import { Calendar } from 'react-native-calendars'
 import { supabase } from '../../utils/supabase'
 import { saveUserCache, saveUserSession } from '../../utils/database'
 
@@ -87,104 +89,10 @@ const COUNTRIES = [
   { name: 'India', code: '+91', flag: '🇮🇳' },
 ]
 
-const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
-const ITEM_HEIGHT = 44
-
-function WheelColumn({ items, selectedValue, onValueChange, labelExtractor }) {
-  const scrollRef = React.useRef(null)
-  const isScrollingRef = React.useRef(false)
-  const [activeIdx, setActiveIdx] = React.useState(() => {
-    const idx = items.indexOf(selectedValue)
-    return idx >= 0 ? idx : 0
-  })
-
-  React.useEffect(() => {
-    const idx = items.indexOf(selectedValue)
-    if (idx >= 0 && idx !== activeIdx && !isScrollingRef.current) {
-      setActiveIdx(idx)
-      scrollRef.current?.scrollTo({ y: idx * ITEM_HEIGHT, animated: true })
-    }
-  }, [selectedValue, items])
-
-  React.useEffect(() => {
-    const idx = items.indexOf(selectedValue)
-    const initial = idx >= 0 ? idx : 0
-    const timer = setTimeout(() => {
-      scrollRef.current?.scrollTo({ y: initial * ITEM_HEIGHT, animated: false })
-    }, 80)
-    return () => clearTimeout(timer)
-  }, [])
-
-  const handleScroll = (e) => {
-    const offsetY = e.nativeEvent.contentOffset.y
-    const index = Math.max(0, Math.min(items.length - 1, Math.round(offsetY / ITEM_HEIGHT)))
-    if (index !== activeIdx) {
-      setActiveIdx(index)
-    }
-  }
-
-  const handleScrollEnd = (e) => {
-    isScrollingRef.current = false
-    const offsetY = e.nativeEvent.contentOffset.y
-    const index = Math.max(0, Math.min(items.length - 1, Math.round(offsetY / ITEM_HEIGHT)))
-    setActiveIdx(index)
-    if (items[index] !== undefined && items[index] !== selectedValue) {
-      onValueChange(items[index])
-    }
-  }
-
-  const handleItemPress = (index) => {
-    setActiveIdx(index)
-    scrollRef.current?.scrollTo({ y: index * ITEM_HEIGHT, animated: true })
-    onValueChange(items[index])
-  }
-
-  return (
-    <View style={styles.wheelColumnContainer}>
-      {/* Active Middle Row Indicator */}
-      <View style={styles.wheelMiddleHighlight} pointerEvents="none" />
-
-      <ScrollView
-        ref={scrollRef}
-        showsVerticalScrollIndicator={false}
-        snapToInterval={ITEM_HEIGHT}
-        decelerationRate="fast"
-        bounces={false}
-        scrollEventThrottle={16}
-        onScrollBeginDrag={() => { isScrollingRef.current = true }}
-        onScroll={handleScroll}
-        onMomentumScrollEnd={handleScrollEnd}
-        onScrollEndDrag={handleScrollEnd}
-        contentContainerStyle={{
-          paddingTop: ITEM_HEIGHT,
-          paddingBottom: ITEM_HEIGHT,
-        }}
-      >
-        {items.map((item, index) => {
-          const isActive = index === activeIdx
-          const label = labelExtractor ? labelExtractor(item) : String(item)
-          return (
-            <TouchableOpacity
-              key={String(item)}
-              activeOpacity={0.7}
-              style={styles.wheelItem}
-              onPress={() => handleItemPress(index)}
-            >
-              <Text
-                style={[
-                  styles.wheelItemText,
-                  isActive ? styles.wheelItemTextActive : styles.wheelItemTextInactive,
-                ]}
-              >
-                {label}
-              </Text>
-            </TouchableOpacity>
-          )
-        })}
-      </ScrollView>
-    </View>
-  )
-}
+const MONTH_NAMES = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December'
+]
 
 export default function PersonalInfo({ navigation }) {
   const [birthdate, setBirthdate] = React.useState('')
@@ -209,33 +117,65 @@ export default function PersonalInfo({ navigation }) {
   const [pickerOptions, setPickerOptions] = React.useState([])
   const [pickerSetter, setPickerSetter] = React.useState(null)
 
-  // Date Picker States
+  // Calendar Date Picker States
   const [datePickerVisible, setDatePickerVisible] = React.useState(false)
-  const [selectedMonth, setSelectedMonth] = React.useState('January')
-  const [selectedDay, setSelectedDay] = React.useState(1)
-  const [selectedYear, setSelectedYear] = React.useState(2000)
+  const [tempBirthdate, setTempBirthdate] = React.useState('2000-01-01')
+  const [calendarViewMode, setCalendarViewMode] = React.useState('calendar') // 'calendar' | 'year' | 'month'
+
+  const currentYearNow = new Date().getFullYear()
+  const YEARS = React.useMemo(() => {
+    const list = []
+    for (let y = currentYearNow - 10; y >= 1950; y--) {
+      list.push(y)
+    }
+    return list
+  }, [currentYearNow])
+
+  const [curYear, curMonth, curDay] = React.useMemo(() => {
+    const parts = (tempBirthdate || '2000-01-01').split('-').map(Number)
+    return [parts[0] || 2000, parts[1] || 1, parts[2] || 1]
+  }, [tempBirthdate])
+
+  const displayDateText = React.useMemo(() => {
+    if (!tempBirthdate) return 'No date selected'
+    const parts = tempBirthdate.split('-').map(Number)
+    if (parts.length === 3 && parts[1] >= 1 && parts[1] <= 12) {
+      return `${MONTH_NAMES[parts[1] - 1]} ${parts[2]}, ${parts[0]}`
+    }
+    return tempBirthdate
+  }, [tempBirthdate])
+
+  const handleOpenDatePicker = () => {
+    if (birthdate) {
+      setTempBirthdate(birthdate)
+    } else {
+      setTempBirthdate('2000-01-01')
+    }
+    setCalendarViewMode('calendar')
+    setDatePickerVisible(true)
+  }
+
+  const changeYear = (newYear) => {
+    const yr = String(newYear)
+    const mo = String(curMonth).padStart(2, '0')
+    const dy = String(Math.min(curDay, 28)).padStart(2, '0')
+    setTempBirthdate(`${yr}-${mo}-${dy}`)
+    setCalendarViewMode('calendar')
+  }
+
+  const changeMonth = (monthIndex) => {
+    const yr = String(curYear)
+    const mo = String(monthIndex + 1).padStart(2, '0')
+    const dy = String(Math.min(curDay, 28)).padStart(2, '0')
+    setTempBirthdate(`${yr}-${mo}-${dy}`)
+    setCalendarViewMode('calendar')
+  }
 
   const showCustomAlert = (title, message) => {
     setAlertTitle(title)
     setAlertMessage(message)
     setAlertVisible(true)
   }
-
-  const getDaysInMonth = (month, year) => {
-    const months = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
-    const monthIndex = months.indexOf(month)
-    if (monthIndex === -1) return 31
-    // passing day = 0 returns the last day of the previous month (which is monthIndex + 1)
-    return new Date(year, monthIndex + 1, 0).getDate()
-  }
-
-  // Adjust selected day if it exceeds the maximum days of the new month/year
-  React.useEffect(() => {
-    const maxDays = getDaysInMonth(selectedMonth, selectedYear)
-    if (selectedDay > maxDays) {
-      setSelectedDay(maxDays)
-    }
-  }, [selectedMonth, selectedYear])
 
   React.useEffect(() => {
     const loadProfile = async () => {
@@ -310,18 +250,7 @@ export default function PersonalInfo({ navigation }) {
           
           if (data.birthdate) {
             setBirthdate(data.birthdate)
-            const parts = data.birthdate.split('-')
-            if (parts.length === 3) {
-              const yr = parseInt(parts[0], 10)
-              const moIdx = parseInt(parts[1], 10) - 1
-              const dy = parseInt(parts[2], 10)
-              if (!isNaN(yr)) setSelectedYear(yr)
-              if (!isNaN(moIdx) && moIdx >= 0 && moIdx < 12) {
-                const months = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
-                setSelectedMonth(months[moIdx])
-              }
-              if (!isNaN(dy)) setSelectedDay(dy)
-            }
+            setTempBirthdate(data.birthdate)
           }
         }
       } finally {
@@ -337,16 +266,6 @@ export default function PersonalInfo({ navigation }) {
     setPickerOptions(options)
     setPickerSetter(() => setter)
     setPickerVisible(true)
-  }
-
-  const handleConfirmDate = () => {
-    const months = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
-    const monthIndex = months.indexOf(selectedMonth) + 1
-    const formattedMonth = monthIndex < 10 ? `0${monthIndex}` : `${monthIndex}`
-    const formattedDay = selectedDay < 10 ? `0${selectedDay}` : `${selectedDay}`
-    const dateStr = `${selectedYear}-${formattedMonth}-${formattedDay}`
-    setBirthdate(dateStr)
-    setDatePickerVisible(false)
   }
 
   const handleNext = async () => {
@@ -458,7 +377,7 @@ export default function PersonalInfo({ navigation }) {
   if (loadingProfile) {
     return (
       <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#C14954" />
+        <ActivityIndicator size="large" color="#3c64b4" />
       </View>
     )
   }
@@ -468,6 +387,7 @@ export default function PersonalInfo({ navigation }) {
       style={styles.container}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
+      <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
       <ScrollView
         contentContainerStyle={styles.scrollContent}
         keyboardShouldPersistTaps="handled"
@@ -491,7 +411,7 @@ export default function PersonalInfo({ navigation }) {
             label="Birthdate"
             value={birthdate}
             placeholder="Select birthdate"
-            onPress={() => setDatePickerVisible(true)}
+            onPress={handleOpenDatePicker}
           />
           <View style={styles.fieldContainer}>
             <Text style={styles.fieldLabel}>Contact Number</Text>
@@ -602,7 +522,7 @@ export default function PersonalInfo({ navigation }) {
         </View>
       </Modal>
 
-      {/* Custom Date Picker Modal */}
+      {/* Custom Date Picker Modal (Calendar UI) */}
       <Modal
         transparent
         visible={datePickerVisible}
@@ -610,55 +530,159 @@ export default function PersonalInfo({ navigation }) {
         onRequestClose={() => setDatePickerVisible(false)}
       >
         <View style={styles.modalOverlay}>
-          <View style={[styles.modalCard, { width: '90%', maxWidth: 400, borderRadius: 28 }]}>
+          <View style={[styles.modalCard, { width: '92%', maxWidth: 400, borderRadius: 24, padding: 20, maxHeight: '90%' }]}>
             <Text style={styles.modalTitle}>Select Birthdate</Text>
-            <Text style={styles.modalSubtitle}>Swipe or tap to choose month, day, and year</Text>
+            <Text style={styles.modalSubtitle}>Pick your date of birth</Text>
 
-            <View style={styles.datePickerWrapper}>
-              <View style={styles.datePickerRow}>
-                {/* Month Column */}
-                <View style={styles.dateColumn}>
-                  <Text style={styles.columnHeader}>Month</Text>
-                  <WheelColumn
-                    items={MONTHS}
-                    selectedValue={selectedMonth}
-                    onValueChange={setSelectedMonth}
-                    labelExtractor={(m) => m.slice(0, 3)}
-                  />
-                </View>
-
-                {/* Day Column */}
-                <View style={styles.dateColumn}>
-                  <Text style={styles.columnHeader}>Day</Text>
-                  <WheelColumn
-                    items={Array.from({ length: getDaysInMonth(selectedMonth, selectedYear) }, (_, i) => i + 1)}
-                    selectedValue={selectedDay}
-                    onValueChange={setSelectedDay}
-                  />
-                </View>
-
-                {/* Year Column */}
-                <View style={styles.dateColumn}>
-                  <Text style={styles.columnHeader}>Year</Text>
-                  <WheelColumn
-                    items={Array.from({ length: 80 }, (_, i) => new Date().getFullYear() - i)}
-                    selectedValue={selectedYear}
-                    onValueChange={setSelectedYear}
-                  />
-                </View>
-              </View>
+            {/* Selected Date Badge */}
+            <View style={styles.dateDisplayBadge}>
+              <Ionicons name="calendar" size={18} color="#3c64b4" style={{ marginRight: 8 }} />
+              <Text style={styles.dateDisplayText}>{displayDateText}</Text>
             </View>
 
+            {/* Quick Month & Year Switchers */}
+            <View style={styles.quickNavRow}>
+              <TouchableOpacity
+                style={[
+                  styles.quickNavBtn,
+                  calendarViewMode === 'month' && styles.quickNavBtnActive,
+                ]}
+                activeOpacity={0.8}
+                onPress={() => setCalendarViewMode(calendarViewMode === 'month' ? 'calendar' : 'month')}
+              >
+                <Text style={[
+                  styles.quickNavBtnText,
+                  calendarViewMode === 'month' && styles.quickNavBtnTextActive,
+                ]}>
+                  {MONTH_NAMES[curMonth - 1] || 'Month'} ▾
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[
+                  styles.quickNavBtn,
+                  calendarViewMode === 'year' && styles.quickNavBtnActive,
+                ]}
+                activeOpacity={0.8}
+                onPress={() => setCalendarViewMode(calendarViewMode === 'year' ? 'calendar' : 'year')}
+              >
+                <Text style={[
+                  styles.quickNavBtnText,
+                  calendarViewMode === 'year' && styles.quickNavBtnTextActive,
+                ]}>
+                  {curYear} ▾
+                </Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* Selector View */}
+            <View style={styles.calendarContainer}>
+              {calendarViewMode === 'month' && (
+                <View style={styles.monthGrid}>
+                  {MONTH_NAMES.map((m, idx) => {
+                    const isSelected = curMonth === (idx + 1)
+                    return (
+                      <TouchableOpacity
+                        key={m}
+                        style={[styles.gridCell, isSelected && styles.gridCellSelected]}
+                        activeOpacity={0.75}
+                        onPress={() => changeMonth(idx)}
+                      >
+                        <Text style={[styles.gridCellText, isSelected && styles.gridCellTextSelected]}>
+                          {m.slice(0, 3)}
+                        </Text>
+                      </TouchableOpacity>
+                    )
+                  })}
+                </View>
+              )}
+
+              {calendarViewMode === 'year' && (
+                <ScrollView
+                  style={styles.yearScrollView}
+                  contentContainerStyle={styles.yearGrid}
+                  showsVerticalScrollIndicator={true}
+                >
+                  {YEARS.map((yr) => {
+                    const isSelected = curYear === yr
+                    return (
+                      <TouchableOpacity
+                        key={yr}
+                        style={[styles.yearGridCell, isSelected && styles.gridCellSelected]}
+                        activeOpacity={0.75}
+                        onPress={() => changeYear(yr)}
+                      >
+                        <Text style={[styles.gridCellText, isSelected && styles.gridCellTextSelected]}>
+                          {yr}
+                        </Text>
+                      </TouchableOpacity>
+                    )
+                  })}
+                </ScrollView>
+              )}
+
+              {calendarViewMode === 'calendar' && (
+                <Calendar
+                  key={tempBirthdate.slice(0, 7)}
+                  current={tempBirthdate}
+                  maxDate={new Date().toISOString().split('T')[0]}
+                  minDate="1950-01-01"
+                  onDayPress={(day) => {
+                    setTempBirthdate(day.dateString)
+                  }}
+                  onMonthChange={(month) => {
+                    const yr = String(month.year)
+                    const mo = String(month.month).padStart(2, '0')
+                    const dy = String(Math.min(curDay, 28)).padStart(2, '0')
+                    setTempBirthdate(`${yr}-${mo}-${dy}`)
+                  }}
+                  markedDates={{
+                    [tempBirthdate]: {
+                      selected: true,
+                      selectedColor: '#3c64b4',
+                      selectedTextColor: '#FFFFFF',
+                    },
+                  }}
+                  theme={{
+                    backgroundColor: '#FFFFFF',
+                    calendarBackground: '#FFFFFF',
+                    textSectionTitleColor: '#6B7280',
+                    selectedDayBackgroundColor: '#3c64b4',
+                    selectedDayTextColor: '#FFFFFF',
+                    todayTextColor: '#3c64b4',
+                    dayTextColor: '#111827',
+                    textDisabledColor: '#D1D5DB',
+                    arrowColor: '#3c64b4',
+                    monthTextColor: '#0F2747',
+                    indicatorColor: '#3c64b4',
+                    textDayFontWeight: '600',
+                    textMonthFontWeight: '700',
+                    textDayHeaderFontWeight: '600',
+                    textDayFontSize: 13,
+                    textMonthFontSize: 15,
+                    textDayHeaderFontSize: 12,
+                  }}
+                  enableSwipeMonths={true}
+                />
+              )}
+            </View>
+
+            {/* Action Buttons */}
             <View style={styles.dateConfirmRow}>
               <TouchableOpacity
                 style={[styles.modalCancelButton, { flex: 1, marginRight: 8, marginTop: 0 }]}
+                activeOpacity={0.8}
                 onPress={() => setDatePickerVisible(false)}
               >
                 <Text style={styles.modalCancelButtonText}>Cancel</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={[styles.alertButton, { flex: 1, marginLeft: 8, backgroundColor: '#C14954' }]}
-                onPress={handleConfirmDate}
+                style={[styles.alertButton, { flex: 1, marginLeft: 8, backgroundColor: '#3c64b4' }]}
+                activeOpacity={0.8}
+                onPress={() => {
+                  setBirthdate(tempBirthdate)
+                  setDatePickerVisible(false)
+                }}
               >
                 <Text style={styles.alertButtonText}>Confirm</Text>
               </TouchableOpacity>
@@ -730,7 +754,7 @@ export default function PersonalInfo({ navigation }) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0f1e35',
+    backgroundColor: '#FFFFFF',
   },
   scrollContent: {
     flexGrow: 1,
@@ -741,7 +765,7 @@ const styles = StyleSheet.create({
   },
   loadingContainer: {
     flex: 1,
-    backgroundColor: '#0f1e35',
+    backgroundColor: '#FFFFFF',
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -758,10 +782,19 @@ const styles = StyleSheet.create({
   },
   formContainer: {
     width: '100%',
-    backgroundColor: '#fff',
+    backgroundColor: '#FFFFFF',
     borderRadius: 24,
     padding: 24,
     marginBottom: 32,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    // Shadow for iOS (same as Login & Register)
+    shadowColor: '#0F2747',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.12,
+    shadowRadius: 18,
+    // Elevation for Android
+    elevation: 8,
   },
   heading: {
     fontSize: 20,
@@ -799,7 +832,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
   },
   inputFocused: {
-    borderColor: '#3B82B8',
+    borderColor: '#3c64b4',
   },
   phoneInputRow: {
     flexDirection: 'row',
@@ -840,7 +873,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
   },
   phoneInputTextFocused: {
-    borderColor: '#3B82B8',
+    borderColor: '#3c64b4',
   },
   selectInput: {
     width: '100%',
@@ -868,19 +901,19 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   nextButton: {
-    backgroundColor: '#C14954',
-    borderRadius: 14,
+    backgroundColor: '#3c64b4',
+    borderRadius: 12,
     paddingVertical: 14,
     alignItems: 'center',
     marginTop: 12,
   },
   nextButtonDisabled: {
-    opacity: 0.6,
+    opacity: 0.7,
   },
   nextButtonText: {
     color: '#fff',
     fontSize: 16,
-    fontWeight: '700',
+    fontWeight: '600',
   },
   modalOverlay: {
     flex: 1,
@@ -943,7 +976,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   alertButton: {
-    backgroundColor: '#C14954',
+    backgroundColor: '#3c64b4',
     borderRadius: 12,
     paddingVertical: 13,
     alignItems: 'center',
@@ -953,68 +986,109 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '700',
   },
-  datePickerWrapper: {
-    width: '100%',
-    marginBottom: 20,
-  },
-  datePickerRow: {
+  dateDisplayBadge: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    height: ITEM_HEIGHT * 3 + 28,
-  },
-  dateColumn: {
-    flex: 1,
-    marginHorizontal: 4,
-    alignItems: 'center',
-  },
-  columnHeader: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#9CA3AF',
-    marginBottom: 8,
-    textTransform: 'uppercase',
-    letterSpacing: 1,
-  },
-  wheelColumnContainer: {
-    width: '100%',
-    height: ITEM_HEIGHT * 3,
-    overflow: 'hidden',
-    position: 'relative',
-    borderRadius: 14,
-    backgroundColor: '#F3F4F6',
-  },
-  wheelMiddleHighlight: {
-    position: 'absolute',
-    top: ITEM_HEIGHT,
-    left: 4,
-    right: 4,
-    height: ITEM_HEIGHT,
-    backgroundColor: '#C14954',
-    borderRadius: 10,
-    zIndex: 0,
-  },
-  wheelItem: {
-    height: ITEM_HEIGHT,
     alignItems: 'center',
     justifyContent: 'center',
-    zIndex: 1,
+    backgroundColor: '#EEF2F6',
+    borderRadius: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    marginBottom: 14,
   },
-  wheelItemText: {
+  dateDisplayText: {
     fontSize: 15,
-  },
-  wheelItemTextActive: {
-    color: '#FFFFFF',
     fontWeight: '700',
-    opacity: 1,
+    color: '#0F2747',
   },
-  wheelItemTextInactive: {
-    color: '#4B5563',
-    fontWeight: '500',
-    opacity: 0.35,
+  quickNavRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginBottom: 12,
+  },
+  quickNavBtn: {
+    flex: 1,
+    borderWidth: 1.5,
+    borderColor: '#E2E8F0',
+    backgroundColor: '#F8FAFC',
+    borderRadius: 12,
+    paddingVertical: 9,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  quickNavBtnActive: {
+    borderColor: '#3c64b4',
+    backgroundColor: '#EEF2F6',
+  },
+  quickNavBtnText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#475569',
+  },
+  quickNavBtnTextActive: {
+    color: '#3c64b4',
+  },
+  calendarContainer: {
+    minHeight: 310,
+    justifyContent: 'center',
+    marginBottom: 16,
+  },
+  monthGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    justifyContent: 'space-between',
+    paddingVertical: 12,
+  },
+  yearScrollView: {
+    maxHeight: 280,
+  },
+  yearGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    justifyContent: 'space-between',
+    paddingVertical: 8,
+    paddingHorizontal: 4,
+  },
+  gridCell: {
+    width: '31%',
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1.5,
+    borderColor: '#E2E8F0',
+    borderRadius: 12,
+    paddingVertical: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 8,
+  },
+  yearGridCell: {
+    width: '23%',
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1.5,
+    borderColor: '#E2E8F0',
+    borderRadius: 10,
+    paddingVertical: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 8,
+  },
+  gridCellSelected: {
+    backgroundColor: '#3c64b4',
+    borderColor: '#3c64b4',
+  },
+  gridCellText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#1E293B',
+  },
+  gridCellTextSelected: {
+    color: '#FFFFFF',
   },
   dateConfirmRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     width: '100%',
+    marginTop: 4,
   },
-})
+});

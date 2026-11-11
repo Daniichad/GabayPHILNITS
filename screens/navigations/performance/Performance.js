@@ -3,11 +3,15 @@ import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
   StatusBar, Platform, ActivityIndicator
 } from 'react-native'
-import { SafeAreaView } from 'react-native-safe-area-context'
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { Ionicons, Feather, MaterialCommunityIcons } from '@expo/vector-icons'
-import Svg, { Circle, Line, Polygon, Path, Text as SvgText, G } from 'react-native-svg'
+import Svg, { Circle, Line, Polygon, Path, Text as SvgText, TSpan, G } from 'react-native-svg'
 import { supabase } from '../../../supabase'
 import { SkeletonItem } from '../../../components/Skeleton'
+import { withTimeout } from '../../../utils/queryHelper'
+import { getScrollBottomPadding } from '../../../utils/responsiveLayout'
+import { getCache, setCache } from '../../../utils/cache'
+import { resolveUserTargetExam } from '../../../utils/targetExam'
 
 const NAVY = '#0f2747'
 const TABS = ['Overview', 'Predictive', 'Prescriptive']
@@ -21,13 +25,13 @@ const IP_SUBJECTS = [
 
 const FE_A_SUBJECTS = [
   'Computer Systems & Architecture',
-  'Algorithms & Programming',
+  'Databases & SQL',
   'Networks & Security',
   'IT Management & Strategy',
 ]
 
 const FE_B_SUBJECTS = [
-  'Algorithms & Data Structures',
+  'Algorithms & Programming',
   'Security & System Design',
 ]
 
@@ -36,6 +40,7 @@ const SUBJECT_COLORS = {
   'Management': '#d97706',
   'Strategy': '#9333ea',
   'Computer Systems & Architecture': '#2563eb',
+  'Databases & SQL': '#06b6d4',
   'Algorithms & Programming': '#059669',
   'Networks & Security': '#dc2626',
   'IT Management & Strategy': '#9333ea',
@@ -134,11 +139,12 @@ const DOMAIN_TARGET_ATTEMPTS = {
 
   // FE Subject A
   'Computer Systems & Architecture': 30,
-  'Algorithms & Programming': 30,
+  'Databases & SQL': 25,
   'Networks & Security': 25,
   'IT Management & Strategy': 25,
 
   // FE Subject B
+  'Algorithms & Programming': 25,
   'Algorithms & Data Structures': 20,
   'Security & System Design': 20,
 
@@ -216,12 +222,30 @@ function ProgressBar({ value, color = NAVY }) {
 
 // ── Domain Mastery Radar Chart (SVG) ──────────────────────────────
 function DomainRadarChart({ subjects = [], benchmark = 60 }) {
-  if (!subjects || subjects.length < 3) return null
-  const size = 300
-  const cx = size / 2
+  if (!subjects || subjects.length < 2) return null
+
+  // If there are exactly 2 subjects (e.g. FE Subject B), create an equilateral triad
+  // with Combined Average so the radar forms a complete, functional polygon!
+  let chartSubjects = subjects
+  if (subjects.length === 2) {
+    const avgPct = Math.round((subjects[0].pct + subjects[1].pct) / 2)
+    chartSubjects = [
+      subjects[0],
+      subjects[1],
+      {
+        name: 'Combined Average',
+        pct: avgPct,
+        color: '#6366f1',
+      },
+    ]
+  }
+
+  const width = 360
+  const height = 270
+  const cx = width / 2
   const cy = 135
-  const radius = 80
-  const n = subjects.length
+  const radius = 68
+  const n = chartSubjects.length
   const angleStep = (Math.PI * 2) / n
   const startAngle = -Math.PI / 2
 
@@ -236,22 +260,22 @@ function DomainRadarChart({ subjects = [], benchmark = 60 }) {
 
   const webLevels = [0.25, 0.5, 0.75, 1.0]
 
-  const userPoints = subjects.map((s, i) => {
+  const userPoints = chartSubjects.map((s, i) => {
     const pt = getCoord(i, s.pct)
     return `${pt.x},${pt.y}`
   }).join(' ')
 
-  const benchmarkPoints = subjects.map((_, i) => {
+  const benchmarkPoints = chartSubjects.map((_, i) => {
     const pt = getCoord(i, benchmark)
     return `${pt.x},${pt.y}`
   }).join(' ')
 
   return (
     <View style={styles.radarContainer}>
-      <Svg width={size} height={250} viewBox={`0 0 ${size} 250`}>
+      <Svg width="100%" height={height} viewBox={`0 0 ${width} ${height}`}>
         {/* Concentric webs */}
         {webLevels.map((lvl) => {
-          const pts = subjects.map((_, i) => {
+          const pts = chartSubjects.map((_, i) => {
             const pt = getCoord(i, lvl * 100)
             return `${pt.x},${pt.y}`
           }).join(' ')
@@ -267,7 +291,7 @@ function DomainRadarChart({ subjects = [], benchmark = 60 }) {
         })}
 
         {/* Axis lines */}
-        {subjects.map((_, i) => {
+        {chartSubjects.map((_, i) => {
           const outer = getCoord(i, 100)
           return (
             <Line
@@ -300,7 +324,7 @@ function DomainRadarChart({ subjects = [], benchmark = 60 }) {
         />
 
         {/* Vertex dots */}
-        {subjects.map((s, i) => {
+        {chartSubjects.map((s, i) => {
           const pt = getCoord(i, s.pct)
           return (
             <Circle
@@ -315,34 +339,64 @@ function DomainRadarChart({ subjects = [], benchmark = 60 }) {
           )
         })}
 
-        {/* Outer labels */}
-        {subjects.map((s, i) => {
+        {/* Outer labels with two-line layout and boundary safety */}
+        {chartSubjects.map((s, i) => {
           const angle = startAngle + i * angleStep
           const labelDist = radius + 22
           const lx = cx + labelDist * Math.cos(angle)
           const ly = cy + labelDist * Math.sin(angle)
-          const isTop = Math.sin(angle) < -0.5
-          const isBottom = Math.sin(angle) > 0.5
+
+          const isTop = Math.sin(angle) < -0.7
+          const isBottom = Math.sin(angle) > 0.7
           const isLeft = Math.cos(angle) < -0.2
           const isRight = Math.cos(angle) > 0.2
 
           let textAnchor = 'middle'
-          if (isLeft && !isTop && !isBottom) textAnchor = 'end'
-          if (isRight && !isTop && !isBottom) textAnchor = 'start'
+          if (!isTop && !isBottom) {
+            if (isLeft) textAnchor = 'end'
+            else if (isRight) textAnchor = 'start'
+          }
 
-          const shortName = s.name.length > 18 ? s.name.split('&')[0].trim() : s.name
+          let finalX = lx
+          let finalY = ly
+          if (textAnchor === 'middle') {
+            finalX = Math.max(50, Math.min(310, lx))
+            finalY = isTop ? Math.max(18, ly - 4) : Math.min(252, ly + 8)
+          } else if (textAnchor === 'start') {
+            finalX = Math.min(348, Math.max(220, lx + 2))
+            finalY = Math.max(22, Math.min(245, ly - 4))
+          } else if (textAnchor === 'end') {
+            finalX = Math.max(12, Math.min(140, lx - 2))
+            finalY = Math.max(22, Math.min(245, ly - 4))
+          }
+
+          let line1 = s.name
+          let line2 = `(${s.pct}%)`
+          if (s.name.includes('&')) {
+            const parts = s.name.split('&')
+            line1 = parts[0].trim()
+            line2 = `& ${parts[1].trim()} (${s.pct}%)`
+          } else if (s.name.length > 15) {
+            const words = s.name.split(' ')
+            if (words.length > 1) {
+              const mid = Math.ceil(words.length / 2)
+              line1 = words.slice(0, mid).join(' ')
+              line2 = `${words.slice(mid).join(' ')} (${s.pct}%)`
+            }
+          }
 
           return (
             <SvgText
               key={`label-${i}`}
-              x={lx}
-              y={ly + (isTop ? -4 : isBottom ? 8 : 4)}
-              fontSize="10"
+              x={finalX}
+              y={finalY}
+              fontSize="9.5"
               fontWeight="bold"
               fill="#1e293b"
               textAnchor={textAnchor}
             >
-              {`${shortName} (${s.pct}%)`}
+              <TSpan x={finalX} dy="0">{line1}</TSpan>
+              <TSpan x={finalX} dy="11.5" fill={s.color || '#2563eb'} fontWeight="700">{line2}</TSpan>
             </SvgText>
           )
         })}
@@ -483,37 +537,53 @@ function TrajectoryForecastChart({ mockHistory = [], projectedScore = 0, benchma
 function getItemExamLevel(item, type) {
   if (type === 'mcq') {
     const q = item.multiple_choice_questions
-    const direct = item.exam_level || q?.exam_level || q?.practice_categories?.exam_level
-    if (direct) return String(direct).trim().toUpperCase()
+    const direct = q?.exam_level || q?.practice_categories?.exam_level || item.exam_level
+    if (direct) {
+      const s = String(direct).trim().toUpperCase()
+      if (s.includes('FE')) return 'FE'
+      if (s.includes('IP')) return 'IP'
+    }
     const catName = q?.practice_categories?.name || ''
     if (IP_SUBJECTS.includes(catName)) return 'IP'
-    if (FE_A_SUBJECTS.includes(catName) || FE_B_SUBJECTS.includes(catName)) return 'FE'
+    if (FE_A_SUBJECTS.includes(catName) || FE_B_SUBJECTS.includes(catName) || catName === 'Databases & SQL') return 'FE'
     return null
   }
   if (type === 'tf') {
     const q = item.true_false_questions
-    const direct = item.exam_level || q?.exam_level || q?.practice_categories?.exam_level
-    if (direct) return String(direct).trim().toUpperCase()
+    const direct = q?.exam_level || q?.practice_categories?.exam_level || item.exam_level
+    if (direct) {
+      const s = String(direct).trim().toUpperCase()
+      if (s.includes('FE')) return 'FE'
+      if (s.includes('IP')) return 'IP'
+    }
     const catName = q?.practice_categories?.name || ''
     if (IP_SUBJECTS.includes(catName)) return 'IP'
-    if (FE_A_SUBJECTS.includes(catName) || FE_B_SUBJECTS.includes(catName)) return 'FE'
+    if (FE_A_SUBJECTS.includes(catName) || FE_B_SUBJECTS.includes(catName) || catName === 'Databases & SQL') return 'FE'
     return null
   }
   if (type === 'flashcard') {
     const d = item.flashcard_decks
-    const direct = item.exam_level || d?.exam_level || d?.practice_categories?.exam_level
-    if (direct) return String(direct).trim().toUpperCase()
-    const catName = d?.practice_categories?.name || ''
-    if (IP_SUBJECTS.includes(catName)) return 'IP'
-    if (FE_A_SUBJECTS.includes(catName) || FE_B_SUBJECTS.includes(catName)) return 'FE'
+    const direct = d?.exam_level || d?.practice_categories?.exam_level || item.exam_level
+    if (direct) {
+      const s = String(direct).trim().toUpperCase()
+      if (s.includes('FE')) return 'FE'
+      if (s.includes('IP')) return 'IP'
+    }
+    const catName = d?.practice_categories?.name || d?.title || ''
+    if (IP_SUBJECTS.some(s => catName.includes(s))) return 'IP'
+    if (FE_A_SUBJECTS.some(s => catName.includes(s)) || FE_B_SUBJECTS.some(s => catName.includes(s)) || catName.includes('FE') || catName.includes('Databases')) return 'FE'
     return null
   }
   if (type === 'matching') {
-    if (item.exam_level) return String(item.exam_level).trim().toUpperCase()
+    if (item.exam_level) {
+      const s = String(item.exam_level).trim().toUpperCase()
+      if (s.includes('FE')) return 'FE'
+      if (s.includes('IP')) return 'IP'
+    }
     const title = item.set_title || ''
-    if (title.includes('[FE]') || title.toLowerCase().includes('fe ')) return 'FE'
-    if (title.includes('[IP]') || title.toLowerCase().includes('ip ')) return 'IP'
-    if (FE_A_SUBJECTS.some(s => title.includes(s)) || FE_B_SUBJECTS.some(s => title.includes(s))) return 'FE'
+    if (title.includes('[FE]') || title.toLowerCase().includes('fe')) return 'FE'
+    if (title.includes('[IP]') || title.toLowerCase().includes('ip')) return 'IP'
+    if (FE_A_SUBJECTS.some(s => title.includes(s)) || FE_B_SUBJECTS.some(s => title.includes(s)) || title.includes('Memory') || title.includes('Pipelining') || title.includes('Databases')) return 'FE'
     if (IP_SUBJECTS.some(s => title.includes(s))) return 'IP'
     return null
   }
@@ -524,23 +594,76 @@ function getItemExamLevel(item, type) {
 function normalizeCategory(cat, level) {
   if (!cat) return null
   const c = String(cat).trim()
+
   if (level === 'IP') {
     if (c === 'Technology' || c.toLowerCase() === 'technology') return 'Technology'
     if (c === 'Management' || c.toLowerCase() === 'management') return 'Management'
     if (c === 'Strategy' || c.toLowerCase() === 'strategy') return 'Strategy'
-    if (c.includes('Hardware') || c.includes('Software') || c.includes('Database') || c.includes('Network') || c.includes('Security') || c.includes('Computer Systems')) return 'Technology'
+    if (c.includes('Hardware') || c.includes('Software') || c.includes('Database') || c.includes('Network') || c.includes('Security') || c.includes('Computer Systems') || c.includes('Computer Architecture')) return 'Technology'
     if (c.includes('Project Management') || c.includes('IT Service Management') || c.includes('Audit')) return 'Management'
-    if (c.includes('Corporate Strategy') || c.includes('Business') || c.includes('Legal')) return 'Strategy'
+    if (c.includes('Corporate Strategy') || c.includes('Business') || c.includes('Legal') || c.includes('Governance') || c.includes('Ethics')) return 'Strategy'
     return null
   } else if (level === 'FE Subject A') {
-    if (c === 'Computer Systems & Architecture' || c.includes('Architecture') || c.includes('Computer Systems') || c === 'Subject A') return 'Computer Systems & Architecture'
-    if (c === 'Algorithms & Programming' || c.includes('Algorithms & Programming') || c.includes('Programming') || (c.includes('Algorithm') && !c.includes('Data Structure'))) return 'Algorithms & Programming'
-    if (c === 'Networks & Security' || c.includes('Networks & Security') || c.includes('Network') || (c.includes('Security') && !c.includes('Design'))) return 'Networks & Security'
-    if (c === 'IT Management & Strategy' || c.includes('IT Management & Strategy') || c.includes('Management & Strategy') || c.includes('IT Management')) return 'IT Management & Strategy'
+    if (
+      c === 'Computer Systems & Architecture' ||
+      c.includes('Architecture') ||
+      c.includes('Computer Systems') ||
+      c.includes('Memory Hierarchy') ||
+      c.includes('Pipelining') ||
+      c === 'Subject A'
+    ) return 'Computer Systems & Architecture'
+
+    if (
+      c === 'Databases & SQL' ||
+      c.includes('Databases') ||
+      c.includes('Database') ||
+      c.includes('SQL') ||
+      c.includes('Normalization')
+    ) return 'Databases & SQL'
+
+    if (
+      c === 'Networks & Security' ||
+      c.includes('Networks & Security') ||
+      c.includes('Network') ||
+      c.includes('Protocols') ||
+      c.includes('Cybersecurity') ||
+      c.includes('Cryptography') ||
+      (c.includes('Security') && !c.includes('Design'))
+    ) return 'Networks & Security'
+
+    if (
+      c === 'IT Management & Strategy' ||
+      c.includes('IT Management & Strategy') ||
+      c.includes('Management & Strategy') ||
+      c.includes('IT Management') ||
+      c.includes('Management') ||
+      c.includes('Strategy') ||
+      c.includes('Governance') ||
+      c.includes('Legal')
+    ) return 'IT Management & Strategy'
+
     return null
   } else if (level === 'FE Subject B') {
-    if (c === 'Algorithms & Data Structures' || c.includes('Algorithms & Data Structures') || c.includes('Data Structure') || c.includes('Pseudo') || c === 'Subject B') return 'Algorithms & Data Structures'
-    if (c === 'Security & System Design' || c.includes('Security & System Design') || c.includes('System Design') || c.includes('Security Design')) return 'Security & System Design'
+    if (
+      c === 'Algorithms & Programming' ||
+      c === 'Algorithms & Data Structures' ||
+      c.includes('Algorithms') ||
+      c.includes('Programming') ||
+      c.includes('Data Structure') ||
+      c.includes('Pseudo') ||
+      c.includes('Big-O') ||
+      c === 'Subject B'
+    ) return 'Algorithms & Programming'
+
+    if (
+      c === 'Security & System Design' ||
+      c.includes('Security') ||
+      c.includes('System Design') ||
+      c.includes('Cryptography') ||
+      c.includes('Network') ||
+      c.includes('Architecture')
+    ) return 'Security & System Design'
+
     return null
   }
   return null
@@ -610,15 +733,18 @@ function computePerformanceData(level, rawData) {
     if (track && track !== targetTrack) return false
 
     // Section specific filtering for FE
+    const q = r.multiple_choice_questions
+    const sec = q?.fe_section || q?.practice_categories?.fe_section
+    const rawCat = q?.practice_categories?.name || ''
+
     if (level === 'FE Subject A') {
-      const sec = r.multiple_choice_questions?.fe_section || r.multiple_choice_questions?.practice_categories?.fe_section
-      if (sec === 'Subject B') return false
+      const isSecB = sec === 'Subject B' || String(sec || '').toLowerCase().includes('afternoon')
+      if (isSecB) return false
     } else if (level === 'FE Subject B') {
-      const sec = r.multiple_choice_questions?.fe_section || r.multiple_choice_questions?.practice_categories?.fe_section
-      if (sec === 'Subject A') return false
+      const isSecA = sec === 'Subject A' || String(sec || '').toLowerCase().includes('morning')
+      if (isSecA) return false
     }
 
-    const rawCat = r.multiple_choice_questions?.practice_categories?.name
     const cat = normalizeCategory(rawCat, level)
     return cat && subjectMap[cat] !== undefined
   })
@@ -645,15 +771,18 @@ function computePerformanceData(level, rawData) {
     if (track && track !== targetTrack) return false
 
     // Section specific filtering for FE
+    const q = r.true_false_questions
+    const sec = q?.fe_section || q?.practice_categories?.fe_section
+    const rawCat = q?.practice_categories?.name || ''
+
     if (level === 'FE Subject A') {
-      const sec = r.true_false_questions?.fe_section || r.true_false_questions?.practice_categories?.fe_section
-      if (sec === 'Subject B') return false
+      const isSecB = sec === 'Subject B' || String(sec || '').toLowerCase().includes('afternoon')
+      if (isSecB) return false
     } else if (level === 'FE Subject B') {
-      const sec = r.true_false_questions?.fe_section || r.true_false_questions?.practice_categories?.fe_section
-      if (sec === 'Subject A') return false
+      const isSecA = sec === 'Subject A' || String(sec || '').toLowerCase().includes('morning')
+      if (isSecA) return false
     }
 
-    const rawCat = r.true_false_questions?.practice_categories?.name
     const cat = normalizeCategory(rawCat, level)
     return cat && subjectMap[cat] !== undefined
   })
@@ -678,7 +807,15 @@ function computePerformanceData(level, rawData) {
   const levelMatch = match.filter((m) => {
     const track = getItemExamLevel(m, 'matching')
     if (track && track !== targetTrack) return false
-    const cat = normalizeCategory(m.set_title, level)
+
+    const title = m.set_title || ''
+    if (level === 'FE Subject A') {
+      if (title.includes('Subject B') || title.includes('Data Structures & Algorithms')) return false
+    } else if (level === 'FE Subject B') {
+      if (title.includes('Subject A') || title.includes('Memory Hierarchy') || title.includes('Pipelining') || title.includes('Databases & Normalization')) return false
+    }
+
+    const cat = normalizeCategory(title, level)
     return cat && subjectMap[cat] !== undefined
   })
 
@@ -688,6 +825,12 @@ function computePerformanceData(level, rawData) {
       const pairAttempts = (m.pairs_matched || 0) + (m.mistakes || 0)
       subjectMap[cat].total += pairAttempts
       subjectMap[cat].correct += (m.pairs_matched || 0)
+      if (m.completed_at || m.created_at) {
+        const d = new Date(m.completed_at || m.created_at)
+        if (!subjectMap[cat].lastPracticed || d > subjectMap[cat].lastPracticed) {
+          subjectMap[cat].lastPracticed = d
+        }
+      }
     }
   })
 
@@ -695,7 +838,37 @@ function computePerformanceData(level, rawData) {
   const levelSes = ses.filter((s) => {
     const track = getItemExamLevel(s, 'flashcard')
     if (track && track !== targetTrack) return false
+
+    const d = s.flashcard_decks
+    const sec = d?.fe_section || d?.practice_categories?.fe_section
+    const title = d?.title || ''
+
+    if (level === 'FE Subject A') {
+      if (sec === 'Subject B' || title.includes('Subject B') || title.includes('Algorithms, Data Structures')) return false
+    } else if (level === 'FE Subject B') {
+      if (sec === 'Subject A' || title.includes('Subject A') || title.includes('Architecture Review') || title.includes('Databases')) return false
+    }
+
     return true
+  })
+
+  // Tally flashcards into subject domains
+  levelSes.forEach((s) => {
+    const rawCat = s.flashcard_decks?.practice_categories?.name || s.flashcard_decks?.title
+    const cat = normalizeCategory(rawCat, level)
+    if (cat && subjectMap[cat] !== undefined) {
+      const cards = s.cards_seen || (s.completed ? (s.cards_total || 10) : 0)
+      if (cards > 0) {
+        subjectMap[cat].total += cards
+        subjectMap[cat].correct += Math.round(cards * 0.85)
+        if (s.completed_at || s.started_at) {
+          const d = new Date(s.completed_at || s.started_at)
+          if (!subjectMap[cat].lastPracticed || d > subjectMap[cat].lastPracticed) {
+            subjectMap[cat].lastPracticed = d
+          }
+        }
+      }
+    }
   })
 
   // Confidence-scaled domain competency score & Ebbinghaus Retention Decay
@@ -803,8 +976,14 @@ function computePerformanceData(level, rawData) {
 
   const quizTaken = mcqAttempts + tfAttempts
   const mockCount = mocksTaken
-  const studyMins = Math.round(levelSes.reduce((s, s2) => s + (s2.duration_seconds ?? 0), 0) / 60) +
-    Math.round(activeAttempts.reduce((s, a) => s + (a.duration_seconds ?? 0), 0) / 60)
+
+  // Comprehensive Study Time Estimation: Flashcards, Mocks, Matching, plus MCQ & TF (est. 45s per answered question)
+  const mcqMins = Math.round((levelMcq.length * 45) / 60)
+  const tfMins = Math.round((levelTf.length * 40) / 60)
+  const matchMins = Math.round(levelMatch.reduce((sum, m) => sum + (m.duration_seconds || 45), 0) / 60)
+  const flashcardMins = Math.round(levelSes.reduce((s, s2) => s + (s2.duration_seconds ?? 0), 0) / 60)
+  const mockMins = Math.round(activeAttempts.reduce((s, a) => s + (a.duration_seconds ?? 0), 0) / 60)
+  const studyMins = flashcardMins + mockMins + matchMins + mcqMins + tfMins
 
   // 7. Weekly trends
   const weeks = [4, 3, 2, 1].map((w) => {
@@ -947,12 +1126,14 @@ function computePerformanceData(level, rawData) {
   }))
 
   // 12. Prescriptive study streak & time
+  // Activity streak strictly tracks unique days the user practiced (flashcards, MCQ, TF, and mock attempts)
   const activityDays = new Set([
     ...ses.map((s) => (s.completed_at || s.started_at)?.slice(0, 10)),
     ...mcq.map((r) => r.answered_at?.slice(0, 10)),
     ...tf.map((r) => r.answered_at?.slice(0, 10)),
     ...(att || []).map((m) => (m.completed_at || m.started_at)?.slice(0, 10)),
   ].filter(Boolean))
+
   let streak = 0
   for (let i = 0; i < 30; i++) {
     const d = new Date(today); d.setDate(today.getDate() - i)
@@ -962,19 +1143,26 @@ function computePerformanceData(level, rawData) {
   }
 
   const todayKey = today.toISOString().slice(0, 10)
-  const sesToday = ses.filter((s) => (s.completed_at || s.started_at)?.slice(0, 10) === todayKey)
+  // Comprehensive Today's Study Time (Flashcards, Mocks, and 45s/question for MCQ & TF)
+  const sesTodaySec = ses.filter((s) => (s.completed_at || s.started_at)?.slice(0, 10) === todayKey)
     .reduce((s, x) => s + (x.duration_seconds ?? 0), 0)
-  const attToday = activeAttempts.filter((a) => (a.completed_at || a.started_at)?.slice(0, 10) === todayKey)
+  const attTodaySec = activeAttempts.filter((a) => (a.completed_at || a.started_at)?.slice(0, 10) === todayKey)
     .reduce((s, x) => s + (x.duration_seconds ?? 0), 0)
-  const todayMins = Math.round((sesToday + attToday) / 60)
+  const mcqTodaySec = mcq.filter((r) => r.answered_at?.slice(0, 10) === todayKey).length * 45
+  const tfTodaySec = tf.filter((r) => r.answered_at?.slice(0, 10) === todayKey).length * 40
+  const todayMins = Math.round((sesTodaySec + attTodaySec + mcqTodaySec + tfTodaySec) / 60)
 
-  const sesWeek = ses.filter((s) => new Date(s.completed_at || s.started_at || 0) >= week0)
+  // Comprehensive This Week Total Study Time
+  const sesWeekSec = ses.filter((s) => new Date(s.completed_at || s.started_at || 0) >= week0)
     .reduce((s, x) => s + (x.duration_seconds ?? 0), 0)
-  const attWeek = activeAttempts.filter((a) => new Date(a.completed_at || a.started_at || 0) >= week0)
+  const attWeekSec = activeAttempts.filter((a) => new Date(a.completed_at || a.started_at || 0) >= week0)
     .reduce((s, x) => s + (x.duration_seconds ?? 0), 0)
-  const weekMins = Math.round((sesWeek + attWeek) / 60)
+  const mcqWeekSec = mcq.filter((r) => new Date(r.answered_at || 0) >= week0).length * 45
+  const tfWeekSec = tf.filter((r) => new Date(r.answered_at || 0) >= week0).length * 40
+  const weekMins = Math.round((sesWeekSec + attWeekSec + mcqWeekSec + tfWeekSec) / 60)
 
-  const dailyAvg = activityDays.size > 0 ? Math.round(studyMins / activityDays.size) : 0
+  // Daily Average based on active study days
+  const dailyAvg = activityDays.size > 0 ? Math.round(studyMins / activityDays.size) : todayMins
 
   return {
     level,
@@ -1025,10 +1213,21 @@ export default function Performance({ navigation }) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [userTargetExam, setUserTargetExam] = useState('IP')
+  const insets = useSafeAreaInsets()
   const [examLevel, setExamLevel] = useState('IP')
   const [data, setData] = useState(null)
   const [selectedPace, setSelectedPace] = useState(null)
   const [paceSavedNotice, setPaceSavedNotice] = useState(false)
+
+  // Immediately resolve user target exam from persistent cache & SQLite session on mount
+  useEffect(() => {
+    resolveUserTargetExam(null, userTargetExam).then((trk) => {
+      if (trk && trk !== userTargetExam) {
+        setUserTargetExam(trk)
+        if (trk === 'FE' && examLevel === 'IP') setExamLevel('FE Subject A')
+      }
+    })
+  }, [])
 
   const rawDataRef = useRef({
     uid: null,
@@ -1049,7 +1248,7 @@ export default function Performance({ navigation }) {
     return unsubscribe
   }, [navigation])
 
-  // ── Data fetching ─────────────────────────────────────────────
+  // ── Resilient Parallel Data fetching ─────────────────────────────
   const fetchAll = async () => {
     try {
       setLoading(true)
@@ -1059,57 +1258,22 @@ export default function Performance({ navigation }) {
       const userEmail = session?.user?.email
       if (!uid) { setError('Not logged in.'); return }
 
-      // 0. Fetch user's registered review_speed preference from users table
-      let userReviewSpeed = null
-      try {
-        const { data: uData } = await supabase
-          .from('users')
-          .select('review_speed')
-          .eq('id', uid)
-          .maybeSingle()
-        if (uData?.review_speed) {
-          const s = uData.review_speed.trim().toLowerCase()
-          if (s.startsWith('det')) userReviewSpeed = 'Detailed'
-          else if (s.startsWith('qui')) userReviewSpeed = 'Quick'
-          else if (s.startsWith('stan')) userReviewSpeed = 'Standard'
-        }
-      } catch (uErr) {
-        console.warn('Could not fetch review_speed:', uErr)
-      }
-
-      // 1. Fetch user's registered target exam level from personal_info
-      let currentLevel = 'IP'
-      let targetType = 'IP'
-      const { data: pData } = await supabase
-        .from('personal_info')
-        .select('target_exam_level')
-        .eq('user_id', uid)
-        .maybeSingle()
-
-      if (pData?.target_exam_level) {
-        const lvl = pData.target_exam_level.toLowerCase()
-        if (lvl.includes('fe') || lvl.includes('fundamental') || (lvl.includes('pro') && !lvl.includes('sub'))) {
-          targetType = 'FE'
-          currentLevel = 'FE Subject A'
-        } else {
-          targetType = 'IP'
-          currentLevel = 'IP'
-        }
-      }
-      setUserTargetExam(targetType)
-      setExamLevel(currentLevel)
-
-      // 2. Mock exam attempts
-      const { data: attempts } = await supabase
-        .from('mock_exam_attempts')
-        .select('id, score, total_questions, correct_count, duration_seconds, completed_at, config_id, mock_exam_configs(title, level_key)')
-        .eq('user_id', uid).eq('status', 'completed')
-        .order('completed_at', { ascending: false }).limit(20)
-
-      // 3. MCQ results with exam track metadata
-      const { data: mcqRaw } = await supabase
-        .from('multiple_choice_results')
-        .select(`
+      // Parallelize all queries concurrently with timeouts so no single request blocks
+      const [
+        uRes,
+        pRes,
+        attRes,
+        mcqRes,
+        tfRes,
+        sesRes,
+        matchRes
+      ] = await Promise.allSettled([
+        userEmail
+          ? withTimeout(supabase.from('users').select('review_speed').ilike('email', userEmail).maybeSingle(), 8000)
+          : Promise.resolve({ data: null }),
+        resolveUserTargetExam(uid, userTargetExam),
+        withTimeout(supabase.from('mock_exam_attempts').select('id, score, total_questions, correct_count, duration_seconds, completed_at, config_id, mock_exam_configs(title, level_key)').eq('user_id', uid).eq('status', 'completed').order('completed_at', { ascending: false }).limit(20), 8000),
+        withTimeout(supabase.from('multiple_choice_results').select(`
           is_correct,
           answered_at,
           question_id,
@@ -1123,13 +1287,8 @@ export default function Performance({ navigation }) {
               fe_section
             )
           )
-        `)
-        .eq('user_id', uid)
-
-      // 4. TF results with exam track metadata
-      const { data: tfRaw } = await supabase
-        .from('true_false_results')
-        .select(`
+        `).eq('user_id', uid), 8000),
+        withTimeout(supabase.from('true_false_results').select(`
           is_correct,
           answered_at,
           question_id,
@@ -1143,13 +1302,8 @@ export default function Performance({ navigation }) {
               fe_section
             )
           )
-        `)
-        .eq('user_id', uid)
-
-      // 5. Flashcard sessions with deck exam track metadata
-      const { data: sessions } = await supabase
-        .from('flashcard_sessions')
-        .select(`
+        `).eq('user_id', uid), 8000),
+        withTimeout(supabase.from('flashcard_sessions').select(`
           cards_total,
           cards_seen,
           duration_seconds,
@@ -1166,30 +1320,66 @@ export default function Performance({ navigation }) {
               fe_section
             )
           )
-        `)
-        .eq('user_id', uid)
+        `).eq('user_id', uid), 8000),
+        withTimeout(supabase.from('matching_results').select('set_title, pairs_total, pairs_matched, mistakes, completed, duration_seconds').eq('user_id', uid), 8000)
+      ])
 
-      // 6. Matching results
-      const { data: matchRaw } = await supabase
-        .from('matching_results')
-        .select('set_title, pairs_total, pairs_matched, mistakes, completed, duration_seconds')
-        .eq('user_id', uid)
+      // 0. Extract review speed
+      let userReviewSpeed = null
+      if (uRes.status === 'fulfilled' && uRes.value?.data?.review_speed) {
+        const s = String(uRes.value.data.review_speed).trim().toLowerCase()
+        if (s.startsWith('det')) userReviewSpeed = 'Detailed'
+        else if (s.startsWith('qui')) userReviewSpeed = 'Quick'
+        else if (s.startsWith('stan')) userReviewSpeed = 'Standard'
+      }
 
-      // Cache raw data in ref for fast level toggling (no fake/diagnostic data)
+      // 1. Extract target exam level strictly via unified resolver
+      const targetType = (pRes.status === 'fulfilled' && pRes.value) ? pRes.value : userTargetExam
+      const currentLevel = targetType === 'FE'
+        ? (examLevel.includes('FE') ? examLevel : 'FE Subject A')
+        : 'IP'
+      setUserTargetExam(targetType)
+      setExamLevel(currentLevel)
+
+      // 2. Extract practice results safely
+      const attempts = (attRes.status === 'fulfilled' && attRes.value?.data) ? attRes.value.data : []
+      const mcqRaw = (mcqRes.status === 'fulfilled' && mcqRes.value?.data) ? mcqRes.value.data : []
+      const tfRaw = (tfRes.status === 'fulfilled' && tfRes.value?.data) ? tfRes.value.data : []
+      const sessions = (sesRes.status === 'fulfilled' && sesRes.value?.data) ? sesRes.value.data : []
+      const matchRaw = (matchRes.status === 'fulfilled' && matchRes.value?.data) ? matchRes.value.data : []
+
+      // Cache raw data in ref for instant level toggling
       rawDataRef.current = {
         uid,
         email: userEmail,
         userReviewSpeed,
-        att: attempts ?? [],
-        mcq: mcqRaw ?? [],
-        tf: tfRaw ?? [],
-        ses: sessions ?? [],
-        match: matchRaw ?? [],
+        att: attempts,
+        mcq: mcqRaw,
+        tf: tfRaw,
+        ses: sessions,
+        match: matchRaw,
       }
 
       // Compute metrics tailored to user's exam track
       const computed = computePerformanceData(currentLevel, rawDataRef.current)
       setData(computed)
+
+      // Sync readiness and streak to home cache
+      if (computed) {
+        setCache('home_readiness', computed.readiness).catch(() => {})
+        setCache('home_streak_days', computed.streak).catch(() => {})
+      }
+
+      // Automatically cache calibrated adaptive pace if review speed is not set yet
+      if (computed?.recommendedPace) {
+        const calibratedPace = computed.recommendedPace
+        if (!userReviewSpeed) {
+          setCache('user_review_speed', calibratedPace).catch(() => {})
+          if (rawDataRef.current) {
+            rawDataRef.current.userReviewSpeed = calibratedPace
+          }
+        }
+      }
     } catch (err) {
       console.error('Performance fetch error:', err)
       setError('Failed to load performance data.')
@@ -1198,37 +1388,38 @@ export default function Performance({ navigation }) {
     }
   }
 
-  // ── Study Pace selection handler ─────────────────────────────
+  // ── Optimistic Study Pace selection handler ─────────────────────────────
   const handlePaceSelect = async (paceKey) => {
     setSelectedPace(paceKey)
+    setPaceSavedNotice(true)
+    setTimeout(() => setPaceSavedNotice(false), 3000)
+
+    // Optimistically update local view immediately with zero lag
+    if (rawDataRef.current) {
+      rawDataRef.current.userReviewSpeed = paceKey
+    }
+    if (data) {
+      const updated = computePerformanceData(examLevel, {
+        ...rawDataRef.current,
+        userReviewSpeed: paceKey,
+      })
+      setData(updated)
+    }
+
+    // Persist to local cache and database in background
     try {
-      const uid = rawDataRef.current?.uid
+      await setCache('user_review_speed', paceKey)
       const email = rawDataRef.current?.email
-      if (uid) {
-        await supabase
-          .from('users')
-          .update({ review_speed: paceKey })
-          .eq('id', uid)
-      } else if (email) {
-        await supabase
-          .from('users')
-          .update({ review_speed: paceKey })
-          .eq('email', email)
-      }
-      if (rawDataRef.current) {
-        rawDataRef.current.userReviewSpeed = paceKey
-      }
-      if (data) {
-        const updated = computePerformanceData(examLevel, {
-          ...rawDataRef.current,
-          userReviewSpeed: paceKey,
+      if (email) {
+        withTimeout(
+          supabase.from('users').update({ review_speed: paceKey }).ilike('email', email),
+          5000
+        ).catch((err) => {
+          console.warn('Review speed update background sync notice:', err?.message || err)
         })
-        setData(updated)
       }
-      setPaceSavedNotice(true)
-      setTimeout(() => setPaceSavedNotice(false), 3000)
     } catch (err) {
-      console.warn('Could not save review_speed:', err)
+      console.warn('Background pace update notice:', err)
     }
   }
 
@@ -1244,12 +1435,16 @@ export default function Performance({ navigation }) {
         userReviewSpeed: selectedPace || rawDataRef.current.userReviewSpeed,
       })
       setData(computed)
+      if (computed) {
+        setCache('home_readiness', computed.readiness).catch(() => {})
+        setCache('home_streak_days', computed.streak).catch(() => {})
+      }
     }
   }
 
   // ── Skeleton Loader ──────────────────────────────────────────
   const SkeletonContent = () => (
-    <ScrollView style={styles.scroll} contentContainerStyle={[styles.scrollContent, { gap: 16 }]} showsVerticalScrollIndicator={false}>
+    <ScrollView style={styles.scroll} contentContainerStyle={[styles.scrollContent, { gap: 16, paddingBottom: getScrollBottomPadding(insets, true, 20) }]} showsVerticalScrollIndicator={false}>
       {/* Readiness / Top Metric Card Skeleton */}
       <View style={styles.readinessCard}>
         <SkeletonItem width={160} height={18} style={{ marginBottom: 8 }} />
@@ -1309,7 +1504,7 @@ export default function Performance({ navigation }) {
 
   // ── Tab 0: Overview ──────────────────────────────────────────
   const Overview = () => (
-    <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+    <ScrollView style={styles.scroll} contentContainerStyle={[styles.scrollContent, { paddingBottom: getScrollBottomPadding(insets, true, 20) }]} showsVerticalScrollIndicator={false}>
       {/* Readiness card */}
       <View style={styles.readinessCard}>
         <View style={styles.trackBadge}>
@@ -1454,7 +1649,7 @@ export default function Performance({ navigation }) {
 
   // ── Tab 1: Predictive ────────────────────────────────────────
   const Predictive = () => (
-    <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+    <ScrollView style={styles.scroll} contentContainerStyle={[styles.scrollContent, { paddingBottom: getScrollBottomPadding(insets, true, 20) }]} showsVerticalScrollIndicator={false}>
       {/* Prediction card */}
       <View style={styles.readinessCard}>
         <View style={styles.trackBadge}>
@@ -1645,21 +1840,21 @@ export default function Performance({ navigation }) {
 
   // ── Tab 2: Prescriptive ──────────────────────────────────────
   const Prescriptive = () => {
-    const activePaceKey = selectedPace || data.activePace || data.recommendedPace || 'Standard'
+    // Dynamic pace profile directly driven by user exam readiness (<50%: Detailed, 50-79%: Standard, >=80%: Quick)
+    const activePaceKey = data.recommendedPace || 'Standard'
     const activeProfile = data.paceProfiles?.[activePaceKey] || STUDY_PACE_PROFILES[activePaceKey] || STUDY_PACE_PROFILES.Standard
-    const isRecommended = data.recommendedPace === activePaceKey
-    const isSavedActive = (rawDataRef.current?.userReviewSpeed || data.studyPace) === activePaceKey
     const goalMins = activeProfile.dailyGoalMins || data.dailyGoalMins || 30
     const currentGoalPct = Math.min(Math.round((data.todayMins / goalMins) * 100), 100)
+    const isSavedActive = (selectedPace || rawDataRef.current?.userReviewSpeed) === activePaceKey
 
     return (
-      <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+      <ScrollView style={styles.scroll} contentContainerStyle={[styles.scrollContent, { paddingBottom: getScrollBottomPadding(insets, true, 20) }]} showsVerticalScrollIndicator={false}>
         {/* Streak card */}
         <View style={styles.readinessCard}>
           <Text style={styles.readinessCardTitle}>Study Streak</Text>
           <Text style={[styles.readinessPct, { color: '#2563eb' }]}>{data.streak} day{data.streak === 1 ? '' : 's'}</Text>
           <Text style={styles.readinessLabel}>Keep up the momentum!</Text>
-          <Text style={styles.readinessNote}>Targeting {data.level} Examination</Text>
+          <Text style={styles.readinessNote}>Based on your active study days for {data.level}</Text>
         </View>
 
         {/* Level-Specific Prescriptive Recommendation */}
@@ -1727,51 +1922,18 @@ export default function Performance({ navigation }) {
           </View>
         </View>
 
-        {/* Adaptive Study Pace Section (Detailed, Standard, Quick) */}
+        {/* Adaptive Study Pace Section (Calibrated strictly to User Readiness) */}
         <View style={styles.section}>
           <View style={styles.sectionHeaderRow}>
             <View>
-              <Text style={styles.sectionTitle}>Adaptive Study Pace</Text>
+              <Text style={styles.sectionTitle}>Adaptive Study Strategy</Text>
               <Text style={styles.sectionSubtitle}>
                 Calibrated to your {data.readiness}% {data.level} readiness
               </Text>
             </View>
           </View>
 
-          {/* 3 Pace Selector Cards */}
-          <View style={styles.paceSelectorRow}>
-            {Object.keys(STUDY_PACE_PROFILES).map((key) => {
-              const prof = STUDY_PACE_PROFILES[key]
-              const isSelected = activePaceKey === key
-              const isRec = data.recommendedPace === key
-              return (
-                <TouchableOpacity
-                  key={key}
-                  style={[
-                    styles.paceTabCard,
-                    isSelected && { borderColor: prof.color, backgroundColor: prof.lightBg, elevation: 2 },
-                  ]}
-                  onPress={() => handlePaceSelect(key)}
-                  activeOpacity={0.7}
-                >
-                  {isRec && (
-                    <View style={[styles.recBadge, { backgroundColor: prof.color }]}>
-                      <Text style={styles.recBadgeText}>RECOMMENDED</Text>
-                    </View>
-                  )}
-                  <View style={[styles.paceTabIconWrap, { backgroundColor: isSelected ? prof.color : '#f1f5f9' }]}>
-                    <Ionicons name={prof.icon} size={18} color={isSelected ? '#fff' : '#64748b'} />
-                  </View>
-                  <Text style={[styles.paceTabName, isSelected && { color: prof.color, fontWeight: '900' }]}>
-                    {prof.name}
-                  </Text>
-                  <Text style={styles.paceTabSubtitle}>{prof.dailyTarget} items • {prof.dailyGoalMins}m</Text>
-                </TouchableOpacity>
-              )
-            })}
-          </View>
-
-          {/* Active Pace Details Card */}
+          {/* Calibrated Pace Details Card */}
           <View style={[styles.paceDetailCard, { borderColor: activeProfile.border }]}>
             <View style={styles.paceDetailHeader}>
               <View style={{ flex: 1 }}>
@@ -1786,7 +1948,7 @@ export default function Performance({ navigation }) {
                   </View>
                 </View>
                 <Text style={styles.paceDetailIdeal}>
-                  {isRecommended ? `⭐ AI Recommended based on current ${data.readiness}% readiness` : `Ideal for: ${activeProfile.idealRange}`}
+                  {`⭐ Calibrated for your ${data.readiness}% Exam Readiness (${activeProfile.idealRange})`}
                 </Text>
               </View>
             </View>
@@ -1839,7 +2001,7 @@ export default function Performance({ navigation }) {
               </View>
             ))}
 
-            {/* Action / Apply Button */}
+            {/* Sync / Apply Button to insert into user's review_speed */}
             <TouchableOpacity
               style={[
                 styles.setPaceBtn,
@@ -1855,14 +2017,18 @@ export default function Performance({ navigation }) {
                 color={isSavedActive ? '#059669' : '#fff'}
               />
               <Text style={[styles.setPaceBtnText, isSavedActive && { color: '#059669' }]}>
-                {isSavedActive ? 'Currently Active Study Pace' : `Set as Active Pace (${activeProfile.dailyGoalMins}m Target)`}
+                {isSavedActive
+                  ? `Active Profile Review Speed: ${activeProfile.name}`
+                  : `Apply ${activeProfile.name} Pace to My Review Speed`}
               </Text>
             </TouchableOpacity>
 
             {paceSavedNotice && (
               <View style={styles.paceNoticeBox}>
-                <Ionicons name="checkmark-circle-outline" size={14} color="#059669" />
-                <Text style={styles.paceNoticeText}>Pace saved to your profile and daily goals updated!</Text>
+                <Ionicons name="checkmark-circle-outline" size={15} color="#059669" />
+                <Text style={styles.paceNoticeText}>
+                  {`Adaptive pace (${activeProfile.name}) inserted into your profile review speed!`}
+                </Text>
               </View>
             )}
           </View>

@@ -8,12 +8,14 @@ import { Ionicons } from '@expo/vector-icons';
 import NetInfo from '@react-native-community/netinfo';
 import { supabase } from '../../../supabase';
 import { SkeletonItem } from '../../../components/Skeleton';
+import { getCache, setCache } from '../../../utils/cache';
 import {
   getActiveUserSession,
   cacheQuestionsLocally,
   getLocalQuestions,
   enqueueSync,
 } from '../../../utils/database';
+import { resolveUserTargetExam } from '../../../utils/targetExam';
 
 const NAVY = '#0B2540';
 
@@ -21,7 +23,8 @@ export default function TrueOrFalse({ navigation, route }) {
   const subject = route?.params?.subject;
   const limit = route?.params?.limit ?? 10;
   const passedTargetExam = route?.params?.targetExam;
-  const feSection = route?.params?.feSection; // 'morning' | 'afternoon'
+  const feSection = route?.params?.feSection; // 'Subject A' | 'Subject B'
+  const passedReviewSpeed = route?.params?.reviewSpeed; // 'Quick' | 'Standard' | 'Detailed'
 
   const [questions, setQuestions] = useState([]);
   const [index, setIndex] = useState(0);
@@ -44,34 +47,39 @@ export default function TrueOrFalse({ navigation, route }) {
     try {
       setLoading(true); setError(null);
       let uid = null;
+      let uemail = null;
       try {
         const { data: { session } } = await supabase.auth.getSession();
         uid = session?.user?.id ?? null;
+        uemail = session?.user?.email ?? null;
       } catch (_) {}
 
       if (!uid) {
         const localSession = await getActiveUserSession();
         uid = localSession?.user_id ?? null;
+        uemail = localSession?.email ?? null;
       }
       setUserId(uid);
 
       // Resolve user's target exam (IP or FE)
-      let activeTrack = passedTargetExam || 'IP';
-      if (!passedTargetExam && uid) {
-        try {
-          const { data: pData } = await supabase
-            .from('personal_info')
-            .select('target_exam_level')
-            .eq('user_id', uid)
-            .maybeSingle();
-          if (pData?.target_exam_level) {
-            const lvl = pData.target_exam_level.toLowerCase();
-            activeTrack = (lvl.includes('fe') || lvl.includes('fundamental') || (lvl.includes('pro') && !lvl.includes('sub')))
-              ? 'FE'
-              : 'IP';
-          }
-        } catch (_) {}
+      const activeTrack = await resolveUserTargetExam(uid, passedTargetExam || 'IP');
+
+      // Resolve user's review speed ('Quick' | 'Standard' | 'Detailed')
+      let activeSpeed = passedReviewSpeed;
+      if (!activeSpeed) {
+        const cachedSpeed = await getCache('user_review_speed');
+        if (cachedSpeed) activeSpeed = cachedSpeed;
+        else if (uemail) {
+          try {
+            const { data: uData } = await supabase.from('users').select('review_speed').ilike('email', uemail).maybeSingle();
+            if (uData?.review_speed) {
+              activeSpeed = String(uData.review_speed).trim();
+              setCache('user_review_speed', activeSpeed).catch(() => {});
+            }
+          } catch (_) {}
+        }
       }
+      if (!activeSpeed) activeSpeed = 'Standard';
 
       const IP_SUBJECTS = ['Technology', 'Management', 'Strategy'];
       const FE_MORNING_SUBJECTS = [
@@ -79,9 +87,6 @@ export default function TrueOrFalse({ navigation, route }) {
         'Networks & Security',
         'IT Management & Strategy',
         'Databases & SQL',
-        'Technology',
-        'Management',
-        'Strategy',
       ];
       const FE_AFTERNOON_SUBJECTS = [
         'Algorithms & Programming',
@@ -89,16 +94,14 @@ export default function TrueOrFalse({ navigation, route }) {
         'Security & System Design',
       ];
 
-      let trackSubjects = IP_SUBJECTS;
-      if (activeTrack === 'FE') {
-        const isSubjectB = String(feSection || '').toLowerCase().includes('b') || String(feSection || '').toLowerCase().includes('afternoon');
-        if (isSubjectB) {
-          trackSubjects = FE_AFTERNOON_SUBJECTS;
-        } else {
-          trackSubjects = FE_MORNING_SUBJECTS;
-        }
-      }
-      const cacheScope = `${activeTrack.toLowerCase()}_${feSection || 'all'}_${subject || 'all'}`;
+      const normSection = String(feSection || '').trim().toLowerCase().replace(/_/g, ' ');
+      const isSubjectB = /\b(b|afternoon)\b/i.test(normSection);
+      const activeSection = activeTrack === 'FE' ? (isSubjectB ? 'Subject B' : 'Subject A') : null;
+      const trackSubjects = activeTrack === 'FE'
+        ? (isSubjectB ? FE_AFTERNOON_SUBJECTS : FE_MORNING_SUBJECTS)
+        : IP_SUBJECTS;
+
+      const cacheScope = `${activeTrack.toLowerCase()}_${activeSection ? activeSection.replace(/\s+/g, '').toLowerCase() : 'all'}_${activeSpeed.toLowerCase()}_${(subject || 'all').toLowerCase()}`;
 
       let loadedQuestions = [];
       const net = await NetInfo.fetch();
@@ -106,19 +109,52 @@ export default function TrueOrFalse({ navigation, route }) {
       // 1. Try remote fetch if online
       if (net.isConnected) {
         try {
-          let q = supabase.from('true_false_questions')
-            .select('*, practice_categories!inner(name, exam_level)')
-            .eq('is_published', true)
-            .eq('exam_level', activeTrack);
-          if (subject) {
-            q = q.eq('practice_categories.name', subject);
-          } else {
-            q = q.in('practice_categories.name', trackSubjects);
+          // Base query matching target exam and session
+          const buildBaseQuery = () => {
+            let q = supabase.from('true_false_questions')
+              .select('*, practice_categories!inner(name, exam_level)')
+              .eq('is_published', true)
+              .eq('exam_level', activeTrack);
+
+            if (activeTrack === 'FE' && activeSection) {
+              q = q.eq('fe_section', activeSection);
+            }
+
+            if (subject && subject !== 'All') {
+              q = q.eq('practice_categories.name', subject);
+            } else {
+              q = q.in('practice_categories.name', trackSubjects);
+            }
+            return q;
+          };
+
+          // Prioritize questions strictly matching user's review speed
+          const normalizedSpeed = (activeSpeed === 'Quick' || activeSpeed === 'Detailed') ? activeSpeed : 'Standard';
+          let speedQ = buildBaseQuery().ilike('review_speed', normalizedSpeed);
+
+          const { data: speedMatched, error: qErr } = await speedQ.limit(limit);
+          if (!qErr && speedMatched) {
+            loadedQuestions = [...speedMatched];
           }
-          const { data, error: qErr } = await q.limit(limit);
-          if (!qErr && data && data.length > 0) {
-            loadedQuestions = data;
-            cacheQuestionsLocally('tf', cacheScope, data).catch(() => {});
+
+          // Fallback / pad if specific speed has fewer items than requested limit
+          if (loadedQuestions.length < limit) {
+            const existingIds = new Set(loadedQuestions.map(q => q.id));
+            const fallbackQ = buildBaseQuery();
+            const { data: fallbackItems } = await fallbackQ.limit(limit * 2);
+            if (fallbackItems) {
+              for (const item of fallbackItems) {
+                if (!existingIds.has(item.id)) {
+                  loadedQuestions.push(item);
+                  existingIds.add(item.id);
+                  if (loadedQuestions.length >= limit) break;
+                }
+              }
+            }
+          }
+
+          if (loadedQuestions.length > 0) {
+            cacheQuestionsLocally('tf', cacheScope, loadedQuestions).catch(() => {});
           }
         } catch (netErr) {
           console.warn('Network issue loading TrueFalse, falling back to SQLite:', netErr);
@@ -150,12 +186,14 @@ export default function TrueOrFalse({ navigation, route }) {
 
   const logResult = async (question, answer) => {
     if (!userId) return;
+    const resolvedLevel = question?.exam_level || question?.practice_categories?.exam_level || passedTargetExam || 'IP';
     const payload = {
       user_id: userId,
       question_id: question.id,
       selected_answer: answer,
       is_correct: answer === question.answer,
       answered_at: new Date().toISOString(),
+      exam_level: resolvedLevel,
     };
 
     try {
@@ -183,6 +221,9 @@ export default function TrueOrFalse({ navigation, route }) {
     if (value === question?.answer) {
       setScore((s) => s + 1);
     }
+    setTimeout(() => {
+      scrollRef.current?.scrollToEnd?.({ animated: true });
+    }, 120);
   };
 
   const goToNext = () => {
@@ -254,16 +295,22 @@ export default function TrueOrFalse({ navigation, route }) {
     <SafeAreaView style={styles.safeArea}>
       <StatusBar barStyle="dark-content" />
 
+      {/* Top Header */}
       <View style={styles.header}>
         <TouchableOpacity style={styles.iconButton} onPress={() => navigation?.goBack?.()}>
           <Ionicons name="chevron-back" size={26} color={NAVY} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>True or False</Text>
-        <TouchableOpacity style={styles.iconButton}>
-          <Ionicons name="settings-outline" size={22} color={NAVY} />
-        </TouchableOpacity>
+        <View style={styles.iconButton} />
       </View>
 
+      {/* Top Meta info row */}
+      <View style={styles.topMetaRow}>
+        <Text style={styles.metaSubjectText}>{subject || 'All Subjects'}</Text>
+        <Text style={styles.metaProgressText}>{index + 1} / {questions.length}</Text>
+      </View>
+
+      {/* Scrollable: Question statement, choices, and explanation */}
       <ScrollView
         ref={scrollRef}
         style={styles.bodyScroll}
@@ -271,12 +318,6 @@ export default function TrueOrFalse({ navigation, route }) {
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
       >
-        {/* Top Meta info row */}
-        <View style={styles.topMetaRow}>
-          <Text style={styles.metaSubjectText}>{subject || 'All Subjects'}</Text>
-          <Text style={styles.metaProgressText}>{index + 1} / {questions.length}</Text>
-        </View>
-
         <View style={styles.card}>
           <Text style={styles.statementText}>{question.statement}</Text>
         </View>
@@ -296,6 +337,7 @@ export default function TrueOrFalse({ navigation, route }) {
                   hasAnswered && isTheAnswer && !isSelected && styles.choiceButtonReveal,
                 ]}
                 onPress={() => handleSelect(val)}
+                activeOpacity={0.8}
               >
                 <Text style={[
                   styles.choiceText,
@@ -312,7 +354,11 @@ export default function TrueOrFalse({ navigation, route }) {
         {hasAnswered && (
           <View style={styles.feedbackArea}>
             <View style={styles.resultRow}>
-              <Ionicons name={isCorrect ? 'checkmark-circle' : 'close-circle'} size={20} color={isCorrect ? '#3CB878' : '#E0475A'} />
+              <Ionicons
+                name={isCorrect ? 'checkmark-circle' : 'close-circle'}
+                size={20}
+                color={isCorrect ? '#3CB878' : '#E0475A'}
+              />
               <Text style={[styles.resultText, { color: isCorrect ? '#3CB878' : '#E0475A' }]}>
                 {isCorrect ? 'Correct' : 'Incorrect'}
               </Text>
@@ -320,16 +366,26 @@ export default function TrueOrFalse({ navigation, route }) {
             <Text style={styles.explanationText}>{question.explanation}</Text>
           </View>
         )}
-
-        {hasAnswered && (
-          <View style={styles.footer}>
-            <TouchableOpacity style={styles.nextButton} onPress={goToNext}>
-              <Text style={styles.nextButtonText}>{isLast ? 'Start over' : 'Next'}</Text>
-              <Ionicons name="arrow-forward" size={18} color="#FFFFFF" />
-            </TouchableOpacity>
-          </View>
-        )}
       </ScrollView>
+
+      {/* Fixed bottom footer with Next button */}
+      <View style={styles.footer}>
+        <TouchableOpacity
+          style={[styles.nextButton, !hasAnswered && styles.nextButtonDisabled]}
+          disabled={!hasAnswered}
+          onPress={goToNext}
+          activeOpacity={0.85}
+        >
+          <Text style={[styles.nextButtonText, !hasAnswered && styles.nextButtonTextDisabled]}>
+            {isLast ? 'Start over' : 'Next'}
+          </Text>
+          <Ionicons
+            name="arrow-forward"
+            size={18}
+            color={!hasAnswered ? 'rgba(255, 255, 255, 0.6)' : '#FFFFFF'}
+          />
+        </TouchableOpacity>
+      </View>
     </SafeAreaView>
   );
 }
@@ -345,12 +401,15 @@ const styles = StyleSheet.create({
   retryBtn: { marginTop: 16, paddingHorizontal: 24, paddingVertical: 10, backgroundColor: NAVY, borderRadius: 20 },
   retryText: { color: '#fff', fontWeight: '700', fontSize: 14 },
   body: { flex: 1, alignItems: 'center', justifyContent: 'flex-start', paddingHorizontal: 28, paddingTop: 16 },
+  topMetaRow: { width: '100%', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 28, paddingTop: 6, paddingBottom: 10 },
+  metaSubjectText: { fontSize: 13, fontWeight: '700', color: NAVY, textTransform: 'uppercase', letterSpacing: 0.5 },
+  metaProgressText: { fontSize: 13, fontWeight: '600', color: '#9AA5B1' },
   bodyScroll: { flex: 1 },
-  bodyScrollContent: { flexGrow: 1, alignItems: 'center', paddingHorizontal: 28, paddingTop: 16, paddingBottom: 40 },
+  bodyScrollContent: { flexGrow: 1, alignItems: 'center', paddingHorizontal: 28, paddingTop: 6, paddingBottom: 32 },
   card: { width: '100%', minHeight: 110, borderRadius: 20, borderWidth: 1, borderColor: '#D7DEE8', backgroundColor: '#FFFFFF', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 24, paddingVertical: 20, shadowColor: '#000', shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.08, shadowRadius: 12, elevation: 3 },
   statementText: { fontSize: 16, lineHeight: 22, fontWeight: '600', color: NAVY, textAlign: 'center' },
   choicesRow: { flexDirection: 'row', gap: 16, marginTop: 20 },
-  choiceButton: { paddingHorizontal: 28, paddingVertical: 12, borderRadius: 24, borderWidth: 1.5, borderColor: '#D7DEE8', backgroundColor: '#FFFFFF' },
+  choiceButton: { paddingHorizontal: 32, paddingVertical: 14, borderRadius: 24, borderWidth: 1.5, borderColor: '#D7DEE8', backgroundColor: '#FFFFFF', minWidth: 120, alignItems: 'center' },
   choiceButtonCorrect: { backgroundColor: '#3CB878', borderColor: '#3CB878' },
   choiceButtonIncorrect: { backgroundColor: '#E0475A', borderColor: '#E0475A' },
   choiceButtonReveal: { borderColor: '#3CB878', borderWidth: 1.5, backgroundColor: '#EAFBF2' },
@@ -361,10 +420,33 @@ const styles = StyleSheet.create({
   resultRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 },
   resultText: { fontSize: 14, fontWeight: '700' },
   explanationText: { fontSize: 13, lineHeight: 19, color: '#4A5563' },
-  footer: { alignItems: 'center', paddingTop: 20, paddingBottom: 24 },
-  nextButton: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 22, paddingVertical: 12, borderRadius: 24, backgroundColor: NAVY },
-  nextButtonText: { color: '#FFFFFF', fontWeight: '700', fontSize: 14 },
-  topMetaRow: { width: '100%', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, paddingHorizontal: 4 },
-  metaSubjectText: { fontSize: 13, fontWeight: '700', color: NAVY, textTransform: 'uppercase', letterSpacing: 0.5 },
-  metaProgressText: { fontSize: 13, fontWeight: '600', color: '#9AA5B1' },
+  footer: {
+    paddingHorizontal: 24,
+    paddingTop: 12,
+    paddingBottom: Platform.OS === 'ios' ? 20 : 18,
+    backgroundColor: '#FFFFFF',
+    borderTopWidth: 1,
+    borderTopColor: '#F0F3F7',
+  },
+  nextButton: {
+    width: '100%',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 14,
+    borderRadius: 24,
+    backgroundColor: NAVY,
+  },
+  nextButtonDisabled: {
+    opacity: 0.35,
+  },
+  nextButtonText: {
+    color: '#FFFFFF',
+    fontWeight: '700',
+    fontSize: 15,
+  },
+  nextButtonTextDisabled: {
+    color: 'rgba(255, 255, 255, 0.7)',
+  },
 });

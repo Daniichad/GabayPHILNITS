@@ -230,36 +230,56 @@ export const markPointsSynced = async (ids) => {
 
 // ── Generic Cache for Offline Mode ──
 export const setGenericCache = async (key, valueObj) => {
-    const db = await getDb()
-    if (!db) return
-    try {
-        const valueString = JSON.stringify(valueObj)
-        await db.runAsync(
-            `INSERT INTO generic_cache (cache_key, cache_value, updated_at) 
-             VALUES (?, ?, CURRENT_TIMESTAMP)
-             ON CONFLICT(cache_key) DO UPDATE SET 
-             cache_value = excluded.cache_value, 
-             updated_at = CURRENT_TIMESTAMP`,
-            [key, valueString]
-        )
-    } catch (e) {
-        console.error(`Failed to set generic cache for key ${key}:`, e)
-    }
+    return runExclusive(async () => {
+        const db = await getDb()
+        if (!db) return
+        try {
+            const valueString = JSON.stringify(valueObj)
+            await db.runAsync(
+                `INSERT INTO generic_cache (cache_key, cache_value, updated_at) 
+                 VALUES (?, ?, CURRENT_TIMESTAMP)
+                 ON CONFLICT(cache_key) DO UPDATE SET 
+                 cache_value = excluded.cache_value, 
+                 updated_at = CURRENT_TIMESTAMP`,
+                [key, valueString]
+            )
+        } catch (e) {
+            console.error(`Failed to set generic cache for key ${key}:`, e)
+        }
+    })
 }
 
 export const getGenericCache = async (key) => {
-    const db = await getDb()
-    if (!db) return null
-    try {
-        const result = await db.getFirstAsync('SELECT cache_value FROM generic_cache WHERE cache_key = ?', [key])
-        if (result && result.cache_value) {
-            return JSON.parse(result.cache_value)
+    return runExclusive(async () => {
+        const db = await getDb()
+        if (!db) return null
+        try {
+            const result = await db.getFirstAsync('SELECT cache_value FROM generic_cache WHERE cache_key = ?', [key])
+            if (result && result.cache_value) {
+                return JSON.parse(result.cache_value)
+            }
+            return null
+        } catch (e) {
+            console.error(`Failed to get generic cache for key ${key}:`, e)
+            return null
         }
-        return null
-    } catch (e) {
-        console.error(`Failed to get generic cache for key ${key}:`, e)
-        return null
-    }
+    })
+}
+
+export const clearGenericCache = async (key) => {
+    return runExclusive(async () => {
+        const db = await getDb()
+        if (!db) return
+        try {
+            if (key) {
+                await db.runAsync('DELETE FROM generic_cache WHERE cache_key = ?', [key])
+            } else {
+                await db.runAsync('DELETE FROM generic_cache')
+            }
+        } catch (e) {
+            console.error('Failed to clear generic cache:', e)
+        }
+    })
 }
 
 // ── Offline User Session Management ──

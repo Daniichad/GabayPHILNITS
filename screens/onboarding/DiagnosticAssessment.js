@@ -2,12 +2,14 @@ import React, { useState, useEffect, useRef, useCallback } from 'react'
 import {
   Alert, ActivityIndicator, Modal, ScrollView,
   StyleSheet, Text, TouchableOpacity, View, BackHandler, Image,
+  StatusBar, Platform,
 } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons'
 import { supabase } from '../../supabase'
 import { setCache } from '../../utils/cache'
 import { saveUserCache } from '../../utils/database'
+import { setUserTargetExamTrack } from '../../utils/targetExam'
 import { FALLBACK_QUESTIONS } from './DiagnosticFallbackQuestions'
 
 const IP_CATEGORIES = [
@@ -122,8 +124,7 @@ export default function DiagnosticAssessment({ navigation, route }) {
   const [questionIndex, setQuestionIndex] = React.useState(0)
   const [selectedAnswer, setSelectedAnswer] = React.useState('')
   const [answers, setAnswers] = React.useState(/** @type {Record<string, any>} */ ({}))
-  const [exitVisible, setExitVisible] = React.useState(false)
-  const [finished, setFinished] = React.useState(false)
+    const [finished, setFinished] = React.useState(false)
   const [saving, setSaving] = React.useState(false)
   const [result, setResult] = React.useState(/** @type {any} */ (null))
   const [examType, setExamType] = React.useState('ip')
@@ -150,19 +151,16 @@ export default function DiagnosticAssessment({ navigation, route }) {
     navigation?.setOptions?.({ gestureEnabled: false })
   }, [navigation])
 
-  // Handle hardware back press (3-dot nav / gestures)
+  // Prevent hardware/gesture back press without showing any popup
   React.useEffect(() => {
     const backAction = () => {
-      if (started && !finished) {
-        setExitVisible(true)
-        return true
-      }
-      return false
+      // Consume the back event completely so the user cannot exit or trigger any popup
+      return true
     }
 
     const backHandler = BackHandler.addEventListener('hardwareBackPress', backAction)
     return () => backHandler.remove()
-  }, [started, finished])
+  }, [])
 
   const fetchUserExamType = async () => {
     // 1. If explicit param passed via route, respect it first
@@ -700,20 +698,11 @@ export default function DiagnosticAssessment({ navigation, route }) {
       if (!insertedInNew) throw legacyEx
     }
 
-    // 3. Persist target exam level in personal_info
+    // 3. Persist target exam level across Supabase, SQLite session, and local cache
     try {
-      const targetLevelText = examLevelKey === 'FE'
-        ? 'Fundamental IT Engineer (FE)'
-        : 'Information Technology Passport (IP)'
-      await supabase
-        .from('personal_info')
-        .upsert({
-          user_id: userId,
-          target_exam_level: targetLevelText,
-          updated_at: new Date().toISOString(),
-        }, { onConflict: 'user_id' })
+      await setUserTargetExamTrack(examLevelKey, userData?.user)
     } catch (pErr) {
-      console.warn('Could not update target_exam_level in personal_info:', pErr)
+      console.warn('Could not update target_exam_level:', pErr)
     }
 
     // 4. Cache weekly study focus for the Study Plan
@@ -824,18 +813,12 @@ export default function DiagnosticAssessment({ navigation, route }) {
     }
   }
 
-  const handleExitAssessment = () => {
-    if (timerRef.current) clearInterval(timerRef.current)
-    setExitVisible(false)
-    if (from === 'StudyPlan') navigation?.navigate('StudyPlan')
-    else if (from === 'Home') navigation?.navigate('Home')
-    else navigation?.goBack()
-  }
-
+  
   // ─────────────────────────────── LOADING STATE ────────────
   if (loading) {
     return (
       <SafeAreaView style={styles.safeArea}>
+        <StatusBar translucent backgroundColor="transparent" barStyle="dark-content" />
         <View style={styles.centered}>
           <ActivityIndicator size="large" color="#0F2747" />
           <Text style={styles.loadingText}>Loading {examType === 'fe' ? 40 : 30} {examType === 'fe' ? 'Fundamental IT Engineer (FE)' : 'IT Passport (IP)'} questions…</Text>
@@ -847,13 +830,11 @@ export default function DiagnosticAssessment({ navigation, route }) {
   if (loadError) {
     return (
       <SafeAreaView style={styles.safeArea}>
+        <StatusBar translucent backgroundColor="transparent" barStyle="dark-content" />
         <View style={styles.centered}>
           <Text style={styles.errorText}>{loadError}</Text>
           <TouchableOpacity style={styles.retryBtn} onPress={loadQuestions}>
             <Text style={styles.retryText}>Retry</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.laterLinkBtn} onPress={() => navigation?.replace('Home')}>
-            <Text style={styles.laterText}>Go to Home</Text>
           </TouchableOpacity>
         </View>
       </SafeAreaView>
@@ -866,6 +847,7 @@ export default function DiagnosticAssessment({ navigation, route }) {
 
     return (
       <SafeAreaView style={styles.safeArea}>
+        <StatusBar translucent backgroundColor="transparent" barStyle="dark-content" />
         <View style={styles.resultContainer}>
           <ScrollView
             style={styles.resultScroll}
@@ -896,17 +878,17 @@ export default function DiagnosticAssessment({ navigation, route }) {
               </View>
             </View>
 
-            {/* Your Level Card */}
+            {/* Review Speed Card */}
             <View style={styles.reportLevelCard}>
               <View style={styles.levelIconCircle}>
-                <MaterialCommunityIcons name="chart-bar" size={24} color="#3B82F6" />
+                <MaterialCommunityIcons name="speedometer" size={24} color="#2563EB" />
               </View>
               <View style={styles.levelCardDetails}>
                 <View style={styles.levelRow}>
-                  <Text style={styles.levelLabel}>Your Level:  </Text>
-                  <Text style={styles.levelValue}>{result.level}</Text>
+                  <Text style={styles.levelLabel}>Review Speed:  </Text>
+                  <Text style={styles.levelValue}>{result.calculatedSpeed || 'Standard'}</Text>
                 </View>
-                <Text style={styles.levelSub}>Knowledge Level</Text>
+                <Text style={styles.levelSub}>Recommended Pace Based on Diagnostic</Text>
               </View>
             </View>
 
@@ -1051,13 +1033,10 @@ export default function DiagnosticAssessment({ navigation, route }) {
   if (!started) {
     return (
       <SafeAreaView style={styles.safeArea}>
+        <StatusBar translucent backgroundColor="transparent" barStyle="dark-content" />
         <View style={styles.introContainer}>
-          <View style={styles.topBar}>
-            <TouchableOpacity onPress={() => setExitVisible(true)}>
-              <Text style={styles.backText}>‹</Text>
-            </TouchableOpacity>
+          <View style={[styles.topBar, { justifyContent: 'center' }]}>
             <Text style={styles.stepText}>Diagnostic Assessment</Text>
-            <View style={styles.backSpacer} />
           </View>
 
           <ScrollView
@@ -1099,26 +1078,8 @@ export default function DiagnosticAssessment({ navigation, route }) {
               <TouchableOpacity style={styles.startButton} activeOpacity={0.85} onPress={() => setStarted(true)}>
                 <Text style={styles.startButtonText}>START ASSESSMENT ({questions.length || 30} ITEMS)</Text>
               </TouchableOpacity>
-              <TouchableOpacity onPress={() => navigation?.replace('Home')}>
-                <Text style={styles.laterText}>Maybe Later</Text>
-              </TouchableOpacity>
             </View>
           </ScrollView>
-
-          <Modal transparent visible={exitVisible} animationType="fade" onRequestClose={() => setExitVisible(false)}>
-            <View style={styles.exitOverlay}>
-              <View style={styles.exitCard}>
-                <Text style={styles.exitTitle}>Are You Sure You Want to Exit?</Text>
-                <Text style={styles.exitSubtitle}>Your progress will not be saved if you exit now.</Text>
-                <TouchableOpacity style={styles.exitPrimaryButton} onPress={handleExitAssessment}>
-                  <Text style={styles.exitPrimaryButtonText}>Continue Assessment</Text>
-                </TouchableOpacity>
-                <TouchableOpacity onPress={() => navigation?.replace('Home')}>
-                  <Text style={styles.exitSecondaryText}>Exit Anyway</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-          </Modal>
         </View>
       </SafeAreaView>
     )
@@ -1127,11 +1088,10 @@ export default function DiagnosticAssessment({ navigation, route }) {
   // ─────────────────────────────── QUESTION STATE ────────────
   return (
     <SafeAreaView style={styles.safeArea}>
+      <StatusBar translucent backgroundColor="transparent" barStyle="dark-content" />
       <View style={styles.questionContainer}>
+        {/* Top bar with question number and timer */}
         <View style={styles.questionTopBar}>
-          <TouchableOpacity onPress={() => setExitVisible(true)}>
-            <Text style={styles.backText}>‹</Text>
-          </TouchableOpacity>
           <Text style={styles.stepText}>Question {progress}</Text>
           <View style={[styles.timerBadge, secondsLeft <= 300 && styles.timerBadgeUrgent]}>
             <MaterialCommunityIcons
@@ -1150,70 +1110,68 @@ export default function DiagnosticAssessment({ navigation, route }) {
           <View style={[styles.progressFill, { width: `${((questionIndex + 1) / questions.length) * 100}%` }]} />
         </View>
 
-        <ScrollView
-          ref={questionScrollRef}
-          style={styles.questionScroll}
-          contentContainerStyle={styles.questionScrollContent}
-          showsVerticalScrollIndicator={false}
-          keyboardShouldPersistTaps="handled"
-        >
-          <Text style={styles.questionHeader}>
-            {currentQuestion?.category} ({examType === 'fe' ? 'FE' : 'IP'})
-          </Text>
-          <Text style={styles.questionText}>{currentQuestion?.question}</Text>
+        {/* Scrollable question and options area */}
+        <View style={styles.quizBody}>
+          <ScrollView
+            ref={questionScrollRef}
+            style={styles.questionScroll}
+            contentContainerStyle={styles.questionScrollContent}
+            showsVerticalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
+          >
+            <Text style={styles.questionHeader}>
+              {currentQuestion?.category} ({examType === 'fe' ? 'FE' : 'IP'})
+            </Text>
+            <Text style={styles.questionText}>{currentQuestion?.question}</Text>
 
-          {currentQuestion?.image_url ? (
-            <View style={styles.questionImageContainer}>
-              <Image
-                source={{ uri: currentQuestion.image_url }}
-                style={styles.questionImage}
-                resizeMode="contain"
-              />
+            {currentQuestion?.image_url ? (
+              <View style={styles.questionImageContainer}>
+                <Image
+                  source={{ uri: currentQuestion.image_url }}
+                  style={styles.questionImage}
+                  resizeMode="contain"
+                />
+              </View>
+            ) : null}
+
+            {/* Options list matching Mock Exam concept */}
+            <View style={styles.optionsWrap}>
+              {(Array.isArray(currentQuestion?.options) ? currentQuestion.options : []).map((option, optIdx) => {
+                const active = selectedAnswer === option
+                const letter = ['A', 'B', 'C', 'D'][optIdx] ?? String(optIdx + 1)
+                return (
+                  <TouchableOpacity
+                    key={option}
+                    style={[styles.optionRow, active && styles.optionRowActive]}
+                    activeOpacity={0.8}
+                    onPress={() => handleChoose(option)}
+                  >
+                    <View style={[styles.optionLetterWrap, active && styles.optionLetterWrapActive]}>
+                      <Text style={[styles.optionLetter, active && styles.optionLetterActive]}>
+                        {letter}
+                      </Text>
+                    </View>
+                    <Text style={[styles.optionText, active && styles.optionTextActive]}>{option}</Text>
+                  </TouchableOpacity>
+                )
+              })}
             </View>
-          ) : null}
+          </ScrollView>
+        </View>
 
-          <View style={styles.optionsWrap}>
-            {(Array.isArray(currentQuestion?.options) ? currentQuestion.options : []).map((/** @type {any} */ option) => {
-              const active = selectedAnswer === option
-              return (
-                <TouchableOpacity
-                  key={option}
-                  style={[styles.optionButton, active && styles.optionButtonActive]}
-                  activeOpacity={0.85}
-                  onPress={() => handleChoose(option)}
-                >
-                  <Text style={[styles.optionText, active && styles.optionTextActive]}>{option}</Text>
-                </TouchableOpacity>
-              )
-            })}
-          </View>
-
+        {/* Fixed bottom footer with NEXT button (Mock Exam style) */}
+        <View style={styles.quizFooter}>
           <TouchableOpacity
-            style={[styles.questionNextButton, !selectedAnswer && styles.questionNextButtonDisabled]}
+            style={[styles.nextButton, !selectedAnswer && styles.nextButtonDisabled]}
             activeOpacity={0.85}
             disabled={!selectedAnswer}
             onPress={handleNext}
           >
-            <Text style={[styles.questionNextButtonText, !selectedAnswer && styles.questionNextButtonTextDisabled]}>
+            <Text style={styles.nextButtonText}>
               {questionIndex === questions.length - 1 ? 'FINISH' : 'NEXT'}
             </Text>
           </TouchableOpacity>
-        </ScrollView>
-
-        <Modal transparent visible={exitVisible} animationType="fade" onRequestClose={() => setExitVisible(false)}>
-          <View style={styles.exitOverlay}>
-            <View style={styles.exitCard}>
-              <Text style={styles.exitTitle}>Are You Sure You Want to Exit?</Text>
-              <Text style={styles.exitSubtitle}>Your progress will not be saved if you exit now.</Text>
-              <TouchableOpacity style={styles.exitPrimaryButton} onPress={() => setExitVisible(false)}>
-                <Text style={styles.exitPrimaryButtonText}>Continue Assessment</Text>
-              </TouchableOpacity>
-              <TouchableOpacity onPress={() => navigation?.replace('Home')}>
-                <Text style={styles.exitSecondaryText}>Exit Anyway</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </Modal>
+        </View>
       </View>
     </SafeAreaView>
   )
@@ -1230,14 +1188,14 @@ const styles = StyleSheet.create({
   introContainer: { flex: 1, backgroundColor: '#ffffff', paddingHorizontal: 22, paddingTop: 18 },
   introScroll: { flex: 1 },
   introScrollContent: { flexGrow: 1, paddingBottom: 24 },
-  questionContainer: { flex: 1, backgroundColor: '#ffffff', paddingHorizontal: 22, paddingTop: 18 },
+  questionContainer: { flex: 1, backgroundColor: '#ffffff' },
   questionScroll: { flex: 1 },
   questionScrollContent: { flexGrow: 1, paddingTop: 12, paddingBottom: 32 },
   resultContainer: { flex: 1, backgroundColor: '#ffffff' },
   resultScroll: { flex: 1, backgroundColor: '#ffffff' },
   resultScrollContent: { paddingHorizontal: 16, paddingVertical: 18, backgroundColor: '#ffffff', flexGrow: 1 },
   topBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 },
-  questionTopBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 },
+  questionTopBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingTop: 16, marginBottom: 8 },
   backText: { fontSize: 24, color: '#1f2937', width: 24 },
   backSpacer: { width: 24 },
   stepText: { fontSize: 13, fontWeight: '700', color: '#6b7280' },
@@ -1265,7 +1223,7 @@ const styles = StyleSheet.create({
   timerTextUrgent: {
     color: '#dc2626',
   },
-  progressTrack: { height: 5, borderRadius: 999, backgroundColor: '#e5e7eb', overflow: 'hidden', marginBottom: 18 },
+  progressTrack: { height: 4, borderRadius: 999, backgroundColor: '#e5e7eb', overflow: 'hidden', marginHorizontal: 20, marginBottom: 12 },
   progressFill: { height: '100%', borderRadius: 999, backgroundColor: '#0F2747' },
   introCard: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingBottom: 28 },
   iconContainer: { width: 80, height: 80, borderRadius: 40, backgroundColor: '#f1f5f9', justifyContent: 'center', alignItems: 'center', marginBottom: 20 },
@@ -1561,5 +1519,80 @@ const styles = StyleSheet.create({
   footerLogoImage: {
     width: 170,
     height: 48,
+  },
+  quizBody: {
+    flex: 1,
+    paddingHorizontal: 20,
+  },
+  quizFooter: {
+    paddingHorizontal: 20,
+    paddingBottom: Platform.OS === 'ios' ? 24 : 26,
+    paddingTop: 12,
+    backgroundColor: '#FFFFFF',
+    borderTopWidth: 1,
+    borderTopColor: '#F1F5F9',
+  },
+  nextButton: {
+    backgroundColor: '#0F2747',
+    borderRadius: 24,
+    paddingVertical: 15,
+    alignItems: 'center',
+  },
+  nextButtonDisabled: {
+    opacity: 0.35,
+  },
+  nextButtonText: {
+    color: '#FFFFFF',
+    fontWeight: '700',
+    fontSize: 14,
+    letterSpacing: 0.5,
+  },
+  optionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1.5,
+    borderColor: '#D7DEE8',
+    borderRadius: 14,
+    paddingVertical: 14,
+    paddingLeft: 16,
+    paddingRight: 20,
+    marginBottom: 12,
+    backgroundColor: '#FFFFFF',
+  },
+  optionRowActive: {
+    borderColor: '#0F2747',
+    backgroundColor: '#F0F5FA',
+  },
+  optionLetterWrap: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: '#EDF1F7',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  optionLetterWrapActive: {
+    backgroundColor: '#0F2747',
+  },
+  optionLetter: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#0F2747',
+  },
+  optionLetterActive: {
+    color: '#FFFFFF',
+  },
+  optionText: {
+    fontSize: 14,
+    color: '#0F2747',
+    fontWeight: '600',
+    flex: 1,
+    paddingRight: 8,
+    lineHeight: 20,
+  },
+  optionTextActive: {
+    color: '#0F2747',
+    fontWeight: '700',
   },
 })

@@ -4,17 +4,20 @@ import {
   Animated, StatusBar, Platform, ActivityIndicator,
   Modal, Switch, ScrollView, Dimensions, PanResponder
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import NetInfo from '@react-native-community/netinfo';
 import { supabase } from '../../../supabase';
+import { getModalBottomPadding } from '../../../utils/responsiveLayout';
 import {
   getActiveUserSession,
   cacheQuestionsLocally,
   getLocalQuestions,
   enqueueSync,
 } from '../../../utils/database';
+import { resolveUserTargetExam } from '../../../utils/targetExam';
+import { getCache, setCache } from '../../../utils/cache';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 const CARD_WIDTH = Math.min(SCREEN_WIDTH - 44, 400);
@@ -24,6 +27,7 @@ const NAVY = '#0B2540';
 const SETTINGS_KEY = '@gabay_flashcard_settings';
 
 export default function Flashcards({ navigation, route }) {
+  const insets = useSafeAreaInsets();
   const deckId    = route?.params?.deckId;
   const categoryId = route?.params?.categoryId;
   const from      = route?.params?.from;
@@ -82,7 +86,8 @@ export default function Flashcards({ navigation, route }) {
   const subject    = route?.params?.subject;
   const limit      = route?.params?.limit ?? 10;
   const passedTargetExam = route?.params?.targetExam;
-  const feSection  = route?.params?.feSection; // 'morning' | 'afternoon'
+  const feSection  = route?.params?.feSection; // 'Subject A' | 'Subject B'
+  const passedReviewSpeed = route?.params?.reviewSpeed; // 'Quick' | 'Standard' | 'Detailed'
 
   const flipAnim = useRef(new Animated.Value(0)).current;
 
@@ -162,34 +167,39 @@ export default function Flashcards({ navigation, route }) {
       setError(null);
 
       let uid = null;
+      let uemail = null;
       try {
         const { data: { session } } = await supabase.auth.getSession();
         uid = session?.user?.id ?? null;
+        uemail = session?.user?.email ?? null;
       } catch (_) {}
 
       if (!uid) {
         const localSession = await getActiveUserSession();
         uid = localSession?.user_id ?? null;
+        uemail = localSession?.email ?? null;
       }
       setUserId(uid);
 
       // Resolve user's target exam (IP or FE)
-      let activeTrack = passedTargetExam || 'IP';
-      if (!passedTargetExam && uid) {
-        try {
-          const { data: pData } = await supabase
-            .from('personal_info')
-            .select('target_exam_level')
-            .eq('user_id', uid)
-            .maybeSingle();
-          if (pData?.target_exam_level) {
-            const lvl = pData.target_exam_level.toLowerCase();
-            activeTrack = (lvl.includes('fe') || lvl.includes('fundamental') || (lvl.includes('pro') && !lvl.includes('sub')))
-              ? 'FE'
-              : 'IP';
-          }
-        } catch (_) {}
+      const activeTrack = await resolveUserTargetExam(uid, passedTargetExam || 'IP');
+
+      // Resolve user's review speed ('Quick' | 'Standard' | 'Detailed')
+      let activeSpeed = passedReviewSpeed;
+      if (!activeSpeed) {
+        const cachedSpeed = await getCache('user_review_speed');
+        if (cachedSpeed) activeSpeed = cachedSpeed;
+        else if (uemail) {
+          try {
+            const { data: uData } = await supabase.from('users').select('review_speed').ilike('email', uemail).maybeSingle();
+            if (uData?.review_speed) {
+              activeSpeed = String(uData.review_speed).trim();
+              setCache('user_review_speed', activeSpeed).catch(() => {});
+            }
+          } catch (_) {}
+        }
       }
+      if (!activeSpeed) activeSpeed = 'Standard';
 
       const IP_SUBJECTS = ['Technology', 'Management', 'Strategy'];
       const FE_MORNING_SUBJECTS = [
@@ -197,9 +207,6 @@ export default function Flashcards({ navigation, route }) {
         'Networks & Security',
         'IT Management & Strategy',
         'Databases & SQL',
-        'Technology',
-        'Management',
-        'Strategy',
       ];
       const FE_AFTERNOON_SUBJECTS = [
         'Algorithms & Programming',
@@ -207,16 +214,14 @@ export default function Flashcards({ navigation, route }) {
         'Security & System Design',
       ];
 
-      let trackSubjects = IP_SUBJECTS;
-      if (activeTrack === 'FE') {
-        const isSubjectB = String(feSection || '').toLowerCase().includes('b') || String(feSection || '').toLowerCase().includes('afternoon');
-        if (isSubjectB) {
-          trackSubjects = FE_AFTERNOON_SUBJECTS;
-        } else {
-          trackSubjects = FE_MORNING_SUBJECTS;
-        }
-      }
-      const cacheScope = `${activeTrack.toLowerCase()}_${feSection || 'all'}_${subject || 'all'}`;
+      const normSection = String(feSection || '').trim().toLowerCase().replace(/_/g, ' ');
+      const isSubjectB = /\b(b|afternoon)\b/i.test(normSection);
+      const activeSection = activeTrack === 'FE' ? (isSubjectB ? 'Subject B' : 'Subject A') : null;
+      const trackSubjects = activeTrack === 'FE'
+        ? (isSubjectB ? FE_AFTERNOON_SUBJECTS : FE_MORNING_SUBJECTS)
+        : IP_SUBJECTS;
+
+      const cacheScope = `${activeTrack.toLowerCase()}_${activeSection ? activeSection.replace(/\s+/g, '').toLowerCase() : 'all'}_${activeSpeed.toLowerCase()}_${(subject || 'all').toLowerCase()}`;
 
       let loadedCards = [];
       const net = await NetInfo.fetch();
@@ -224,19 +229,52 @@ export default function Flashcards({ navigation, route }) {
       // 1. Try remote fetch if online
       if (net.isConnected) {
         try {
-          let cq = supabase.from('flashcards')
-            .select('*, flashcard_decks!inner(category_id, exam_level, practice_categories!inner(name, exam_level))');
-          cq = cq.eq('flashcard_decks.exam_level', activeTrack);
-          if (subject) {
-            cq = cq.eq('flashcard_decks.practice_categories.name', subject);
-          } else {
-            cq = cq.in('flashcard_decks.practice_categories.name', trackSubjects);
+          const buildBaseQuery = () => {
+            let q = supabase.from('flashcards')
+              .select('*, flashcard_decks!inner(category_id, exam_level, practice_categories!inner(name, exam_level))')
+              .eq('exam_level', activeTrack);
+
+            if (activeTrack === 'FE' && activeSection) {
+              q = q.eq('fe_section', activeSection);
+            }
+
+            if (deckId) {
+              q = q.eq('deck_id', deckId);
+            } else if (subject && subject !== 'All') {
+              q = q.eq('flashcard_decks.practice_categories.name', subject);
+            } else {
+              q = q.in('flashcard_decks.practice_categories.name', trackSubjects);
+            }
+            return q;
+          };
+
+          // Prioritize flashcards matching user's review speed
+          const normalizedSpeed = (activeSpeed === 'Quick' || activeSpeed === 'Detailed') ? activeSpeed : 'Standard';
+          let speedQ = buildBaseQuery().ilike('review_speed', normalizedSpeed);
+
+          const { data: speedMatched, error: cErr } = await speedQ.limit(limit);
+          if (!cErr && speedMatched) {
+            loadedCards = [...speedMatched];
           }
-          
-          const { data: flashcards, error: cErr } = await cq.limit(limit);
-          if (!cErr && flashcards && flashcards.length > 0) {
-            loadedCards = flashcards;
-            cacheQuestionsLocally('flashcard', cacheScope, flashcards).catch(() => {});
+
+          // Fallback / pad if specific speed has fewer items than requested limit
+          if (loadedCards.length < limit) {
+            const existingIds = new Set(loadedCards.map(c => c.id));
+            const fallbackQ = buildBaseQuery();
+            const { data: fallbackCards } = await fallbackQ.limit(limit * 2);
+            if (fallbackCards) {
+              for (const item of fallbackCards) {
+                if (!existingIds.has(item.id)) {
+                  loadedCards.push(item);
+                  existingIds.add(item.id);
+                  if (loadedCards.length >= limit) break;
+                }
+              }
+            }
+          }
+
+          if (loadedCards.length > 0) {
+            cacheQuestionsLocally('flashcard', cacheScope, loadedCards).catch(() => {});
           }
         } catch (netErr) {
           console.warn('Network issue loading flashcards, falling back to SQLite:', netErr);
@@ -619,24 +657,6 @@ export default function Flashcards({ navigation, route }) {
 
         {/* Card Stack Container */}
         <View style={styles.cardStackContainer}>
-          {/* Card Underneath (Next Card Preview) */}
-          {index + 1 < cards.length && (
-            <View style={[styles.cardWrapper, styles.cardUnderneath]}>
-              <View style={[styles.card, styles.cardFront]}>
-                <Text style={styles.cardBadge}>{isFrontTerm ? 'TERM' : 'DEFINITION'}</Text>
-                <View style={styles.cardContentWrapper}>
-                  <Text
-                    style={isFrontTerm ? styles.termTextFront : styles.definitionText}
-                    adjustsFontSizeToFit
-                    minimumFontScale={0.7}
-                  >
-                    {isFrontTerm ? cards[index + 1].term : cards[index + 1].definition}
-                  </Text>
-                </View>
-              </View>
-            </View>
-          )}
-
           {/* Active Swipeable Card */}
           <Animated.View
             {...panResponder.panHandlers}
@@ -760,7 +780,7 @@ export default function Flashcards({ navigation, route }) {
           activeOpacity={1}
           onPress={() => setSettingsVisible(false)}
         />
-        <View style={styles.settingsSheet}>
+        <View style={[styles.settingsSheet, { paddingBottom: getModalBottomPadding(insets, 16) }]}>
           <View style={styles.sheetHeader}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
               <Ionicons name="settings-outline" size={20} color={NAVY} />
@@ -880,8 +900,7 @@ const styles = StyleSheet.create({
   retryText:     { color: '#fff', fontWeight: '700', fontSize: 14 },
   cardArea:      { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 20 },
   cardStackContainer: { width: CARD_WIDTH, height: CARD_HEIGHT, alignItems: 'center', justifyContent: 'center' },
-  cardWrapper:   { width: CARD_WIDTH, height: CARD_HEIGHT, borderRadius: 22, shadowColor: '#000', shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.08, shadowRadius: 12, elevation: 3 },
-  cardUnderneath:{ position: 'absolute', top: 0, left: 0, transform: [{ scale: 0.95 }, { translateY: 10 }], opacity: 0.55, zIndex: 0 },
+  cardWrapper:   { width: CARD_WIDTH, height: CARD_HEIGHT, borderRadius: 22 },
   card:          { width: CARD_WIDTH, height: CARD_HEIGHT, borderRadius: 22, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 24, paddingTop: 40, paddingBottom: 24, backfaceVisibility: 'hidden', overflow: 'hidden' },
   cardAbsolute:  { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 },
   cardContentWrapper: { flex: 1, width: '100%', alignItems: 'center', justifyContent: 'center' },

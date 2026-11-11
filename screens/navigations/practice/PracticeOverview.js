@@ -6,6 +6,8 @@ import {
 import { Feather, Ionicons } from '@expo/vector-icons'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { supabase } from '../../../supabase'
+import { resolveUserTargetExam } from '../../../utils/targetExam'
+import { getCache, setCache } from '../../../utils/cache'
 
 const NAVY = '#0f2747'
 const ACCENT = '#d85e67'
@@ -75,6 +77,7 @@ export default function PracticeOverview({ navigation, route }) {
 
   const routeTargetExam = route?.params?.targetExam
   const routeSubject = route?.params?.subject
+  const routeReviewSpeed = route?.params?.reviewSpeed
 
   const [userTargetExam, setUserTargetExam] = useState(routeTargetExam || null)
   const [loadingExam, setLoadingExam] = useState(!routeTargetExam)
@@ -82,6 +85,8 @@ export default function PracticeOverview({ navigation, route }) {
   const [selectedSubject, setSelectedSubject] = useState(routeSubject || 'All')
   const [selectedLimit, setSelectedLimit] = useState(10)
   const [selectedSets, setSelectedSets] = useState(1)
+  const [userReviewSpeed, setUserReviewSpeed] = useState('Standard')
+  const [selectedSpeed, setSelectedSpeed] = useState(routeReviewSpeed || 'Standard')
 
   const [subjectPickerOpen, setSubjectPickerOpen] = useState(false)
   const [limitPickerOpen, setLimitPickerOpen] = useState(false)
@@ -95,31 +100,33 @@ export default function PracticeOverview({ navigation, route }) {
     let isMounted = true
     const fetchTargetExam = async () => {
       try {
-        const { data: { user } } = await supabase.auth.getUser()
-        if (!user) {
-          if (isMounted) setLoadingExam(false)
-          return
+        // Check cache first for review speed
+        const cachedSpeed = await getCache('user_review_speed')
+        if (cachedSpeed && isMounted) {
+          setUserReviewSpeed(cachedSpeed)
+          if (!routeReviewSpeed) setSelectedSpeed(cachedSpeed)
         }
-        const { data: pData } = await supabase
-          .from('personal_info')
-          .select('target_exam_level')
-          .eq('user_id', user.id)
-          .maybeSingle()
+
+        const { data: { user } } = await supabase.auth.getUser()
+        const [track, uRes] = await Promise.all([
+          resolveUserTargetExam(user?.id, routeTargetExam || userTargetExam || 'IP'),
+          user?.email
+            ? supabase.from('users').select('review_speed').ilike('email', user.email).maybeSingle()
+            : Promise.resolve({ data: null })
+        ])
 
         if (isMounted) {
-          if (pData?.target_exam_level) {
-            const lvl = pData.target_exam_level.toLowerCase()
-            const track = (lvl.includes('fe') || lvl.includes('fundamental') || (lvl.includes('pro') && !lvl.includes('sub')))
-              ? 'FE'
-              : 'IP'
-            setUserTargetExam(track)
-            const validSubs = track === 'FE'
-              ? (feSection === 'Subject B' ? FE_AFTERNOON_SUBJECTS : FE_MORNING_SUBJECTS)
-              : IP_SUBJECTS
-            setSelectedSubject((curr) => (validSubs.includes(curr) ? curr : 'All'))
-          } else if (!userTargetExam) {
-            setUserTargetExam('IP')
+          setUserTargetExam(track)
+          if (uRes?.data?.review_speed) {
+            const rawSpeed = String(uRes.data.review_speed).trim()
+            setUserReviewSpeed(rawSpeed)
+            if (!routeReviewSpeed) setSelectedSpeed(rawSpeed)
+            setCache('user_review_speed', rawSpeed).catch(() => {})
           }
+          const validSubs = track === 'FE'
+            ? (feSection === 'Subject B' ? FE_AFTERNOON_SUBJECTS : FE_MORNING_SUBJECTS)
+            : IP_SUBJECTS
+          setSelectedSubject((curr) => (validSubs.includes(curr) ? curr : 'All'))
           setLoadingExam(false)
         }
       } catch (err) {
@@ -143,6 +150,7 @@ export default function PracticeOverview({ navigation, route }) {
       sets: selectedSets,
       targetExam: userTargetExam || 'IP',
       feSection: userTargetExam === 'FE' ? feSection : null,
+      reviewSpeed: selectedSpeed || userReviewSpeed || 'Standard',
     })
   }
 
@@ -221,6 +229,39 @@ export default function PracticeOverview({ navigation, route }) {
             </View>
           </View>
         )}
+
+        {/* Review Pace / Speed Selection */}
+        <View style={styles.flatSection}>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+            <Text style={styles.sectionHeader}>Review Pace</Text>
+            {userReviewSpeed && (
+              <Text style={{ fontSize: 11.5, fontWeight: '700', color: '#10b981' }}>
+                Profile Pace: {userReviewSpeed}
+              </Text>
+            )}
+          </View>
+          <View style={styles.feTrackSegment}>
+            {[
+              { id: 'Quick', label: '⚡ Quick' },
+              { id: 'Standard', label: '🎯 Standard' },
+              { id: 'Detailed', label: '📖 Detailed' },
+            ].map((pace) => {
+              const isActive = selectedSpeed === pace.id
+              return (
+                <TouchableOpacity
+                  key={pace.id}
+                  style={[styles.feTrackBtn, isActive && styles.feTrackBtnActive]}
+                  onPress={() => setSelectedSpeed(pace.id)}
+                  activeOpacity={0.7}
+                >
+                  <Text style={[styles.feTrackBtnText, isActive && styles.feTrackBtnTextActive]}>
+                    {pace.label}
+                  </Text>
+                </TouchableOpacity>
+              )
+            })}
+          </View>
+        </View>
 
         {/* Subject Area Dropdown selection card */}
         <View style={styles.flatSection}>

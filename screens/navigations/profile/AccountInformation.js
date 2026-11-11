@@ -7,6 +7,7 @@ import { Feather } from '@expo/vector-icons'
 import { supabase } from '../../../utils/supabase'
 import { getActiveUserSession, saveUserSession } from '../../../utils/database'
 import { setCache } from '../../../utils/cache'
+import { setUserTargetExamTrack } from '../../../utils/targetExam'
 
 const NAVY = '#0f2747'
 const ACCENT = '#d85e67'
@@ -417,12 +418,10 @@ export default function AccountInformation({ route, navigation }) {
         console.warn('Auth user metadata update note:', authErr)
       }
 
-      // 5. Update local SQLite session & invalidate cached data for old target exam
+      // 5. Update unified target exam cache, SQLite session, and Supabase
       try {
-        await saveUserSession(currentAuthUser, { target_exam_level: examLevel })
-        await setCache('library_target_exam', null)
-        await setCache('library_materials', null)
-        await setCache('library_videos', null)
+        const selectedTrack = (examLevel || '').toLowerCase().includes('fe') ? 'FE' : 'IP'
+        await setUserTargetExamTrack(selectedTrack, currentAuthUser)
       } catch (cacheErr) {
         console.warn('Note: Cache sync on examLevel update:', cacheErr)
       }

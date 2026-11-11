@@ -10,6 +10,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useFocusEffect } from '@react-navigation/native'
 import { getCache, setCache, clearCache } from '../../../utils/cache'
 import { getUnsyncedPoints } from '../../../utils/database'
+import { resolveUserTargetExam } from '../../../utils/targetExam'
 import {
   addNotificationListener,
   cleanNotificationText,
@@ -76,6 +77,29 @@ export default function Home({ session, navigation, route }) {
   const [streakDays, setStreakDays] = useState(0)
   const [targetExamType, setTargetExamType] = useState('IP')
   const [subjects, setSubjectProgress] = useState(IP_DEFAULT_SUBJECTS)
+
+  // Immediately hydrate streak & readiness from local cache on mount with zero network lag
+  useEffect(() => {
+    let isMounted = true
+    Promise.all([
+      getCache('home_streak_days'),
+      getCache('home_readiness'),
+      getCache('home_profile_name'),
+    ]).then(([cachedStreak, cachedReadiness, cachedName]) => {
+      if (!isMounted) return
+      if (cachedStreak !== null && cachedStreak !== undefined) {
+        setStreakDays(Number(cachedStreak))
+      }
+      if (cachedReadiness !== null && cachedReadiness !== undefined) {
+        setReadiness(Number(cachedReadiness))
+        setReadinessLoading(false)
+      }
+      if (cachedName && cachedName.toLowerCase() !== 'learner') {
+        setProfileName(extractFirstName(cachedName))
+      }
+    }).catch(() => {})
+    return () => { isMounted = false }
+  }, [])
 
   const quoteTimer = useRef(null)
   const quoteOpacity = useRef(new Animated.Value(1)).current
@@ -371,8 +395,8 @@ export default function Home({ session, navigation, route }) {
 
   const fetchReadiness = useCallback(async () => {
     const cached = await getCache('home_readiness')
-    if (cached !== null) {
-      setReadiness(cached)
+    if (cached !== null && cached !== undefined) {
+      setReadiness(Number(cached))
       setReadinessLoading(false)
     } else {
       setReadinessLoading(true)
@@ -383,47 +407,100 @@ export default function Home({ session, navigation, route }) {
       if (!uid) return
 
       // Fetch user's registered target exam level to filter readiness strictly to their exam
-      let isFE = false
-      const { data: pInfo } = await supabase
-        .from('personal_info')
-        .select('target_exam_level')
-        .eq('user_id', uid)
-        .maybeSingle()
+      const targetTrack = await resolveUserTargetExam(uid, 'IP')
+      const isFE = targetTrack === 'FE'
 
-      if (pInfo?.target_exam_level) {
-        const rawLevel = String(pInfo.target_exam_level).trim().toLowerCase()
-        isFE = rawLevel.includes('fe') || rawLevel.includes('fundamental') || (rawLevel.includes('pro') && !rawLevel.includes('sub'))
-      }
+      // Query mock exam attempts, MCQ, True/False, Matching, and Flashcards concurrently
+      const [attRes, mcqRes, tfRes, matchRes, sesRes] = await Promise.allSettled([
+        supabase
+          .from('mock_exam_attempts')
+          .select('score, total_questions, correct_count, completed_at, mock_exam_configs(title, level_key)')
+          .eq('user_id', uid)
+          .eq('status', 'completed')
+          .order('completed_at', { ascending: false })
+          .limit(20),
+        supabase
+          .from('multiple_choice_results')
+          .select('is_correct, question_id')
+          .eq('user_id', uid),
+        supabase
+          .from('true_false_results')
+          .select('is_correct, question_id')
+          .eq('user_id', uid),
+        supabase
+          .from('matching_results')
+          .select('id, pairs_matched, pairs_total, mistakes')
+          .eq('user_id', uid),
+        supabase
+          .from('flashcard_sessions')
+          .select('id, cards_seen, cards_total, completed')
+          .eq('user_id', uid),
+      ])
 
-      const { data: attempts, error } = await supabase
-        .from('mock_exam_attempts')
-        .select('correct_count, total_questions, mock_exam_configs(title, level_key)')
-        .eq('user_id', uid)
-        .eq('status', 'completed')
+      const attempts = attRes.status === 'fulfilled' ? (attRes.value.data ?? []) : []
+      const mcqList = mcqRes.status === 'fulfilled' ? (mcqRes.value.data ?? []) : []
+      const tfList = tfRes.status === 'fulfilled' ? (tfRes.value.data ?? []) : []
+      const matchList = matchRes.status === 'fulfilled' ? (matchRes.value.data ?? []) : []
+      const sesList = sesRes.status === 'fulfilled' ? (sesRes.value.data ?? []) : []
 
-      if (error) throw error
-
-      // Strictly include ONLY mock attempts matching the user's target exam
-      const targetAttempts = (attempts || []).filter(a => {
+      // 1. Filter mock attempts matching target track
+      const activeAttempts = attempts.filter(a => {
         const lk = (a.mock_exam_configs?.level_key || '').toLowerCase()
         const title = (a.mock_exam_configs?.title || '').toLowerCase()
-        if (isFE) {
+        if (targetTrack === 'FE') {
           return lk.includes('fe') || title.includes('fundamental') || title.includes('fe')
         } else {
           return lk.includes('ip') || title.includes('passport') || title.includes('ip')
         }
       })
 
-      let score = 0
-      if (targetAttempts.length > 0) {
-        const totalPct = targetAttempts.reduce((sum, attempt) => {
-          const pct = attempt.total_questions > 0
-            ? (attempt.correct_count / attempt.total_questions) * 100
-            : 0
-          return sum + pct
-        }, 0)
-        score = Math.round(totalPct / targetAttempts.length)
+      const mocksTaken = activeAttempts.length
+      let mockScore = 0
+      if (mocksTaken > 0) {
+        const recentMocks = activeAttempts.slice(0, 3)
+        const avgRecent = recentMocks.reduce((sum, a) => {
+          const p = a.total_questions > 0 ? (a.correct_count / a.total_questions) * 100 : 0
+          return sum + p
+        }, 0) / recentMocks.length
+        const mockConfidence = Math.min(1, mocksTaken / 3)
+        mockScore = (avgRecent / 100) * mockConfidence
       }
+
+      // 2. Practice Scores: MCQ (0.35, target 100), Match (0.20, target 40), TF (0.20, target 60), Flashcards (0.25, target 80)
+      const mcqAttempts = mcqList.length
+      const mcqCorrect = mcqList.filter(r => r.is_correct).length
+      const mcqAccuracy = mcqAttempts > 0 ? (mcqCorrect / mcqAttempts) : 0
+      const mcqConfidence = Math.min(1, mcqAttempts / 100)
+      const mcqScore = mcqAccuracy * mcqConfidence
+
+      const matchAttempts = matchList.reduce((sum, m) => sum + (m.pairs_matched || m.pairs_total || 0), 0)
+      const matchCorrect = matchList.reduce((sum, m) => sum + (m.pairs_matched || 0), 0)
+      const matchMistakes = matchList.reduce((sum, m) => sum + (m.mistakes || 0), 0)
+      const matchTrials = matchCorrect + matchMistakes
+      const matchAccuracy = matchTrials > 0 ? (matchCorrect / matchTrials) : (matchAttempts > 0 ? 1 : 0)
+      const matchConfidence = Math.min(1, matchAttempts / 40)
+      const matchScore = matchAccuracy * matchConfidence
+
+      const tfAttempts = tfList.length
+      const tfCorrect = tfList.filter(r => r.is_correct).length
+      const tfAccuracy = tfAttempts > 0 ? (tfCorrect / tfAttempts) : 0
+      const tfConfidence = Math.min(1, tfAttempts / 60)
+      const tfScore = tfAccuracy * tfConfidence
+
+      const fcAttempts = sesList.reduce((sum, s) => sum + (s.cards_seen || (s.completed ? (s.cards_total || 10) : 0)), 0)
+      const fcAccuracy = fcAttempts > 0 ? 1.0 : 0
+      const fcConfidence = Math.min(1, fcAttempts / 80)
+      const fcScore = fcAccuracy * fcConfidence
+
+      const practiceScore = (
+        0.35 * mcqScore +
+        0.20 * matchScore +
+        0.20 * tfScore +
+        0.25 * fcScore
+      )
+
+      // Combined Exam Readiness matching Performance.js (40% practice + 60% mock)
+      const score = Math.round((0.40 * practiceScore + 0.60 * mockScore) * 100)
       setReadiness(score)
       await setCache('home_readiness', score)
     } catch (err) {
@@ -735,13 +812,17 @@ export default function Home({ session, navigation, route }) {
     const cachedName = await getCache('home_profile_name')
     const cachedStreak = await getCache('home_streak_days')
     const cachedSubjects = await getCache('home_subject_progress')
-    if (cachedName !== null && cachedStreak !== null && cachedSubjects) {
-      if (cachedName && cachedName.toLowerCase() !== 'learner') {
-        setProfileName(extractFirstName(cachedName))
-      }
-      setStreakDays(cachedStreak)
+
+    if (cachedStreak !== null && cachedStreak !== undefined) {
+      setStreakDays(Number(cachedStreak))
+    }
+    if (cachedName && cachedName.toLowerCase() !== 'learner') {
+      setProfileName(extractFirstName(cachedName))
+    }
+    if (cachedSubjects && Array.isArray(cachedSubjects)) {
       setSubjectProgress(cachedSubjects)
     }
+
     try {
       const { data: { session } } = await supabase.auth.getSession()
       const uid = session?.user?.id
@@ -765,30 +846,27 @@ export default function Home({ session, navigation, route }) {
       setProfileName(resolvedName)
       await setCache('home_profile_name', resolvedName)
 
-      // 2. Fetch activity streak
-      const { data: sessions } = await supabase
-        .from('flashcard_sessions')
-        .select('created_at')
-        .eq('user_id', uid)
+      // 2. Fetch activity streak across ALL 5 activities (flashcards, MCQ, True/False, Matching, and Mock Exams)
+      const [sesRes, mcqRes, tfRes, matchRes, mockRes] = await Promise.allSettled([
+        supabase.from('flashcard_sessions').select('created_at, completed_at, started_at').eq('user_id', uid),
+        supabase.from('multiple_choice_results').select('answered_at').eq('user_id', uid),
+        supabase.from('true_false_results').select('answered_at').eq('user_id', uid),
+        supabase.from('matching_results').select('created_at, completed_at').eq('user_id', uid),
+        supabase.from('mock_exam_attempts').select('created_at, completed_at, started_at').eq('user_id', uid),
+      ])
 
-      const { data: mcqRaw } = await supabase
-        .from('multiple_choice_results')
-        .select('answered_at')
-        .eq('user_id', uid)
-
-      const { data: tfRaw } = await supabase
-        .from('true_false_results')
-        .select('answered_at')
-        .eq('user_id', uid)
-
-      const ses = sessions ?? []
-      const mcq = mcqRaw ?? []
-      const tf = tfRaw ?? []
+      const ses = sesRes.status === 'fulfilled' ? (sesRes.value.data ?? []) : []
+      const mcq = mcqRes.status === 'fulfilled' ? (mcqRes.value.data ?? []) : []
+      const tf = tfRes.status === 'fulfilled' ? (tfRes.value.data ?? []) : []
+      const match = matchRes.status === 'fulfilled' ? (matchRes.value.data ?? []) : []
+      const mock = mockRes.status === 'fulfilled' ? (mockRes.value.data ?? []) : []
 
       const activityDays = new Set([
-        ...ses.map(s => s.created_at?.slice(0, 10)),
+        ...ses.map(s => (s.completed_at || s.started_at || s.created_at)?.slice(0, 10)),
         ...mcq.map(r => r.answered_at?.slice(0, 10)),
         ...tf.map(r => r.answered_at?.slice(0, 10)),
+        ...match.map(m => (m.completed_at || m.created_at)?.slice(0, 10)),
+        ...mock.map(m => (m.completed_at || m.started_at || m.created_at)?.slice(0, 10)),
       ].filter(Boolean))
 
       let streak = 0
@@ -806,21 +884,11 @@ export default function Home({ session, navigation, route }) {
       await setCache('home_streak_days', streak)
 
       // 3. Fetch target exam level to determine allowed subject areas
-      let isFE = false
-      const { data: pInfo } = await supabase
-        .from('personal_info')
-        .select('target_exam_level')
-        .eq('user_id', uid)
-        .maybeSingle()
+      const activeTrack = await resolveUserTargetExam(uid, 'IP')
+      const isFE = activeTrack === 'FE'
 
-      if (pInfo?.target_exam_level) {
-        const rawLevel = String(pInfo.target_exam_level).trim().toLowerCase()
-        isFE = rawLevel.includes('fe') || rawLevel.includes('fundamental') || (rawLevel.includes('pro') && !rawLevel.includes('sub'))
-      }
-
-      setTargetExamType(isFE ? 'FE' : 'IP')
+      setTargetExamType(activeTrack)
       const targetDefaultSubjects = isFE ? FE_DEFAULT_SUBJECTS : IP_DEFAULT_SUBJECTS
-      const activeTrack = isFE ? 'FE' : 'IP'
 
       // 4. Fetch MCQ + TF results strictly isolated to user's target exam
       const { data: mcqPerformance } = await supabase
@@ -927,13 +995,28 @@ export default function Home({ session, navigation, route }) {
     fetchNotifications()
   }, [fetchCSESchedule, fetchReadiness, fetchRankings, fetchHomeData, fetchNotifications])
 
-  // Re-fetch rankings, home data, and notifications when Home screen comes into focus
+  // Re-fetch rankings, readiness, home data, and notifications when Home screen comes into focus
   useFocusEffect(
     useCallback(() => {
+      // Immediately hydrate cached streak and readiness on screen focus with zero lag
+      Promise.all([
+        getCache('home_streak_days'),
+        getCache('home_readiness'),
+      ]).then(([cachedStreak, cachedReadiness]) => {
+        if (cachedStreak !== null && cachedStreak !== undefined) {
+          setStreakDays(Number(cachedStreak))
+        }
+        if (cachedReadiness !== null && cachedReadiness !== undefined) {
+          setReadiness(Number(cachedReadiness))
+          setReadinessLoading(false)
+        }
+      }).catch(() => {})
+
       fetchRankings()
+      fetchReadiness()
       fetchHomeData()
       fetchNotifications()
-    }, [fetchRankings, fetchHomeData, fetchNotifications])
+    }, [fetchRankings, fetchReadiness, fetchHomeData, fetchNotifications])
   )
 
   // ─── Pull-to-refresh ───────────────────────────────────────────

@@ -1,4 +1,4 @@
-import { getGenericCache, setGenericCache, getDb } from './database'
+import { getGenericCache, setGenericCache, clearGenericCache } from './database'
 
 /**
  * Get an item from the SQLite cache. Returns null if not found or expired.
@@ -38,15 +38,5 @@ export async function setCache(key, data, ttlMs = 5 * 60 * 1000) {
  * @param {string} [key] 
  */
 export async function clearCache(key) {
-  const db = await getDb();
-  if (!db) return;
-  try {
-    if (key) {
-      await db.runAsync('DELETE FROM generic_cache WHERE cache_key = ?', [key]);
-    } else {
-      await db.runAsync('DELETE FROM generic_cache');
-    }
-  } catch (e) {
-    console.error('Failed to clear cache:', e);
-  }
+  await clearGenericCache(key);
 }

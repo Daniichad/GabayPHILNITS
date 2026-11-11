@@ -121,15 +121,17 @@ export default function MockExamTake({ navigation, route }) {
   useEffect(() => {
     if (stage !== 'quiz') return;
 
-    // Snapshot loop for face tracking (smooth 1200ms cadence without UI flickering)
+    // Snapshot loop for face tracking (completely silent, no shutter sound or screen flicker)
     let isProcessing = false;
     const interval = setInterval(async () => {
       if (isProcessing || !modelRef.current || !cameraRef.current) return;
       isProcessing = true;
       try {
         const takePhotoPromise = cameraRef.current.takePictureAsync({ 
+          shutterSound: false,
+          skipProcessing: true,
           base64: false,
-          quality: 0.3
+          quality: 0.15,
         });
         const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("hang")), 3000));
         const photo = await Promise.race([takePhotoPromise, timeoutPromise]);
@@ -137,8 +139,8 @@ export default function MockExamTake({ navigation, route }) {
         if (photo?.uri) {
           const manipResult = await ImageManipulator.manipulateAsync(
             photo.uri,
-            [{ resize: { width: 320 } }],
-            { compress: 0.5, format: ImageManipulator.SaveFormat.JPEG, base64: true }
+            [{ resize: { width: 256 } }],
+            { compress: 0.35, format: ImageManipulator.SaveFormat.JPEG, base64: true }
           );
 
           const imgBuffer = tf.util.encodeString(manipResult.base64, 'base64').buffer;
@@ -147,18 +149,20 @@ export default function MockExamTake({ navigation, route }) {
           const predictions = await modelRef.current.estimateFaces(imageTensor, false);
           imageTensor.dispose();
 
-          if (predictions.length === 0) {
+          const hasFace = predictions.length > 0;
+
+          if (!hasFace) {
             setFaceDetected(false);
             
             if (!lookingAwaySinceRef.current) {
               lookingAwaySinceRef.current = Date.now();
             } else {
               const elapsed = Date.now() - lookingAwaySinceRef.current;
-              // Only trigger attention overlay after 3.5s of sustained looking away (no instant flickering)
-              if (elapsed >= 3500) {
+              // Trigger attention overlay after 3.8s of sustained looking away
+              if (elapsed >= 3800) {
                 setIsLookingAway(true);
               }
-              if (elapsed >= 7000) {
+              if (elapsed >= 7500) {
                 warningCountRef.current += 1;
                 setFaceWarnings(warningCountRef.current);
                 lookingAwaySinceRef.current = null;
@@ -169,21 +173,17 @@ export default function MockExamTake({ navigation, route }) {
               }
             }
           } else {
-            setFaceDetected(true);
+            setFaceDetected(prev => (prev ? prev : true));
             lookingAwaySinceRef.current = null;
             setIsLookingAway(false);
-            const rightEye = predictions[0].landmarks[0];
-            const leftEye = predictions[0].landmarks[1];
-            setEyeLandmarks([rightEye, leftEye]);
-            setPhotoSize({ width: photo.width, height: photo.height });
           }
         }
       } catch (err) {
-        console.warn('Face detection cycle error:', err);
+        // Silently skip cycle
       } finally {
         isProcessing = false;
       }
-    }, 1200);
+    }, 2000);
 
     const onBackPress = () => {
       setExitModalVisible(true);
@@ -682,9 +682,7 @@ export default function MockExamTake({ navigation, route }) {
             <Ionicons name="chevron-back" size={26} color={NAVY} />
           </TouchableOpacity>
           <Text style={styles.headerTitle}>Mock Exam</Text>
-          <TouchableOpacity style={styles.iconButton}>
-            <Ionicons name="settings-outline" size={22} color={NAVY} />
-          </TouchableOpacity>
+          <View style={styles.iconButton} />
         </View>
 
 
@@ -939,31 +937,10 @@ export default function MockExamTake({ navigation, route }) {
             ref={cameraRef}
             style={styles.pipCamera} 
             facing="front" 
+            animateShutter={false}
+            mute={true}
             onCameraReady={() => setCameraActive(true)}
           />
-          {eyeLandmarks && eyeLandmarks.map((point, index) => {
-            const scale = Math.max(80 / photoSize.width, 100 / photoSize.height);
-            const xOffset = (photoSize.width * scale - 80) / 2;
-            const yOffset = (photoSize.height * scale - 100) / 2;
-            const flippedX = photoSize.width - point[0];
-            const x = flippedX * scale - xOffset;
-            const y = point[1] * scale - yOffset;
-
-            return (
-              <View 
-                key={index}
-                style={{
-                  position: 'absolute',
-                  left: x - 4,
-                  top: y - 4,
-                  width: 8,
-                  height: 8,
-                  borderRadius: 4,
-                  backgroundColor: '#22c55e', 
-                }}
-              />
-            );
-          })}
           {faceWarnings > 0 && (
             <View style={styles.warningBadge}>
               <Text style={styles.warningBadgeText}>{faceWarnings}/3</Text>

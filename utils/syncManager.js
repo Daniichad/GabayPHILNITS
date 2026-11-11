@@ -77,9 +77,34 @@ export const processSyncQueue = async () => {
                             .update(payload)
                             .eq('user_id', payload.user_id)
                         error = updateError
+                    } else if (payload.email) {
+                        const { email: targetEmail, ...updateFields } = payload
+                        const { error: updateError } = await supabase
+                            .from(item.table_name)
+                            .update(updateFields)
+                            .ilike('email', targetEmail)
+                        error = updateError
+                    } else if (item.table_name === 'users') {
+                        // Fallback: resolve active user session email for queued user updates
+                        const { data: { session } } = await supabase.auth.getSession()
+                        const sessionEmail = session?.user?.email
+                        if (sessionEmail) {
+                            const { email: _, id: __, user_id: ___, ...updateFields } = payload
+                            const { error: updateError } = await supabase
+                                .from('users')
+                                .update(updateFields)
+                                .ilike('email', sessionEmail)
+                            error = updateError
+                        } else {
+                            // If no session email exists, discard this invalid queue item to prevent repeated errors
+                            console.warn(`Discarding orphan user update item ${item.id} without email or id`)
+                            await markSyncItemCompleted(item.id)
+                            continue
+                        }
                     } else {
-                        console.error('Update action missing primary key id or user_id')
-                        error = { message: 'Missing primary key' }
+                        console.warn(`Update action on ${item.table_name} missing primary key; discarding invalid queue item ${item.id}`)
+                        await markSyncItemCompleted(item.id)
+                        continue
                     }
                 } else if (item.action === 'DELETE') {
                     if (payload.id) {

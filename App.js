@@ -313,8 +313,8 @@ export default function App() {
 						<Stack.Screen name="Register" component={Register} options={{ animation: 'fade_from_bottom' }} />
 						<Stack.Screen name="SetPin" component={SetPin} options={{ animation: 'slide_from_bottom' }} />
 						<Stack.Screen name="PinAuth" component={PinAuth} options={{ animation: 'fade', gestureEnabled: false }} />
-						<Stack.Screen name="PersonalInfo" component={PersonalInfo} />
-						<Stack.Screen name="DiagnosticAssessment" component={DiagnosticAssessment} />
+						<Stack.Screen name="PersonalInfo" component={PersonalInfo} options={{ gestureEnabled: false }} />
+						<Stack.Screen name="DiagnosticAssessment" component={DiagnosticAssessment} options={{ gestureEnabled: false }} />
 						<Stack.Screen name="StudyPlan" component={StudyPlan} />
 						<Stack.Screen name="Library" component={Library} />
 						<Stack.Screen name="ReadingMaterial" component={ReadingMaterial} />

@@ -2,10 +2,13 @@ import React, { useState, useEffect } from 'react'
 import {
   View, Text, StyleSheet, ScrollView,
   TouchableOpacity, StatusBar, Platform, ActivityIndicator } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons, Feather, MaterialCommunityIcons } from '@expo/vector-icons'
 import { supabase } from '../../../supabase'
 import { SkeletonItem } from '../../../components/Skeleton'
+import { withTimeout } from '../../../utils/queryHelper'
+import { getScrollBottomPadding } from '../../../utils/responsiveLayout'
+import { resolveUserTargetExam } from '../../../utils/targetExam'
 
 
 // ─── Colours matching the image ────────────────────────────────
@@ -64,9 +67,17 @@ const FE_SUBJECTS = [
  * @param {{ navigation: any }} props
  */
 export default function PracticeLibraryScreen({ navigation }) {
+  const insets = useSafeAreaInsets();
   const [recentActivities, setRecentActivities] = useState(/** @type {any[]} */ ([]));
   const [loading, setLoading] = useState(true);
   const [userTargetExam, setUserTargetExam] = useState('IP');
+
+  // Immediately resolve target exam from persistent cache / SQLite session on mount
+  useEffect(() => {
+    resolveUserTargetExam(null, userTargetExam).then((trk) => {
+      if (trk && trk !== userTargetExam) setUserTargetExam(trk);
+    });
+  }, []);
 
   useEffect(() => {
     const unsubscribe = navigation.addListener('focus', () => {
@@ -85,46 +96,24 @@ export default function PracticeLibraryScreen({ navigation }) {
         return;
       }
 
-      // 1. Fetch user's registered target exam level
-      let targetTrack = 'IP';
-      const { data: pData } = await supabase
-        .from('personal_info')
-        .select('target_exam_level')
-        .eq('user_id', uid)
-        .maybeSingle();
+      // Concurrently query target exam track and recent activity across types with timeouts
+      const [resolvedTrack, mcqRes, tfRes, matchRes] = await Promise.allSettled([
+        resolveUserTargetExam(uid, userTargetExam),
+        withTimeout(supabase.from('multiple_choice_results').select('is_correct, answered_at, multiple_choice_questions(practice_categories(name))').eq('user_id', uid).order('answered_at', { ascending: false }).limit(15), 8000),
+        withTimeout(supabase.from('true_false_results').select('is_correct, answered_at, true_false_questions(practice_categories(name))').eq('user_id', uid).order('answered_at', { ascending: false }).limit(15), 8000),
+        withTimeout(supabase.from('matching_results').select('set_title, completed, mistakes, duration_seconds, id').eq('user_id', uid).order('id', { ascending: false }).limit(5), 8000)
+      ]);
 
-      if (pData?.target_exam_level) {
-        const lvl = pData.target_exam_level.toLowerCase();
-        targetTrack = (lvl.includes('fe') || lvl.includes('fundamental') || (lvl.includes('pro') && !lvl.includes('sub')))
-          ? 'FE'
-          : 'IP';
-      }
+      // 1. Resolve registered target exam level strictly
+      const targetTrack = (resolvedTrack.status === 'fulfilled' && resolvedTrack.value)
+        ? resolvedTrack.value
+        : userTargetExam;
       setUserTargetExam(targetTrack);
       const validSubjects = targetTrack === 'FE' ? FE_SUBJECTS : IP_SUBJECTS;
 
-      // Fetch MCQ results
-      const { data: mcqRaw } = await supabase
-        .from('multiple_choice_results')
-        .select('is_correct, answered_at, multiple_choice_questions(practice_categories(name))')
-        .eq('user_id', uid)
-        .order('answered_at', { ascending: false })
-        .limit(15);
-
-      // Fetch TF results
-      const { data: tfRaw } = await supabase
-        .from('true_false_results')
-        .select('is_correct, answered_at, true_false_questions(practice_categories(name))')
-        .eq('user_id', uid)
-        .order('answered_at', { ascending: false })
-        .limit(15);
-
-      // Fetch Matching results
-      const { data: matchRaw } = await supabase
-        .from('matching_results')
-        .select('set_title, completed, mistakes, duration_seconds, id')
-        .eq('user_id', uid)
-        .order('id', { ascending: false })
-        .limit(5);
+      const mcqRaw = (mcqRes.status === 'fulfilled' && Array.isArray(mcqRes.value?.data)) ? mcqRes.value.data : [];
+      const tfRaw = (tfRes.status === 'fulfilled' && Array.isArray(tfRes.value?.data)) ? tfRes.value.data : [];
+      const matchRaw = (matchRes.status === 'fulfilled' && Array.isArray(matchRes.value?.data)) ? matchRes.value.data : [];
 
       /** @type {any[]} */
       const activities = [];
@@ -227,7 +216,7 @@ export default function PracticeLibraryScreen({ navigation }) {
 
       <ScrollView
         style={styles.scroll}
-        contentContainerStyle={styles.scrollContent}
+        contentContainerStyle={[styles.scrollContent, { paddingBottom: getScrollBottomPadding(insets, true, 24) }]}
         showsVerticalScrollIndicator={false}
       >
         {/* ── Practice Section ── */}

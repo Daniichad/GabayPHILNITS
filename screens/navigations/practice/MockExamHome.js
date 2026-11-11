@@ -205,9 +205,7 @@ export default function MockExamHome({ navigation, route }) {
           <Ionicons name="chevron-back" size={26} color="#0B2540" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>{SCREEN_TITLE}</Text>
-        <TouchableOpacity style={styles.iconButton}>
-          <Ionicons name="settings-outline" size={22} color="#0B2540" />
-        </TouchableOpacity>
+        <View style={styles.iconButton} />
       </View>
 
       <ScrollView

@@ -6,9 +6,12 @@ import {
 import { supabase } from '../../../utils/supabase'
 import { getCache, setCache } from '../../../utils/cache'
 import { saveUserSession } from '../../../utils/database'
+import { setUserTargetExamTrack, resolveUserTargetExam } from '../../../utils/targetExam'
 import { Feather, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons'
 import { SkeletonItem } from '../../../components/Skeleton'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
+import { withTimeout, safeMutate } from '../../../utils/queryHelper'
+import { getScrollBottomPadding, getModalBottomPadding } from '../../../utils/responsiveLayout'
 
 const NAVY = '#0f2747'
 const ACCENT = '#d85e67'
@@ -324,13 +327,16 @@ export default function StudyPlan({ navigation }) {
         return
       }
 
-      // 1. Fetch user review speed
-      const { data: userData } = await supabase
-        .from('users')
-        .select('review_speed')
-        .eq('email', user.email)
-        .maybeSingle()
-      
+      // Parallelize user preferences, personal info, and quiz results concurrently
+      const [uRes, pRes, mcqRes, tfRes] = await Promise.allSettled([
+        user.email ? withTimeout(supabase.from('users').select('review_speed').eq('email', user.email).maybeSingle(), 8000) : Promise.resolve({ data: null }),
+        withTimeout(supabase.from('personal_info').select('target_exam_level').eq('user_id', user.id).maybeSingle(), 8000),
+        withTimeout(supabase.from('multiple_choice_results').select('is_correct, multiple_choice_questions(practice_categories(name))').eq('user_id', user.id).limit(200), 8000),
+        withTimeout(supabase.from('true_false_results').select('is_correct, true_false_questions(practice_categories(name))').eq('user_id', user.id).limit(200), 8000)
+      ])
+
+      // 1. User review speed
+      const userData = (uRes.status === 'fulfilled' && uRes.value?.data) ? uRes.value.data : null
       if (userData?.review_speed && typeof userData.review_speed === 'string') {
         let speed = userData.review_speed.charAt(0).toUpperCase() + userData.review_speed.slice(1).toLowerCase()
         if (speed === 'Slow') speed = 'Detailed'
@@ -339,47 +345,31 @@ export default function StudyPlan({ navigation }) {
         setReviewSpeed(speed)
       }
 
-      // 2. Fetch user's target exam level from personal_info
-      let currentLevel = 'Information Technology Passport (IP)'
-      const { data: pData } = await supabase
-        .from('personal_info')
-        .select('target_exam_level')
-        .eq('user_id', user.id)
-        .maybeSingle()
-
-      if (pData?.target_exam_level) {
-        const lvl = pData.target_exam_level.toLowerCase()
-        currentLevel = lvl.includes('fe') || lvl.includes('fundamental') || (lvl.includes('pro') && !lvl.includes('sub'))
-          ? 'Fundamental IT Engineer (FE)'
-          : 'Information Technology Passport (IP)'
-      }
+      // 2. Target exam level
+      const resolvedTrack = await resolveUserTargetExam(user.id, examLevel?.includes('FE') ? 'FE' : 'IP')
+      const currentLevel = resolvedTrack === 'FE'
+        ? 'Fundamental IT Engineer (FE)'
+        : 'Information Technology Passport (IP)'
       setExamLevel(currentLevel)
 
-      // 3. Fetch diagnostic assessment attempt matching user's current track
+      // 3. Diagnostic attempt
       const currentTrackKey = currentLevel.includes('FE') ? 'FE' : 'IP'
       const attempt = await checkDiagnosticForLevel(user.id, currentTrackKey)
 
-      // 4. Fetch practice quiz results (MCQ + TF) to combine performance data
-      const { data: mcqRaw } = await supabase
-        .from('multiple_choice_results')
-        .select('is_correct, multiple_choice_questions(practice_categories(name))')
-        .eq('user_id', user.id)
-
-      const { data: tfRaw } = await supabase
-        .from('true_false_results')
-        .select('is_correct, true_false_questions(practice_categories(name))')
-        .eq('user_id', user.id)
+      // 4. Practice quiz results
+      const mcqRaw = (mcqRes.status === 'fulfilled' && Array.isArray(mcqRes.value?.data)) ? mcqRes.value.data : []
+      const tfRaw = (tfRes.status === 'fulfilled' && Array.isArray(tfRes.value?.data)) ? tfRes.value.data : []
 
       // Store in ref for instant switching without re-querying
       rawQuizDataRef.current = {
         attempt: attempt || null,
-        mcqRaw: mcqRaw || [],
-        tfRaw: tfRaw || [],
+        mcqRaw: mcqRaw,
+        tfRaw: tfRaw,
       }
 
       setDiagnosticAttempt(attempt || null)
 
-      // 5. Compute focus list strictly filtered for current exam level
+      // 5. Focus list strictly filtered for current exam level
       const formattedList = computeFocusListForLevel(
         currentLevel,
         attempt,
@@ -459,11 +449,8 @@ export default function StudyPlan({ navigation }) {
           }
         }
 
-        // Update local session cache so other screens immediately recognize the new target exam level
-        await saveUserSession(user, { target_exam_level: pendingExamLevel })
-        await setCache('library_target_exam', null)
-        await setCache('library_materials', null)
-        await setCache('library_videos', null)
+        // Update unified target exam cache, SQLite session, and Supabase
+        await setUserTargetExamTrack(isFE ? 'FE' : 'IP', user)
       }
     } catch (err) {
       console.warn('Error saving target exam level:', err)
@@ -575,7 +562,7 @@ export default function StudyPlan({ navigation }) {
         </TouchableOpacity>
       </View>
 
-      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+      <ScrollView contentContainerStyle={[styles.scrollContent, { paddingBottom: getScrollBottomPadding(insets, true, 30) }]} showsVerticalScrollIndicator={false}>
 
         {/* Loading Skeleton */}
         {loading ? (
@@ -776,7 +763,7 @@ export default function StudyPlan({ navigation }) {
         animationType="fade"
         onRequestClose={() => setAlertVisible(false)}
       >
-        <View style={styles.alertBackdrop}>
+        <View style={[styles.alertBackdrop, { paddingBottom: getModalBottomPadding(insets, 16) }]}>
           <View style={styles.alertCard}>
             <View style={{ 
               backgroundColor: alertType === 'success' ? '#ECFDF5' : '#FEE2E2', 
@@ -809,7 +796,7 @@ export default function StudyPlan({ navigation }) {
         animationType="fade"
         onRequestClose={() => setConfirmModalVisible(false)}
       >
-        <View style={styles.alertBackdrop}>
+        <View style={[styles.alertBackdrop, { paddingBottom: getModalBottomPadding(insets, 16) }]}>
           <View style={styles.confirmCard}>
             <View style={[
               styles.confirmIconWrap,

@@ -4,9 +4,11 @@ import {
   StyleSheet, Switch, Text, TextInput, TouchableOpacity, View,
 } from 'react-native'
 import { Feather } from '@expo/vector-icons'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { supabase } from '../../../utils/supabase'
 import { sendEmailJsOtp } from '../../../utils/emailjs'
 import { getUserCache, saveUserCache } from '../../../utils/database'
+import { getModalBottomPadding } from '../../../utils/responsiveLayout'
 
 const NAVY = '#0f2747'
 const LANGUAGES = ['English', 'Filipino (Tagalog)']
@@ -64,6 +66,7 @@ function OtpInput({ value, onChange }) {
 
 // ── Main Screen ───────────────────────────────────────────────────
 export default function Settings({ navigation }) {
+  const insets = useSafeAreaInsets()
   const [notifications, setNotifications] = useState(true)
   const [lightMode, setLightMode] = useState(true)
   const [language, setLanguage] = useState('English')
@@ -476,7 +479,7 @@ export default function Settings({ navigation }) {
             activeOpacity={1}
             onPress={closePinOptionsModal}
           />
-          <Animated.View style={[styles.sheet, { transform: [{ translateY: pinOptionsSlideAnim }] }]}>
+          <Animated.View style={[styles.sheet, { paddingBottom: getModalBottomPadding(insets, 20), transform: [{ translateY: pinOptionsSlideAnim }] }]}>
             <View style={styles.sheetHeader}>
               <TouchableOpacity onPress={closePinOptionsModal} style={styles.closeBtn}>
                 <Feather name="x" size={24} color="#64748b" />
@@ -563,7 +566,7 @@ export default function Settings({ navigation }) {
             activeOpacity={1}
             onPress={closePinAuthModal}
           />
-          <Animated.View style={[styles.sheet, styles.pinAuthSheet, { transform: [{ translateY: pinAuthSlideAnim }] }]}>
+          <Animated.View style={[styles.sheet, styles.pinAuthSheet, { paddingBottom: getModalBottomPadding(insets, 24), transform: [{ translateY: pinAuthSlideAnim }] }]}>
             {/* Sheet header */}
             <View style={styles.sheetHeader}>
               {pinAuthStep === 'verify' ? (

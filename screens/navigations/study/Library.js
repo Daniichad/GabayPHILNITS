@@ -5,7 +5,11 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Feather, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons'
 import { supabase } from '../../../supabase'
+import { SkeletonItem } from '../../../components/Skeleton'
 import { getCache, setCache, clearCache } from '../../../utils/cache'
+import { withTimeout } from '../../../utils/queryHelper'
+import { getScrollBottomPadding } from '../../../utils/responsiveLayout'
+import { resolveUserTargetExam } from '../../../utils/targetExam'
 
 
 const NAVY = '#13294b'
@@ -552,11 +556,9 @@ const SUBJECT_FILTER_CONFIG = {
  * Clean book cover used when an image URL is not uploaded yet.
  * Based strictly on reading_materials data from Supabase (title, subject).
  */
-function DefaultBookCover({ item, userReviewSpeed }) {
+function DefaultBookCover({ item }) {
   const theme = SUBJECT_THEMES[item.subject] || { bg: '#0b192c', accent: '#38bdf8', icon: 'book', border: '#1e3a8a' }
-  const displaySpeed = (item.review_speed && item.review_speed !== 'Standard')
-    ? item.review_speed
-    : (userReviewSpeed || item.review_speed)
+  const displaySpeed = item.review_speed || 'Standard'
 
   return (
     <View style={[styles.defaultCoverRoot, { backgroundColor: theme.bg }]}>
@@ -577,7 +579,9 @@ function DefaultBookCover({ item, userReviewSpeed }) {
         <View style={styles.defaultCoverFooterRow}>
           {displaySpeed ? (
             <View style={[styles.defaultCoverEditionTag, { backgroundColor: `${theme.accent}22` }]}>
-              <Text style={[styles.defaultCoverEditionText, { color: theme.accent }]}>{displaySpeed}</Text>
+              <Text style={[styles.defaultCoverEditionText, { color: theme.accent }]}>
+                {displaySpeed === 'Quick' ? '⚡ Quick' : displaySpeed === 'Detailed' ? '📖 Detailed' : '🎯 Standard'}
+              </Text>
             </View>
           ) : null}
         </View>
@@ -592,14 +596,12 @@ function DefaultBookCover({ item, userReviewSpeed }) {
  * Adheres to user rule: "make the ui of reading materials be like book cover
  * dont use text because it is full image book cover".
  *
- * @param {{ item: any, onPress: any, userReviewSpeed?: string }} props
+ * @param {{ item: any, onPress: any }} props
  */
-function MaterialCard({ item, onPress, userReviewSpeed }) {
+function MaterialCard({ item, onPress }) {
   const coverUrl = item.cover_image_url || item.cover_url || item.thumbnail_url || item.image_url
   const progress = item.progress || 0
-  const displaySpeed = (item.review_speed && item.review_speed !== 'Standard')
-    ? item.review_speed
-    : (userReviewSpeed || item.review_speed)
+  const displaySpeed = item.review_speed || 'Standard'
 
   return (
     <TouchableOpacity
@@ -615,7 +617,7 @@ function MaterialCard({ item, onPress, userReviewSpeed }) {
             resizeMode="cover"
           />
         ) : (
-          <DefaultBookCover item={item} userReviewSpeed={userReviewSpeed} />
+          <DefaultBookCover item={item} />
         )}
 
         {/* Realistic Book Spine Shadow / Crease */}
@@ -629,17 +631,17 @@ function MaterialCard({ item, onPress, userReviewSpeed }) {
         {displaySpeed && coverUrl ? (
           <View style={[
             styles.bookSpeedBadge,
-            displaySpeed === 'Quick' ? styles.speedBadgeQuick :
-            displaySpeed === 'Detailed' ? styles.speedBadgeDetailed :
+            String(displaySpeed).toLowerCase() === 'quick' ? styles.speedBadgeQuick :
+            String(displaySpeed).toLowerCase() === 'detailed' ? styles.speedBadgeDetailed :
             styles.speedBadgeStandard
           ]}>
             <Text style={[
               styles.bookSpeedBadgeText,
-              displaySpeed === 'Quick' ? styles.speedBadgeTextQuick :
-              displaySpeed === 'Detailed' ? styles.speedBadgeTextDetailed :
+              String(displaySpeed).toLowerCase() === 'quick' ? styles.speedBadgeTextQuick :
+              String(displaySpeed).toLowerCase() === 'detailed' ? styles.speedBadgeTextDetailed :
               styles.speedBadgeTextStandard
             ]}>
-              {displaySpeed}
+              {displaySpeed === 'Quick' ? '⚡ Quick' : displaySpeed === 'Detailed' ? '📖 Detailed' : '🎯 Standard'}
             </Text>
           </View>
         ) : null}
@@ -652,6 +654,126 @@ function MaterialCard({ item, onPress, userReviewSpeed }) {
         )}
       </View>
     </TouchableOpacity>
+  )
+}
+
+// ─── Skeleton Loading Component for Library ───────────────────
+function LibrarySkeleton({ libraryMode, isFE }) {
+  return (
+    <View style={styles.skeletonContainer}>
+      {/* 1. Search Bar Skeleton */}
+      <SkeletonItem width="100%" height={46} borderRadius={24} style={{ marginBottom: 14 }} />
+
+      {/* 2. FE Track Segment Skeleton (if FE) */}
+      {isFE && (
+        <SkeletonItem width="100%" height={38} borderRadius={10} style={{ marginBottom: 14 }} />
+      )}
+
+      {/* 3. Small Topic Cards Filter Skeleton Row */}
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.skeletonCardFilterScroll}
+      >
+        {[1, 2, 3, 4, 5].map((i) => (
+          <View key={i} style={styles.skeletonFilterCard}>
+            <SkeletonItem width={28} height={28} borderRadius={14} style={{ marginBottom: 8 }} />
+            <SkeletonItem width={56} height={11} borderRadius={4} />
+          </View>
+        ))}
+      </ScrollView>
+
+      {/* ── Reading Materials Skeletons ── */}
+      {libraryMode === 'READING' ? (
+        <>
+          {/* Section Header Row Skeleton */}
+          <View style={styles.skeletonSectionHeaderRow}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <SkeletonItem width={20} height={20} borderRadius={10} />
+              <SkeletonItem width={140} height={18} borderRadius={4} />
+              <SkeletonItem width={76} height={20} borderRadius={10} />
+            </View>
+            <SkeletonItem width={20} height={20} borderRadius={10} />
+          </View>
+
+          {/* Review Speed Pace Bar Skeleton */}
+          <View style={styles.skeletonPaceContainer}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+              <SkeletonItem width={130} height={14} borderRadius={4} />
+              <SkeletonItem width={85} height={18} borderRadius={9} />
+            </View>
+            <View style={{ flexDirection: 'row', gap: 8 }}>
+              {[105, 80, 90, 85].map((w, idx) => (
+                <SkeletonItem key={idx} width={w} height={30} borderRadius={15} />
+              ))}
+            </View>
+          </View>
+
+          {/* Book Shelves Skeletons */}
+          {[1, 2].map((shelfIdx) => (
+            <View key={shelfIdx} style={{ marginBottom: 22 }}>
+              <View style={styles.skeletonShelfHeader}>
+                <SkeletonItem width={120} height={17} borderRadius={4} />
+                <SkeletonItem width={46} height={13} borderRadius={4} />
+              </View>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={{ gap: 14, paddingBottom: 6 }}
+              >
+                {[1, 2, 3].map((bIdx) => (
+                  <View key={bIdx} style={styles.skeletonBookCard}>
+                    <SkeletonItem width={134} height={196} borderRadius={8} />
+                  </View>
+                ))}
+              </ScrollView>
+            </View>
+          ))}
+        </>
+      ) : (
+        <>
+          {/* Section Header Row Skeleton */}
+          <View style={styles.skeletonSectionHeaderRow}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <SkeletonItem width={20} height={20} borderRadius={10} />
+              <SkeletonItem width={130} height={18} borderRadius={4} />
+              <SkeletonItem width={70} height={20} borderRadius={10} />
+            </View>
+          </View>
+
+          {/* Video Shelves Skeletons */}
+          {[1, 2].map((shelfIdx) => (
+            <View key={shelfIdx} style={{ marginBottom: 22 }}>
+              <View style={styles.skeletonShelfHeader}>
+                <SkeletonItem width={120} height={17} borderRadius={4} />
+                <SkeletonItem width={56} height={13} borderRadius={4} />
+              </View>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={{ gap: 12, paddingBottom: 6 }}
+              >
+                {[1, 2].map((vIdx) => (
+                  <View key={vIdx} style={styles.skeletonVideoCard}>
+                    <SkeletonItem
+                      width={190}
+                      height={104}
+                      borderRadius={14}
+                      style={{ borderBottomLeftRadius: 0, borderBottomRightRadius: 0 }}
+                    />
+                    <View style={{ padding: 10, gap: 6 }}>
+                      <SkeletonItem width={60} height={10} borderRadius={3} />
+                      <SkeletonItem width={150} height={13} borderRadius={4} />
+                      <SkeletonItem width={100} height={11} borderRadius={4} />
+                    </View>
+                  </View>
+                ))}
+              </ScrollView>
+            </View>
+          ))}
+        </>
+      )}
+    </View>
   )
 }
 
@@ -675,6 +797,15 @@ export default function Library({ navigation }) {
   const [userTargetExam, setUserTargetExam] = useState('IP')
   const [feSection, setFeSection] = useState('FE Subject A')
 
+  const isFE = (userTargetExam || '').toLowerCase().includes('fe')
+
+  // Immediately resolve target exam from persistent cache / SQLite session on mount
+  useEffect(() => {
+    resolveUserTargetExam(null, userTargetExam).then((trk) => {
+      if (trk && trk !== userTargetExam) setUserTargetExam(trk)
+    })
+  }, [])
+
   useEffect(() => {
     const unsubscribe = navigation.addListener('focus', () => {
       loadMaterials(true)
@@ -695,106 +826,69 @@ export default function Library({ navigation }) {
     try {
       setError(null)
 
-      // Fetch user target exam level from personal_info
-      let targetTrack = 'IP'
       const { data: { session } } = await supabase.auth.getSession()
       const uid = session?.user?.id
       const uemail = session?.user?.email
 
-      if (uid) {
-        const { data: pData } = await supabase
-          .from('personal_info')
-          .select('target_exam_level')
-          .eq('user_id', uid)
-          .maybeSingle()
-
-        if (pData?.target_exam_level) {
-          const lvl = pData.target_exam_level.toLowerCase()
-          targetTrack = (lvl.includes('fe') || lvl.includes('fundamental') || (lvl.includes('pro') && !lvl.includes('sub')))
-            ? 'FE'
-            : 'IP'
+      // 1. Instant Cache Check for zero perceived latency
+      if (!forceRefresh) {
+        const cachedTrack = await getCache('library_target_exam') || await getCache('user_target_exam')
+        const cachedMaterials = await getCache('library_materials')
+        const cachedVideos = await getCache('library_videos')
+        const cachedSpeed = await getCache('user_review_speed')
+        if (cachedTrack) setUserTargetExam(cachedTrack)
+        if (cachedSpeed) setUserReviewSpeed(cachedSpeed)
+        if (Array.isArray(cachedMaterials) && cachedMaterials.length > 0 && Array.isArray(cachedVideos) && cachedVideos.length > 0) {
+          setMaterials(cachedMaterials)
+          setVideos(cachedVideos)
+          setLoading(false)
+          // Continue background refresh if needed without blocking
+        } else {
+          setLoading(true)
         }
+      } else {
+        setLoading(true)
       }
+
+      // 2. Concurrently fetch all dependencies in parallel with 8s timeouts
+      const [vRes, rRes, uRes, progRes, resolvedTrack] = await Promise.allSettled([
+        withTimeout(supabase.from('video_lectures').select('*').eq('is_published', true).order('sort_order', { ascending: true }), 8000),
+        withTimeout(supabase.from('reading_materials').select('id, title, subtitle, author, subject, exam_level, fe_section, cover_image_url, thumbnail_url, pdf_url, sort_order, total_pages, review_speed, learning_objective, description, is_published, created_at').eq('is_published', true).order('subject').order('sort_order'), 8000),
+        uemail ? withTimeout(supabase.from('users').select('review_speed').ilike('email', uemail).maybeSingle(), 8000) : Promise.resolve({ data: null }),
+        uid ? withTimeout(supabase.from('user_reading_progress').select('*').eq('user_id', uid), 8000) : Promise.resolve({ data: [] }),
+        resolveUserTargetExam(uid, userTargetExam)
+      ])
+
+      // Determine track strictly using unified resolver
+      const targetTrack = (resolvedTrack.status === 'fulfilled' && resolvedTrack.value)
+        ? resolvedTrack.value
+        : userTargetExam
       setUserTargetExam(targetTrack)
 
-      if (!forceRefresh) {
-        const cachedTrack = await getCache('library_target_exam')
-        if (cachedTrack === targetTrack) {
-          const cachedMaterials = await getCache('library_materials')
-          const cachedVideos = await getCache('library_videos')
-          const cachedSpeed = await getCache('user_review_speed')
-          if (Array.isArray(cachedMaterials) && cachedMaterials.length > 0 && Array.isArray(cachedVideos) && cachedVideos.length > 0) {
-            if (cachedSpeed) setUserReviewSpeed(cachedSpeed)
-            setMaterials(cachedMaterials)
-            setVideos(cachedVideos)
-            setLoading(false)
-            return
-          }
-        }
+      // Videos
+      let finalVideos = VIDEO_LECTURES
+      if (vRes.status === 'fulfilled' && Array.isArray(vRes.value?.data) && vRes.value.data.length > 0) {
+        finalVideos = vRes.value.data
       }
-
-      setLoading(true)
-      
-      // Fetch video lectures from public.video_lectures table
-      let fetchedVideos = []
-      try {
-        const { data: videoData, error: videoErr } = await supabase
-          .from('video_lectures')
-          .select('*')
-          .eq('is_published', true)
-          .order('sort_order', { ascending: true })
-
-        if (!videoErr && videoData && videoData.length > 0) {
-          fetchedVideos = videoData
-        } else if (videoErr) {
-          console.warn('Note on video_lectures query:', videoErr.message)
-        }
-      } catch (vErr) {
-        console.warn('Error fetching video lectures:', vErr)
-      }
-      const finalVideos = fetchedVideos.length > 0 ? fetchedVideos : VIDEO_LECTURES
       setVideos(finalVideos)
 
-      // Fetch reading materials
-      const { data: readData, error: readErr } = await supabase
-        .from('reading_materials')
-        .select('*')
-        .eq('is_published', true)
-        .order('subject')
-        .order('sort_order')
-
-      if (readErr) throw readErr
-
-      // Fetch user review speed & reading progress from Supabase
+      // Review speed
       let currentSpeed = 'Standard'
-      if (uemail) {
-        const { data: userData } = await supabase
-          .from('users')
-          .select('review_speed')
-          .ilike('email', uemail)
-          .maybeSingle()
-        if (userData?.review_speed && typeof userData.review_speed === 'string') {
-          currentSpeed = userData.review_speed.trim()
-        }
+      if (uRes.status === 'fulfilled' && uRes.value?.data?.review_speed) {
+        currentSpeed = String(uRes.value.data.review_speed).trim()
       }
       setUserReviewSpeed(currentSpeed)
 
-      let progressList = []
-      if (uid) {
-        const { data: progData } = await supabase
-          .from('user_reading_progress')
-          .select('*')
-          .eq('user_id', uid)
-        progressList = progData ?? []
-      }
-
-      /** @type {Record<string, any>} */
+      // Reading progress
+      const progressList = (progRes.status === 'fulfilled' && Array.isArray(progRes.value?.data)) ? progRes.value.data : []
       const progressMap = {}
       progressList.forEach(p => {
-        progressMap[p.reading_material_id] = p
+        if (p?.reading_material_id) progressMap[p.reading_material_id] = p
       })
 
-      const materialsWithProgress = (readData ?? []).map(item => {
+      // Reading materials without heavy content blob
+      const rawMaterials = (rRes.status === 'fulfilled' && Array.isArray(rRes.value?.data)) ? rRes.value.data : []
+      const materialsWithProgress = rawMaterials.map(item => {
         const prog = progressMap[item.id]
         if (prog) {
           if (prog.is_completed) {
@@ -808,11 +902,13 @@ export default function Library({ navigation }) {
         return { ...item, progress: 0 }
       })
 
-      setMaterials(materialsWithProgress)
-      await setCache('library_target_exam', targetTrack)
-      await setCache('library_materials', materialsWithProgress)
-      await setCache('library_videos', finalVideos)
-      await setCache('user_review_speed', currentSpeed)
+      if (materialsWithProgress.length > 0) {
+        setMaterials(materialsWithProgress)
+        setCache('library_target_exam', targetTrack).catch(() => {})
+        setCache('library_materials', materialsWithProgress).catch(() => {})
+        setCache('library_videos', finalVideos).catch(() => {})
+        setCache('user_review_speed', currentSpeed).catch(() => {})
+      }
     } catch (e) {
       console.error('Library load error:', e)
       setError('Failed to load materials.')
@@ -831,9 +927,11 @@ export default function Library({ navigation }) {
     const desc = String(item.description || '').toLowerCase()
 
     return (
+      sub.includes('algorithm') ||
       sub.includes('data structure') ||
       sub.includes('system design') ||
       title.includes('subject b') ||
+      title.includes('algorithm') ||
       title.includes('data structure') ||
       title.includes('pseudo') ||
       desc.includes('subject b') ||
@@ -841,7 +939,6 @@ export default function Library({ navigation }) {
     )
   }
 
-  const isFE = (userTargetExam || '').toLowerCase().includes('fe')
   const currentTrackSubjects = isFE
     ? (feSection === 'FE Subject B' ? FE_B_SUBJECTS : FE_A_SUBJECTS)
     : IP_SUBJECTS
@@ -891,15 +988,36 @@ export default function Library({ navigation }) {
 
   /** @type {Record<string, any[]>} */
   const grouped = {}
-  Object.keys(groupedRaw).forEach(sub => {
-    const items = groupedRaw[sub]
-    if (effectiveSpeed) {
-      const speedMatched = items.filter(m => m.review_speed === effectiveSpeed)
-      grouped[sub] = speedMatched.length > 0 ? speedMatched : items
-    } else {
-      grouped[sub] = items
-    }
-  })
+
+  if (activeSpeed === 'ALL') {
+    Object.keys(groupedRaw).forEach(sub => {
+      grouped[sub] = groupedRaw[sub]
+    })
+  } else if (activeSpeed === 'RECOMMENDED') {
+    // "For You" mode: prioritize materials matching user's pace, with fallback to primary subject book
+    const targetPaceLower = (userReviewSpeed || 'Standard').toLowerCase()
+    Object.keys(groupedRaw).forEach(sub => {
+      const items = groupedRaw[sub]
+      const matching = items.filter(m => String(m.review_speed || 'Standard').toLowerCase() === targetPaceLower)
+      if (matching.length > 0) {
+        grouped[sub] = matching
+      } else {
+        // Fallback: provide 1 item so the subject shelf is not empty in recommended overview
+        grouped[sub] = items.slice(0, 1)
+      }
+    })
+  } else {
+    // Strict pace filters ('Quick' | 'Standard' | 'Detailed'):
+    // Show ONLY items that strictly match the selected review speed!
+    const targetPaceLower = String(activeSpeed).toLowerCase()
+    Object.keys(groupedRaw).forEach(sub => {
+      const items = groupedRaw[sub]
+      const matching = items.filter(m => String(m.review_speed || 'Standard').toLowerCase() === targetPaceLower)
+      if (matching.length > 0) {
+        grouped[sub] = matching
+      }
+    })
+  }
 
   // Active topic for videos (top activeChip takes precedence, otherwise local videoTopicFilter)
   const activeVideoTopic = activeChip || videoTopicFilter
@@ -1005,29 +1123,32 @@ export default function Library({ navigation }) {
       </View>
 
       <ScrollView
-        contentContainerStyle={[styles.scrollContent, { paddingTop: 16 }]}
+        contentContainerStyle={[styles.scrollContent, { paddingTop: 16, paddingBottom: getScrollBottomPadding(insets, true, 24) }]}
         showsVerticalScrollIndicator={false}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[NAVY]} tintColor={NAVY} />
         }
       >
-
-        {/* Search */}
-        <View style={styles.searchBar}>
-          <Feather name="search" size={20} color="#94a3b8" />
-          <TextInput
-            style={styles.searchInput}
-            placeholder={libraryMode === 'VIDEOS' ? "Search video lectures by title or topic..." : "Search reading materials..."}
-            placeholderTextColor="#94a3b8"
-            value={search}
-            onChangeText={setSearch}
-          />
-          {search.length > 0 && (
-            <TouchableOpacity onPress={() => setSearch('')}>
-              <Feather name="x" size={16} color="#94a3b8" />
-            </TouchableOpacity>
-          )}
-        </View>
+        {loading ? (
+          <LibrarySkeleton libraryMode={libraryMode} isFE={isFE} />
+        ) : (
+          <>
+            {/* Search */}
+            <View style={styles.searchBar}>
+              <Feather name="search" size={20} color="#94a3b8" />
+              <TextInput
+                style={styles.searchInput}
+                placeholder={libraryMode === 'VIDEOS' ? "Search video lectures by title or topic..." : "Search reading materials..."}
+                placeholderTextColor="#94a3b8"
+                value={search}
+                onChangeText={setSearch}
+              />
+              {search.length > 0 && (
+                <TouchableOpacity onPress={() => setSearch('')}>
+                  <Feather name="x" size={16} color="#94a3b8" />
+                </TouchableOpacity>
+              )}
+            </View>
 
         {/* FE Subject A / Subject B Segmented Switcher */}
         {isFE && (
@@ -1248,16 +1369,8 @@ export default function Library({ navigation }) {
           </ScrollView>
         </View>
 
-        {/* Loading */}
-        {loading && (
-          <View style={styles.centered}>
-            <ActivityIndicator size="large" color={NAVY} />
-            <Text style={styles.loadingText}>Loading materials…</Text>
-          </View>
-        )}
-
         {/* Error */}
-        {!loading && error && (
+        {error && (
           <View style={styles.centered}>
             <Feather name="alert-circle" size={40} color="#94a3b8" />
             <Text style={styles.emptyText}>{error}</Text>
@@ -1268,14 +1381,26 @@ export default function Library({ navigation }) {
         )}
 
         {/* Content grouped by subject */}
-        {!loading && !error && Object.keys(grouped).length === 0 && (
+        {!error && Object.keys(grouped).length === 0 && (
           <View style={styles.centered}>
-            <Feather name="inbox" size={40} color="#94a3b8" />
-            <Text style={styles.emptyText}>No reading materials found.</Text>
+            <Feather name="filter" size={40} color="#94a3b8" />
+            <Text style={styles.emptyText}>
+              {activeSpeed === 'ALL'
+                ? 'No reading materials found.'
+                : `No ${activeSpeed} pace reading materials found for ${isFE ? feSection : 'PhilNITS IP'}.`}
+            </Text>
+            {activeSpeed !== 'ALL' && (
+              <TouchableOpacity
+                style={styles.retryBtn}
+                onPress={() => setActiveSpeed('ALL')}
+              >
+                <Text style={styles.retryText}>Show All Speeds</Text>
+              </TouchableOpacity>
+            )}
           </View>
         )}
 
-        {!loading && !error && Object.entries(grouped).map(([subject, items]) => (
+        {!error && Object.entries(grouped).map(([subject, items]) => (
           <View key={subject} style={styles.subjectSection}>
             <View style={styles.categoryRow}>
               <Text style={styles.categoryTitle}>{subject}</Text>
@@ -1283,15 +1408,12 @@ export default function Library({ navigation }) {
             </View>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.horizontalBookCards}>
               {items.map(item => {
-                const itemEffectiveSpeed = (item.review_speed && item.review_speed !== 'Standard')
-                  ? item.review_speed
-                  : (userReviewSpeed || item.review_speed)
+                const itemEffectiveSpeed = item.review_speed || 'Standard'
 
                 return (
                   <MaterialCard
                     key={item.id}
                     item={item}
-                    userReviewSpeed={userReviewSpeed}
                     onPress={() => navigation?.navigate('ReadingMaterial', {
                       materialId: item.id,
                       title: item.title,
@@ -1406,6 +1528,8 @@ export default function Library({ navigation }) {
               ))
             )}
           </View>
+        )}
+          </>
         )}
 
         <View style={{ height: 16 }} />
@@ -1955,4 +2079,58 @@ const styles = StyleSheet.create({
   bottomNav:    { position: 'absolute', left: 0, right: 0, bottom: 0, height: 74, backgroundColor: '#fff', borderTopWidth: 1, borderTopColor: '#d8e0f0', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-around', paddingBottom: 8 },
   navIconWrap:  { width: 42, height: 42, alignItems: 'center', justifyContent: 'center', borderRadius: 21 },
   navIconActive:{ backgroundColor: 'rgba(15, 39, 71, 0.08)' },
+
+  // ── Skeleton Styles ──
+  skeletonContainer: {
+    width: '100%',
+  },
+  skeletonCardFilterScroll: {
+    gap: 10,
+    paddingBottom: 16,
+  },
+  skeletonFilterCard: {
+    width: 90,
+    height: 70,
+    borderRadius: 16,
+    backgroundColor: '#f8fafc',
+    borderWidth: 1,
+    borderColor: '#e8edf5',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 8,
+  },
+  skeletonSectionHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 16,
+  },
+  skeletonPaceContainer: {
+    marginBottom: 20,
+    padding: 12,
+    borderRadius: 14,
+    backgroundColor: '#f8fafc',
+    borderWidth: 1,
+    borderColor: '#e8edf5',
+  },
+  skeletonShelfHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+  },
+  skeletonBookCard: {
+    width: 134,
+    height: 196,
+    borderRadius: 8,
+    overflow: 'hidden',
+  },
+  skeletonVideoCard: {
+    width: 190,
+    borderRadius: 14,
+    backgroundColor: '#ffffff',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    overflow: 'hidden',
+  },
 })

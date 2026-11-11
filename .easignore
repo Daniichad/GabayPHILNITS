@@ -1,0 +1,45 @@
+# dependencies
+node_modules/
+
+# Python backend & virtual environments (MUST NOT be uploaded to EAS)
+backend/
+.venv/
+*/.venv/
+__pycache__/
+*.pyc
+
+# Expo
+.expo/
+dist/
+web-build/
+expo-env.d.ts
+
+# Native
+.kotlin/
+*.orig.*
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+
+# Metro & debug
+.metro-health-check*
+npm-debug.*
+yarn-debug.*
+yarn-error.*
+
+# OS
+.DS_Store
+*.pem
+Thumbs.db
+
+# TypeScript & SQL
+*.tsbuildinfo
+*.sql
+.vscode/
+
+# Generated native folders
+/ios
+/android
+
