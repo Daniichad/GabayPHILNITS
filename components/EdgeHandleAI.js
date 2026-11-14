@@ -3,6 +3,7 @@ import {
   Animated,
   Dimensions,
   Image,
+  Keyboard,
   Modal,
   PanResponder,
   Platform,
@@ -26,9 +27,9 @@ const HANDLE_SIZE = 54
 const EDGE_MARGIN = 6
 
 const QUICK_PROMPTS = [
-  '💡 What should I study today?',
-  '📊 How is my exam readiness?',
-  '📝 Explain IP vs FE Certifications',
+  'What should I study today?',
+  'How is my exam readiness?',
+  'Explain IP vs FE Certifications',
   '⏱️ FE Subject B exam strategy',
 ]
 
@@ -213,7 +214,30 @@ export default function EdgeHandleAI({ side = 'right' }) {
   ])
   const [inputText, setInputText] = useState('')
   const [isTyping, setIsTyping] = useState(false)
+  const [isKeyboardActive, setIsKeyboardActive] = useState(false)
   const chatScrollRef = useRef(null)
+
+  useEffect(() => {
+    const showSub = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
+      () => {
+        setIsKeyboardActive(true)
+        setTimeout(() => {
+          chatScrollRef.current?.scrollToEnd({ animated: true })
+        }, 100)
+      }
+    )
+    const hideSub = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide',
+      () => {
+        setIsKeyboardActive(false)
+      }
+    )
+    return () => {
+      showSub.remove()
+      hideSub.remove()
+    }
+  }, [])
 
   // ── Restore saved position ──────────────────────────────────
   useEffect(() => {
@@ -424,7 +448,8 @@ Your core expertise:
   • Technology, Management, and Strategy. (Passing grade: 550 out of 1000).
 
 Guidelines for answers:
-- Keep responses concise, clear, and structured for mobile screens.
+- CRITICAL: Always provide complete, self-contained responses without stopping in the middle of sentences or leaving thoughts incomplete.
+- Keep responses focused, clear, and structured for mobile screens.
 - Formatting rules:
   • Never use LaTeX math syntax like $\\rightarrow$, \\rightarrow, $\\le$, etc. Always write clean standard Unicode symbols: "→", "←", "≤", "≥".
   • Do not use markdown title hashes like "###" or "##". Use bold section titles instead (e.g., "**1. Processor & CPU Architecture**").
@@ -450,7 +475,7 @@ Guidelines for answers:
               contents,
               generationConfig: {
                 temperature: 0.7,
-                maxOutputTokens: 800,
+                maxOutputTokens: 2500,
               },
             }),
           }
@@ -539,7 +564,7 @@ Guidelines for answers:
               styles.panelContainer,
               {
                 transform: [{ translateX: slideAnim }],
-                paddingBottom: Math.max(insets.bottom, 16),
+                paddingBottom: isKeyboardActive ? 8 : Math.max(insets.bottom, 16),
               },
             ]}
           >
@@ -593,6 +618,7 @@ Guidelines for answers:
                 contentContainerStyle={styles.chatScrollContent}
                 onContentSizeChange={() => chatScrollRef.current?.scrollToEnd({ animated: true })}
                 showsVerticalScrollIndicator={false}
+                keyboardShouldPersistTaps="handled"
               >
                 {messages.map((msg) => {
                   const isAi = msg.sender === 'ai'

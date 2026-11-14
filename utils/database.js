@@ -74,6 +74,10 @@ export const getDb = async () => {
     return dbPromise
 }
 
+export const resetDb = () => {
+    dbPromise = null
+}
+
 export const initDb = async () => {
     const db = await getDb()
     if (db) {
@@ -81,6 +85,30 @@ export const initDb = async () => {
         return true
     }
     return false
+}
+
+export const safeDbOp = async (fn, retryCount = 1) => {
+    try {
+        const db = await getDb()
+        if (!db) return null
+        return await fn(db)
+    } catch (err) {
+        const errMsg = String(err?.message || err).toLowerCase()
+        if (
+            retryCount > 0 &&
+            (errMsg.includes('already released') ||
+             errMsg.includes('cannot use shared object') ||
+             errMsg.includes('nativestatement') ||
+             errMsg.includes('closed'))
+        ) {
+            console.warn('[SQLite] Releasing stale database handle and re-opening fresh connection...')
+            resetDb()
+            const freshDb = await getDb()
+            if (!freshDb) return null
+            return await fn(freshDb)
+        }
+        throw err
+    }
 }
 
 let dbWriteLock = Promise.resolve()
@@ -231,36 +259,36 @@ export const markPointsSynced = async (ids) => {
 // ── Generic Cache for Offline Mode ──
 export const setGenericCache = async (key, valueObj) => {
     return runExclusive(async () => {
-        const db = await getDb()
-        if (!db) return
         try {
             const valueString = JSON.stringify(valueObj)
-            await db.runAsync(
-                `INSERT INTO generic_cache (cache_key, cache_value, updated_at) 
-                 VALUES (?, ?, CURRENT_TIMESTAMP)
-                 ON CONFLICT(cache_key) DO UPDATE SET 
-                 cache_value = excluded.cache_value, 
-                 updated_at = CURRENT_TIMESTAMP`,
-                [key, valueString]
-            )
+            await safeDbOp(async (db) => {
+                await db.runAsync(
+                    `INSERT INTO generic_cache (cache_key, cache_value, updated_at) 
+                     VALUES (?, ?, CURRENT_TIMESTAMP)
+                     ON CONFLICT(cache_key) DO UPDATE SET 
+                     cache_value = excluded.cache_value, 
+                     updated_at = CURRENT_TIMESTAMP`,
+                    [key, valueString]
+                )
+            })
         } catch (e) {
-            console.error(`Failed to set generic cache for key ${key}:`, e)
+            console.warn(`Failed to set generic cache for key ${key}:`, e?.message || e)
         }
     })
 }
 
 export const getGenericCache = async (key) => {
     return runExclusive(async () => {
-        const db = await getDb()
-        if (!db) return null
         try {
-            const result = await db.getFirstAsync('SELECT cache_value FROM generic_cache WHERE cache_key = ?', [key])
-            if (result && result.cache_value) {
-                return JSON.parse(result.cache_value)
-            }
-            return null
+            return await safeDbOp(async (db) => {
+                const result = await db.getFirstAsync('SELECT cache_value FROM generic_cache WHERE cache_key = ?', [key])
+                if (result && result.cache_value) {
+                    return JSON.parse(result.cache_value)
+                }
+                return null
+            })
         } catch (e) {
-            console.error(`Failed to get generic cache for key ${key}:`, e)
+            console.warn(`Failed to get generic cache for key ${key}:`, e?.message || e)
             return null
         }
     })
@@ -268,16 +296,16 @@ export const getGenericCache = async (key) => {
 
 export const clearGenericCache = async (key) => {
     return runExclusive(async () => {
-        const db = await getDb()
-        if (!db) return
         try {
-            if (key) {
-                await db.runAsync('DELETE FROM generic_cache WHERE cache_key = ?', [key])
-            } else {
-                await db.runAsync('DELETE FROM generic_cache')
-            }
+            await safeDbOp(async (db) => {
+                if (key) {
+                    await db.runAsync('DELETE FROM generic_cache WHERE cache_key = ?', [key])
+                } else {
+                    await db.runAsync('DELETE FROM generic_cache')
+                }
+            })
         } catch (e) {
-            console.error('Failed to clear generic cache:', e)
+            console.warn('Failed to clear generic cache:', e?.message || e)
         }
     })
 }
@@ -285,66 +313,66 @@ export const clearGenericCache = async (key) => {
 // ── Offline User Session Management ──
 export const saveUserSession = async (user, extra = {}) => {
     if (!user?.id) return
-    const db = await getDb()
-    if (!db) return
     return runExclusive(async () => {
         try {
-            const email = user.email || extra.email || ''
-            const fullName = user.user_metadata?.full_name || extra.full_name || ''
-            const pinHash = extra.pin_hash || ''
-            const targetExamLevel = extra.target_exam_level || ''
-            const rawUserJson = JSON.stringify({ ...user, ...extra })
+            await safeDbOp(async (db) => {
+                const email = user.email || extra.email || ''
+                const fullName = user.user_metadata?.full_name || extra.full_name || ''
+                const pinHash = extra.pin_hash || ''
+                const targetExamLevel = extra.target_exam_level || ''
+                const rawUserJson = JSON.stringify({ ...user, ...extra })
 
-            await db.runAsync(
-                `INSERT INTO user_session_cache 
-                 (user_id, email, full_name, pin_hash, target_exam_level, raw_user_json, is_logged_in, last_active)
-                 VALUES (?, ?, ?, ?, ?, ?, 1, CURRENT_TIMESTAMP)
-                 ON CONFLICT(user_id) DO UPDATE SET
-                    email = excluded.email,
-                    full_name = CASE WHEN excluded.full_name != '' THEN excluded.full_name ELSE user_session_cache.full_name END,
-                    pin_hash = CASE WHEN excluded.pin_hash != '' THEN excluded.pin_hash ELSE user_session_cache.pin_hash END,
-                    target_exam_level = CASE WHEN excluded.target_exam_level != '' THEN excluded.target_exam_level ELSE user_session_cache.target_exam_level END,
-                    raw_user_json = excluded.raw_user_json,
-                    is_logged_in = 1,
-                    last_active = CURRENT_TIMESTAMP`,
-                [user.id, email, fullName, pinHash, targetExamLevel, rawUserJson]
-            )
+                await db.runAsync(
+                    `INSERT INTO user_session_cache 
+                     (user_id, email, full_name, pin_hash, target_exam_level, raw_user_json, is_logged_in, last_active)
+                     VALUES (?, ?, ?, ?, ?, ?, 1, CURRENT_TIMESTAMP)
+                     ON CONFLICT(user_id) DO UPDATE SET
+                        email = excluded.email,
+                        full_name = CASE WHEN excluded.full_name != '' THEN excluded.full_name ELSE user_session_cache.full_name END,
+                        pin_hash = CASE WHEN excluded.pin_hash != '' THEN excluded.pin_hash ELSE user_session_cache.pin_hash END,
+                        target_exam_level = CASE WHEN excluded.target_exam_level != '' THEN excluded.target_exam_level ELSE user_session_cache.target_exam_level END,
+                        raw_user_json = excluded.raw_user_json,
+                        is_logged_in = 1,
+                        last_active = CURRENT_TIMESTAMP`,
+                    [user.id, email, fullName, pinHash, targetExamLevel, rawUserJson]
+                )
+            })
         } catch (e) {
-            console.error("Failed to save user session:", e)
+            console.warn("Failed to save user session:", e?.message || e)
         }
     })
 }
 
 export const getActiveUserSession = async () => {
-    const db = await getDb()
-    if (!db) return null
     try {
-        const row = await db.getFirstAsync(
-            'SELECT * FROM user_session_cache WHERE is_logged_in = 1 ORDER BY last_active DESC LIMIT 1'
-        )
-        if (!row) return null
-        let parsed = {}
-        try {
-            parsed = JSON.parse(row.raw_user_json)
-        } catch (_) { }
-        return {
-            ...row,
-            parsedUser: parsed,
-            hasPin: Boolean(row.pin_hash && String(row.pin_hash).trim().length > 0)
-        }
+        return await safeDbOp(async (db) => {
+            const row = await db.getFirstAsync(
+                'SELECT * FROM user_session_cache WHERE is_logged_in = 1 ORDER BY last_active DESC LIMIT 1'
+            )
+            if (!row) return null
+            let parsed = {}
+            try {
+                parsed = JSON.parse(row.raw_user_json)
+            } catch (_) { }
+            return {
+                ...row,
+                parsedUser: parsed,
+                hasPin: Boolean(row.pin_hash && String(row.pin_hash).trim().length > 0)
+            }
+        })
     } catch (e) {
-        console.error("Failed to get active user session:", e)
+        console.warn("Failed to get active user session:", e?.message || e)
         return null
     }
 }
 
 export const clearUserSession = async () => {
-    const db = await getDb()
-    if (!db) return
     try {
-        await db.runAsync('UPDATE user_session_cache SET is_logged_in = 0')
+        await safeDbOp(async (db) => {
+            await db.runAsync('UPDATE user_session_cache SET is_logged_in = 0')
+        })
     } catch (e) {
-        console.error("Failed to clear user session:", e)
+        console.warn("Failed to clear user session:", e?.message || e)
     }
 }
 
@@ -352,31 +380,31 @@ export const clearUserSession = async () => {
 export const cacheQuestionsLocally = async (examType, subject = 'all', questions = []) => {
     const list = Array.isArray(questions) ? questions : (questions ? [questions] : [])
     if (list.length === 0) return
-    const db = await getDb()
-    if (!db) return
     return runExclusive(async () => {
         try {
-            const cleanSub = (subject || 'all').toLowerCase()
-            const chunkSize = 25
-            for (let i = 0; i < list.length; i += chunkSize) {
-                const chunk = list.slice(i, i + chunkSize)
-                if (chunk.length === 0) continue
+            await safeDbOp(async (db) => {
+                const cleanSub = (subject || 'all').toLowerCase()
+                const chunkSize = 25
+                for (let i = 0; i < list.length; i += chunkSize) {
+                    const chunk = list.slice(i, i + chunkSize)
+                    if (chunk.length === 0) continue
 
-                const placeholders = chunk.map(() => '(?, ?, ?, ?, CURRENT_TIMESTAMP)').join(', ')
-                const params = []
-                for (const q of chunk) {
-                    const qId = `${examType}_${cleanSub}_${q.id || Math.random().toString(36).substring(2)}`
-                    const payloadStr = JSON.stringify(q)
-                    params.push(qId, examType, cleanSub, payloadStr)
+                    const placeholders = chunk.map(() => '(?, ?, ?, ?, CURRENT_TIMESTAMP)').join(', ')
+                    const params = []
+                    for (const q of chunk) {
+                        const qId = `${examType}_${cleanSub}_${q.id || Math.random().toString(36).substring(2)}`
+                        const payloadStr = JSON.stringify(q)
+                        params.push(qId, examType, cleanSub, payloadStr)
+                    }
+
+                    await db.runAsync(
+                        `INSERT INTO local_questions_cache (id, exam_type, subject, payload, updated_at)
+                         VALUES ${placeholders}
+                         ON CONFLICT(id) DO UPDATE SET payload = excluded.payload, updated_at = CURRENT_TIMESTAMP`,
+                        params
+                    )
                 }
-
-                await db.runAsync(
-                    `INSERT INTO local_questions_cache (id, exam_type, subject, payload, updated_at)
-                     VALUES ${placeholders}
-                     ON CONFLICT(id) DO UPDATE SET payload = excluded.payload, updated_at = CURRENT_TIMESTAMP`,
-                    params
-                )
-            }
+            })
         } catch (e) {
             console.warn(`Failed caching questions for ${examType}:`, e?.message || e)
         }
@@ -384,31 +412,31 @@ export const cacheQuestionsLocally = async (examType, subject = 'all', questions
 }
 
 export const getLocalQuestions = async (examType, subject = 'all', limit = 20) => {
-    const db = await getDb()
-    if (!db) return []
     try {
-        const cleanSub = (subject || 'all').toLowerCase()
-        let rows = []
-        if (cleanSub && cleanSub !== 'all') {
-            rows = await db.getAllAsync(
-                'SELECT payload FROM local_questions_cache WHERE exam_type = ? AND subject = ? ORDER BY RANDOM() LIMIT ?',
-                [examType, cleanSub, limit]
-            )
-        }
-        // Fallback to any questions of that examType if subject-specific didn't yield enough
-        if (rows.length < limit) {
-            rows = await db.getAllAsync(
-                'SELECT payload FROM local_questions_cache WHERE exam_type = ? ORDER BY RANDOM() LIMIT ?',
-                [examType, limit]
-            )
-        }
-        return rows.map(r => {
-            try {
-                return JSON.parse(r.payload)
-            } catch (_) {
-                return null
+        return await safeDbOp(async (db) => {
+            const cleanSub = (subject || 'all').toLowerCase()
+            let rows = []
+            if (cleanSub && cleanSub !== 'all') {
+                rows = await db.getAllAsync(
+                    'SELECT payload FROM local_questions_cache WHERE exam_type = ? AND subject = ? ORDER BY RANDOM() LIMIT ?',
+                    [examType, cleanSub, limit]
+                )
             }
-        }).filter(Boolean)
+            // Fallback to any questions of that examType if subject-specific didn't yield enough
+            if (rows.length < limit) {
+                rows = await db.getAllAsync(
+                    'SELECT payload FROM local_questions_cache WHERE exam_type = ? ORDER BY RANDOM() LIMIT ?',
+                    [examType, limit]
+                )
+            }
+            return rows.map(r => {
+                try {
+                    return JSON.parse(r.payload)
+                } catch (_) {
+                    return null
+                }
+            }).filter(Boolean)
+        })
     } catch (e) {
         console.warn(`Failed getting local questions for ${examType}:`, e)
         return []

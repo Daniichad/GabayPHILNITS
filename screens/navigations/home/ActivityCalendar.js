@@ -6,6 +6,8 @@ import { Ionicons, Feather, MaterialCommunityIcons } from '@expo/vector-icons'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { Calendar } from 'react-native-calendars'
 import { supabase } from '../../../utils/supabase'
+import { getPHDateKey, getPHDateKeyOffset, utcToPHDateKey, getNextPhilNitsExamCycle } from '../../../utils/dateHelper'
+import { getCache, setCache } from '../../../utils/cache'
 
 const NAVY = '#0f2747'
 const ACCENT = '#d85e67'
@@ -14,47 +16,7 @@ const RANGE_TEXT = '#1e3a8a'
 const TODAY_BLUE = '#2563eb'
 
 const formatToLocalDateString = (d) => {
-  if (!d) return null
-  const dateObj = d instanceof Date ? d : new Date(d)
-  if (isNaN(dateObj.getTime())) return null
-  const year = dateObj.getFullYear()
-  const month = String(dateObj.getMonth() + 1).padStart(2, '0')
-  const day = String(dateObj.getDate()).padStart(2, '0')
-  return `${year}-${month}-${day}`
-}
-
-// Dynamic PhilNITS semi-annual cycles (Spring: April, Autumn: October)
-const getNextPhilNitsExamCycle = () => {
-  const now = new Date()
-  const year = now.getFullYear()
-  const candidates = []
-
-  for (let y = year; y <= year + 2; y++) {
-    // April cycle: 4th Sunday of April
-    const apr1 = new Date(y, 3, 1)
-    const aprFirstSun = ((7 - apr1.getDay()) % 7) + 1
-    const aprExamDate = new Date(y, 3, aprFirstSun + 21)
-    candidates.push({
-      date: aprExamDate,
-      label: aprExamDate.toLocaleDateString('en-PH', { month: 'long', day: 'numeric', year: 'numeric' }),
-      appPeriod: `January 15 – March 20, ${y}`,
-      cycle: `${y} Spring Cycle (April)`,
-    })
-
-    // October cycle: 4th Sunday of October
-    const oct1 = new Date(y, 9, 1)
-    const octFirstSun = ((7 - oct1.getDay()) % 7) + 1
-    const octExamDate = new Date(y, 9, octFirstSun + 21)
-    candidates.push({
-      date: octExamDate,
-      label: octExamDate.toLocaleDateString('en-PH', { month: 'long', day: 'numeric', year: 'numeric' }),
-      appPeriod: `July 15 – September 20, ${y}`,
-      cycle: `${y} Autumn Cycle (October)`,
-    })
-  }
-
-  const future = candidates.filter((c) => c.date > now).sort((a, b) => a.date - b.date)
-  return future[0] || candidates[0]
+  return getPHDateKey(d)
 }
 
 export default function ActivityCalendar({ route, navigation }) {
@@ -64,12 +26,10 @@ export default function ActivityCalendar({ route, navigation }) {
   const [activeSchedule] = useState(() => {
     if (initialSchedule && initialSchedule.date) return initialSchedule
     const nextCycle = getNextPhilNitsExamCycle()
-    const now = new Date()
-    const diffDays = Math.ceil((nextCycle.date - now) / (1000 * 60 * 60 * 24))
     return {
       date: nextCycle.date.toISOString(),
       label: nextCycle.label,
-      daysLeft: Math.max(diffDays, 0),
+      daysLeft: nextCycle.daysLeft,
       appPeriod: nextCycle.appPeriod,
       cycle: nextCycle.cycle,
       source: 'philnits_official',
@@ -81,8 +41,11 @@ export default function ActivityCalendar({ route, navigation }) {
   const [totalStudyDuration, setTotalStudyDuration] = useState(0) // in minutes
   const [calculatedStreak, setCalculatedStreak] = useState(initialStreak)
   const [activityStats, setActivityStats] = useState({
-    readingCount: 0,
     practiceCount: 0,
+    mcqCount: 0,
+    tfCount: 0,
+    matchingCount: 0,
+    flashcardCount: 0,
     mockCount: 0,
     streakCount: 0,
   })
@@ -132,7 +95,6 @@ export default function ActivityCalendar({ route, navigation }) {
 
   const fetchActivity = async () => {
     try {
-      setLoading(true)
       const { data: { session } } = await supabase.auth.getSession()
       const uid = session?.user?.id
       if (!uid) {
@@ -140,13 +102,25 @@ export default function ActivityCalendar({ route, navigation }) {
         return
       }
 
-      // Fetch all practice, reading, mock examination, and points activities in parallel
+      // Fast-hydrate from local cache first so calendar renders dots instantly with zero delay
+      const cacheKey = `activity_calendar_cache_${uid}`
+      const cached = await getCache(cacheKey)
+      if (cached) {
+        if (cached.activityEvents) setActivityEvents(cached.activityEvents)
+        if (cached.totalMinutes !== undefined) setTotalStudyDuration(cached.totalMinutes)
+        if (cached.activityStats) setActivityStats(cached.activityStats)
+        if (cached.finalStreak !== undefined) setCalculatedStreak(cached.finalStreak)
+        setLoading(false)
+      } else {
+        setLoading(true)
+      }
+
+      // Fetch practice, mock examination, and points activities in parallel (reading materials excluded from analytics)
       const [
         qSessions,
         qMcq,
         qTf,
         qMatching,
-        qReading,
         qMock,
         qPhilDiag,
         qDiag,
@@ -179,35 +153,28 @@ export default function ActivityCalendar({ route, navigation }) {
           .select('id, set_title, completed, mistakes, duration_seconds, pairs_total, pairs_matched')
           .eq('user_id', uid),
 
-        // 5. Reading Materials progress & chapter reads
-        supabase
-          .from('user_reading_progress')
-          .select('id, updated_at, current_chapter_number, is_completed, reading_materials(title, subject, total_pages)')
-          .eq('user_id', uid)
-          .order('updated_at', { ascending: false }),
-
-        // 6. Mock Examination attempts
+        // 5. Mock Examination attempts
         supabase
           .from('mock_exam_attempts')
           .select('id, score, total_questions, correct_count, incorrect_count, status, started_at, completed_at, duration_seconds, mock_exam_configs(title, level_key)')
           .eq('user_id', uid)
           .order('completed_at', { ascending: false }),
 
-        // 7. PhilNITS Diagnostic Assessment attempts
+        // 6. PhilNITS Diagnostic Assessment attempts
         supabase
           .from('philnits_diagnostic_attempts')
           .select('id, exam_level, total_questions, correct_answers, score_percent, proficiency_level, completed_at')
           .eq('user_id', uid)
           .order('completed_at', { ascending: false }),
 
-        // 8. General Diagnostic Assessment attempts
+        // 7. General Diagnostic Assessment attempts
         supabase
           .from('diagnostic_assessment_attempts')
           .select('id, exam_level, total_questions, correct_answers, score_percent, completed_at')
           .eq('user_id', uid)
           .order('completed_at', { ascending: false }),
 
-        // 9. Points ledger (includes reading, practice, mock exams, and streak awards)
+        // 8. Points ledger (streak bonuses)
         supabase
           .from('points_ledger')
           .select('id, category, points, metadata, created_at')
@@ -219,8 +186,11 @@ export default function ActivityCalendar({ route, navigation }) {
       let totalMinutes = 0
       const activeDaysSet = new Set()
 
-      let readingCount = 0
       let practiceCount = 0
+      let mcqCount = 0
+      let tfCount = 0
+      let matchingCount = 0
+      let flashcardCount = 0
       let mockCount = 0
 
       const addEventToDay = (dayStr, event) => {
@@ -236,9 +206,11 @@ export default function ActivityCalendar({ route, navigation }) {
       sessions.forEach(s => {
         const rawDate = s.completed_at || s.started_at
         if (!rawDate) return
-        const day = rawDate.slice(0, 10)
+        const day = utcToPHDateKey(rawDate)
+        if (!day) return
         const dur = s.duration_seconds ? Math.max(Math.ceil(s.duration_seconds / 60), 2) : 5
         const deckTitle = s.flashcard_decks?.title || 'Flashcards Review'
+        flashcardCount++
         practiceCount++
         addEventToDay(day, {
           type: 'Flashcards Review',
@@ -260,7 +232,8 @@ export default function ActivityCalendar({ route, navigation }) {
       const mcqByDay = {}
       mcqRaw.forEach(item => {
         if (!item.answered_at) return
-        const day = item.answered_at.slice(0, 10)
+        const day = utcToPHDateKey(item.answered_at)
+        if (!day) return
         const subj = item.multiple_choice_questions?.practice_categories?.name || 'General'
         if (!mcqByDay[day]) mcqByDay[day] = {}
         if (!mcqByDay[day][subj]) {
@@ -273,6 +246,7 @@ export default function ActivityCalendar({ route, navigation }) {
       Object.entries(mcqByDay).forEach(([day, subjMap]) => {
         Object.entries(subjMap).forEach(([subj, stat]) => {
           // Each completed quiz session (from start to end) counts as 1 practice activity
+          mcqCount++
           practiceCount++
           const dur = Math.max(Math.ceil(stat.total * 1.5), 3)
           addEventToDay(day, {
@@ -295,7 +269,8 @@ export default function ActivityCalendar({ route, navigation }) {
       const tfByDay = {}
       tfRaw.forEach(item => {
         if (!item.answered_at) return
-        const day = item.answered_at.slice(0, 10)
+        const day = utcToPHDateKey(item.answered_at)
+        if (!day) return
         const subj = item.true_false_questions?.practice_categories?.name || 'General'
         if (!tfByDay[day]) tfByDay[day] = {}
         if (!tfByDay[day][subj]) {
@@ -308,6 +283,7 @@ export default function ActivityCalendar({ route, navigation }) {
       Object.entries(tfByDay).forEach(([day, subjMap]) => {
         Object.entries(subjMap).forEach(([subj, stat]) => {
           // Each completed T/F quiz session (from start to end) counts as 1 practice activity
+          tfCount++
           practiceCount++
           const dur = Math.max(Math.ceil(stat.total * 1.2), 3)
           addEventToDay(day, {
@@ -331,6 +307,7 @@ export default function ActivityCalendar({ route, navigation }) {
         const rawDate = m.created_at || todayStr
         const day = rawDate.slice(0, 10)
         const dur = m.duration_seconds ? Math.max(Math.ceil(m.duration_seconds / 60), 2) : 4
+        matchingCount++
         practiceCount++
         addEventToDay(day, {
           type: 'Matching Game',
@@ -346,39 +323,13 @@ export default function ActivityCalendar({ route, navigation }) {
         })
       })
 
-      // ── Process Reading Materials Progress ─────────────────────
-      const readingRaw = qReading.status === 'fulfilled' && qReading.value?.data ? qReading.value.data : []
-      readingRaw.forEach(r => {
-        const rawDate = r.updated_at || r.created_at
-        if (!rawDate) return
-        const day = rawDate.slice(0, 10)
-        const mat = r.reading_materials
-        const matTitle = mat?.title || 'Study Material'
-        const subj = mat?.subject ? ` (${mat.subject})` : ''
-        const chapText = r.current_chapter_number ? `Chapter ${r.current_chapter_number}` : 'Study Session'
-        const statusText = r.is_completed ? 'Finished 100%' : 'In Progress'
-        const dur = 15 // Estimated 15 minutes of attentive reading
-        readingCount++
-        addEventToDay(day, {
-          type: 'Reading Material',
-          category: 'reading',
-          title: `${matTitle}${subj}`,
-          details: `${chapText} • ${statusText}`,
-          time: new Date(rawDate).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-          duration: dur,
-          iconFamily: 'Feather',
-          iconName: 'book-open',
-          badgeColor: '#0284c7',
-          badgeBg: '#e0f2fe',
-        })
-      })
-
       // ── Process Mock Examinations ──────────────────────────────
       const mockRaw = qMock.status === 'fulfilled' && qMock.value?.data ? qMock.value.data : []
       mockRaw.forEach(m => {
         const rawDate = m.completed_at || m.started_at
         if (!rawDate) return
-        const day = rawDate.slice(0, 10)
+        const day = utcToPHDateKey(rawDate)
+        if (!day) return
         const configTitle = m.mock_exam_configs?.title || 'Full Mock Examination'
         const total = m.total_questions || 60
         const score = m.score !== null ? m.score : (m.correct_count || 0)
@@ -403,7 +354,8 @@ export default function ActivityCalendar({ route, navigation }) {
       const philDiagRaw = qPhilDiag.status === 'fulfilled' && qPhilDiag.value?.data ? qPhilDiag.value.data : []
       philDiagRaw.forEach(d => {
         if (!d.completed_at) return
-        const day = d.completed_at.slice(0, 10)
+        const day = utcToPHDateKey(d.completed_at)
+        if (!day) return
         mockCount++
         addEventToDay(day, {
           type: 'Diagnostic Assessment',
@@ -422,7 +374,8 @@ export default function ActivityCalendar({ route, navigation }) {
       const diagRaw = qDiag.status === 'fulfilled' && qDiag.value?.data ? qDiag.value.data : []
       diagRaw.forEach(d => {
         if (!d.completed_at) return
-        const day = d.completed_at.slice(0, 10)
+        const day = utcToPHDateKey(d.completed_at)
+        if (!day) return
         mockCount++
         addEventToDay(day, {
           type: 'Diagnostic Assessment',
@@ -442,7 +395,8 @@ export default function ActivityCalendar({ route, navigation }) {
       const pointsRaw = qPoints.status === 'fulfilled' && qPoints.value?.data ? qPoints.value.data : []
       pointsRaw.forEach(p => {
         if (!p.created_at) return
-        const day = p.created_at.slice(0, 10)
+        const day = p.metadata?.date || utcToPHDateKey(p.created_at)
+        if (!day) return
         // Check if it was a streak bonus
         if (p.category === 'streak') {
           const streakNum = p.metadata?.streakDay || 1
@@ -461,13 +415,12 @@ export default function ActivityCalendar({ route, navigation }) {
         }
       })
 
-      // ── Dynamic Login Streak Calculation across ALL activities ──
+      // ── Dynamic Login Streak Calculation across ALL activities (12:00 AM PH Time) ──
       let streak = 0
-      const today = new Date()
+      const todayPH = getPHDateKey()
+      activeDaysSet.add(todayPH)
       for (let i = 0; i < 60; i++) {
-        const d = new Date(today)
-        d.setDate(today.getDate() - i)
-        const key = formatToLocalDateString(d)
+        const key = getPHDateKeyOffset(i)
         if (activeDaysSet.has(key)) {
           streak++
           // Ensure a Daily Login Streak event is visible on each active streak day
@@ -477,8 +430,8 @@ export default function ActivityCalendar({ route, navigation }) {
               type: 'Daily Login Streak',
               category: 'streak',
               title: `Daily Login Streak • Day ${streak}`,
-              details: `Active login & study session verified 🔥`,
-              time: '08:00 AM',
+              details: `Active login & study session verified`,
+              time: '12:00 AM',
               duration: 5,
               iconFamily: 'Feather',
               iconName: 'zap',
@@ -492,15 +445,27 @@ export default function ActivityCalendar({ route, navigation }) {
       }
 
       const finalStreak = Math.max(streak, initialStreak)
+      const statsObj = {
+        practiceCount,
+        mcqCount,
+        tfCount,
+        matchingCount,
+        flashcardCount,
+        mockCount,
+        streakCount: finalStreak,
+      }
       setCalculatedStreak(finalStreak)
       setActivityEvents(eventsMap)
       setTotalStudyDuration(Math.floor(totalMinutes))
-      setActivityStats({
-        readingCount,
-        practiceCount,
-        mockCount,
-        streakCount: finalStreak,
-      })
+      setActivityStats(statsObj)
+
+      // Save to local cache for instant zero-lag rendering next time
+      setCache(cacheKey, {
+        activityEvents: eventsMap,
+        totalMinutes: Math.floor(totalMinutes),
+        activityStats: statsObj,
+        finalStreak,
+      }, 10 * 60 * 1000).catch(() => { })
     } catch (error) {
       console.warn('Error fetching activity:', error)
     } finally {
@@ -745,7 +710,7 @@ export default function ActivityCalendar({ route, navigation }) {
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
       <StatusBar barStyle="dark-content" backgroundColor="#fff" />
-      
+
       <View style={styles.header}>
         <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()}>
           <Ionicons name="arrow-back" size={24} color={NAVY} />
@@ -755,7 +720,7 @@ export default function ActivityCalendar({ route, navigation }) {
       </View>
 
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        
+
         {/* Streak & Duration */}
         <View style={styles.statsRow}>
           <View style={styles.statCard}>
@@ -779,24 +744,21 @@ export default function ActivityCalendar({ route, navigation }) {
 
         {/* Activity Breakdown Overview Bar */}
         <View style={styles.breakdownCard}>
-          <Text style={styles.breakdownTitle}>All-Time Activity Summary</Text>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+            <Text style={styles.breakdownTitle}>All-Time Activity Summary</Text>
+            <Text style={{ fontSize: 11, fontWeight: '700', color: '#64748b' }}>
+              4 Practice + Mock Exam
+            </Text>
+          </View>
+
+          {/* Top Row: Overall Practice, Mock Exams, and Streak */}
           <View style={styles.breakdownRow}>
             <View style={styles.breakdownItem}>
-              <View style={[styles.miniIconWrap, { backgroundColor: '#e0f2fe' }]}>
-                <Feather name="book-open" size={15} color="#0284c7" />
-              </View>
-              <Text style={styles.breakdownNum}>{activityStats.readingCount}</Text>
-              <Text style={styles.breakdownLabel}>Reading</Text>
-            </View>
-
-            <View style={styles.breakdownDivider} />
-
-            <View style={styles.breakdownItem}>
               <View style={[styles.miniIconWrap, { backgroundColor: '#eff6ff' }]}>
-                <MaterialCommunityIcons name="format-list-checks" size={16} color="#2563eb" />
+                <MaterialCommunityIcons name="trophy-outline" size={16} color="#2563eb" />
               </View>
               <Text style={styles.breakdownNum}>{activityStats.practiceCount}</Text>
-              <Text style={styles.breakdownLabel}>Practice</Text>
+              <Text style={styles.breakdownLabel}>Total Practice</Text>
             </View>
 
             <View style={styles.breakdownDivider} />
@@ -819,6 +781,30 @@ export default function ActivityCalendar({ route, navigation }) {
               <Text style={styles.breakdownLabel}>Streak Days</Text>
             </View>
           </View>
+
+          {/* Sub-row: The 4 Practice Types Breakdown */}
+          <View style={{ height: 1, backgroundColor: '#f1f5f9', marginVertical: 10 }} />
+          <View style={styles.breakdownRow}>
+            <View style={styles.breakdownItem}>
+              <Text style={{ fontSize: 13, fontWeight: '700', color: '#1e293b' }}>{activityStats.mcqCount}</Text>
+              <Text style={[styles.breakdownLabel, { fontSize: 10 }]}>Multiple Choice</Text>
+            </View>
+            <View style={styles.breakdownDivider} />
+            <View style={styles.breakdownItem}>
+              <Text style={{ fontSize: 13, fontWeight: '700', color: '#1e293b' }}>{activityStats.tfCount}</Text>
+              <Text style={[styles.breakdownLabel, { fontSize: 10 }]}>True / False</Text>
+            </View>
+            <View style={styles.breakdownDivider} />
+            <View style={styles.breakdownItem}>
+              <Text style={{ fontSize: 13, fontWeight: '700', color: '#1e293b' }}>{activityStats.matchingCount}</Text>
+              <Text style={[styles.breakdownLabel, { fontSize: 10 }]}>Matching</Text>
+            </View>
+            <View style={styles.breakdownDivider} />
+            <View style={styles.breakdownItem}>
+              <Text style={{ fontSize: 13, fontWeight: '700', color: '#1e293b' }}>{activityStats.flashcardCount}</Text>
+              <Text style={[styles.breakdownLabel, { fontSize: 10 }]}>Flashcards</Text>
+            </View>
+          </View>
         </View>
 
         {/* PhilNITS Exam Schedule */}
@@ -833,9 +819,9 @@ export default function ActivityCalendar({ route, navigation }) {
                   <Text style={styles.infoValue}>{activeSchedule.label}</Text>
                 </View>
               </View>
-              
+
               <View style={styles.divider} />
-              
+
               <View style={styles.infoRow}>
                 <MaterialCommunityIcons name="file-document-edit-outline" size={20} color={NAVY} />
                 <View style={styles.infoTextContainer}>
@@ -843,7 +829,7 @@ export default function ActivityCalendar({ route, navigation }) {
                   <Text style={styles.infoValue}>{activeSchedule.appPeriod || 'To be announced'}</Text>
                 </View>
               </View>
-              
+
               {daysUntilExam !== null && daysUntilExam >= 0 && (
                 <View style={styles.countdownBadge}>
                   <Text style={styles.countdownText}>{daysUntilExam} days left to prepare!</Text>
@@ -923,7 +909,7 @@ export default function ActivityCalendar({ route, navigation }) {
                 </View>
               </View>
             )}
-            
+
             <ScrollView style={styles.modalScroll} showsVerticalScrollIndicator={false}>
               {selectedDate && activityEvents[selectedDate] && activityEvents[selectedDate].length > 0 ? (
                 activityEvents[selectedDate].map((ev, i) => (
@@ -950,7 +936,7 @@ export default function ActivityCalendar({ route, navigation }) {
                 <View style={styles.emptyEventContainer}>
                   <MaterialCommunityIcons name="calendar-blank" size={44} color="#cbd5e1" />
                   <Text style={styles.emptyEventText}>No study or practice activity recorded on this date.</Text>
-                  <Text style={styles.emptyEventSub}>Complete reading materials, quizzes, or mock exams to build your study history!</Text>
+                  <Text style={styles.emptyEventSub}>Complete practice quizzes or mock exams to build your study history!</Text>
                 </View>
               )}
             </ScrollView>

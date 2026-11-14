@@ -82,16 +82,13 @@ export default function MultipleChoice({ navigation, route }) {
       if (!activeSpeed) activeSpeed = 'Standard';
 
       const IP_SUBJECTS = ['Technology', 'Management', 'Strategy'];
-      const FE_MORNING_SUBJECTS = [
-        'Computer Systems & Architecture',
-        'Networks & Security',
-        'IT Management & Strategy',
-        'Databases & SQL',
-      ];
+      const FE_MORNING_SUBJECTS = ['Technology', 'Management', 'Strategy'];
       const FE_AFTERNOON_SUBJECTS = [
-        'Algorithms & Programming',
-        'Algorithms & Data Structures',
-        'Security & System Design',
+        'General Aspects of Programming',
+        'Fundamental Elements for Programming Processes',
+        'Data Structures and Algorithms',
+        'Application of Programming to Various Fields',
+        'Ensuring Information Security',
       ];
 
       const normSection = String(feSection || '').trim().toLowerCase().replace(/_/g, ' ');
@@ -100,6 +97,33 @@ export default function MultipleChoice({ navigation, route }) {
       const trackSubjects = activeTrack === 'FE'
         ? (isSubjectB ? FE_AFTERNOON_SUBJECTS : FE_MORNING_SUBJECTS)
         : IP_SUBJECTS;
+
+      // Translate UI selected subject to database category names
+      const getDbCategories = (selectedSub) => {
+        if (!selectedSub || selectedSub === 'All') {
+          if (activeTrack === 'IP') return ['Technology', 'Management', 'Strategy'];
+          if (isSubjectB) return ['Algorithms & Programming', 'Algorithms & Data Structures', 'Security & System Design'];
+          return ['Technology', 'Management', 'Strategy', 'Computer Systems & Architecture', 'Databases & SQL', 'Networks & Security', 'IT Management & Strategy'];
+        }
+        if (activeTrack === 'IP') return [selectedSub];
+        if (isSubjectB) {
+          // All FE Subject B categories currently map to existing Algorithms & Programming database categories
+          return ['Algorithms & Programming', 'Algorithms & Data Structures', 'Security & System Design'];
+        }
+        // FE Subject A
+        if (selectedSub === 'Technology') {
+          return ['Technology', 'Computer Systems & Architecture', 'Databases & SQL', 'Networks & Security'];
+        }
+        if (selectedSub === 'Management') {
+          return ['Management', 'IT Management & Strategy'];
+        }
+        if (selectedSub === 'Strategy') {
+          return ['Strategy', 'IT Management & Strategy'];
+        }
+        return [selectedSub];
+      };
+
+      const targetDbCategories = getDbCategories(subject);
 
       const cacheScope = `${activeTrack.toLowerCase()}_${activeSection ? activeSection.replace(/\s+/g, '').toLowerCase() : 'all'}_${activeSpeed.toLowerCase()}_${(subject || 'all').toLowerCase()}`;
 
@@ -120,15 +144,15 @@ export default function MultipleChoice({ navigation, route }) {
               q = q.eq('fe_section', activeSection);
             }
 
-            if (subject && subject !== 'All') {
-              q = q.eq('practice_categories.name', subject);
+            if (targetDbCategories.length === 1) {
+              q = q.eq('practice_categories.name', targetDbCategories[0]);
             } else {
-              q = q.in('practice_categories.name', trackSubjects);
+              q = q.in('practice_categories.name', targetDbCategories);
             }
             return q;
           };
 
-          // Prioritize questions strictly matching user's review speed
+          // Strictly fetch questions matching user's selected review speed
           const normalizedSpeed = (activeSpeed === 'Quick' || activeSpeed === 'Detailed') ? activeSpeed : 'Standard';
           let speedQ = buildBaseQuery().ilike('review_speed', normalizedSpeed);
 
@@ -137,19 +161,12 @@ export default function MultipleChoice({ navigation, route }) {
             loadedQuestions = [...speedMatched];
           }
 
-          // Fallback / pad if specific speed has fewer items than requested limit
-          if (loadedQuestions.length < limit) {
-            const existingIds = new Set(loadedQuestions.map(q => q.id));
+          // If the specific speed has zero items for this narrow criteria, only then fetch from base query
+          if (loadedQuestions.length === 0) {
             const fallbackQ = buildBaseQuery();
-            const { data: fallbackItems } = await fallbackQ.limit(limit * 2);
+            const { data: fallbackItems } = await fallbackQ.limit(limit);
             if (fallbackItems) {
-              for (const item of fallbackItems) {
-                if (!existingIds.has(item.id)) {
-                  loadedQuestions.push(item);
-                  existingIds.add(item.id);
-                  if (loadedQuestions.length >= limit) break;
-                }
-              }
+              loadedQuestions = [...fallbackItems];
             }
           }
 

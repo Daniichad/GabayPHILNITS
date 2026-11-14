@@ -516,7 +516,7 @@ class PerformanceAnalyticsEngine:
                 "daily_question_target": 35,
                 "daily_goal_mins": 45,
                 "focus": "Comprehensive concept reinforcement & flashcards",
-                "description": "High-frequency drills and thorough reading material review to eliminate knowledge gaps.",
+                "description": "High-frequency drills and targeted practice review to eliminate knowledge gaps.",
             },
             "Standard": {
                 "name": "Standard",

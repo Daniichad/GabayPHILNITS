@@ -11,6 +11,8 @@ import { useFocusEffect } from '@react-navigation/native'
 import { getCache, setCache, clearCache } from '../../../utils/cache'
 import { getUnsyncedPoints } from '../../../utils/database'
 import { resolveUserTargetExam } from '../../../utils/targetExam'
+import { getPHDateKey, getPHDateKeyOffset, utcToPHDateKey, getNextPhilNitsExamCycle } from '../../../utils/dateHelper'
+import { checkAndAwardStreakPoints } from '../../../utils/pointsEngine'
 import {
   addNotificationListener,
   cleanNotificationText,
@@ -78,14 +80,17 @@ export default function Home({ session, navigation, route }) {
   const [targetExamType, setTargetExamType] = useState('IP')
   const [subjects, setSubjectProgress] = useState(IP_DEFAULT_SUBJECTS)
 
-  // Immediately hydrate streak & readiness from local cache on mount with zero network lag
+  // Immediately hydrate all home widgets from local cache on mount with zero network lag
   useEffect(() => {
     let isMounted = true
     Promise.all([
       getCache('home_streak_days'),
       getCache('home_readiness'),
       getCache('home_profile_name'),
-    ]).then(([cachedStreak, cachedReadiness, cachedName]) => {
+      getCache('home_cse_schedule'),
+      getCache('home_rankings'),
+      getCache('home_subject_progress'),
+    ]).then(([cachedStreak, cachedReadiness, cachedName, cachedCse, cachedRankings, cachedSubjects]) => {
       if (!isMounted) return
       if (cachedStreak !== null && cachedStreak !== undefined) {
         setStreakDays(Number(cachedStreak))
@@ -97,23 +102,43 @@ export default function Home({ session, navigation, route }) {
       if (cachedName && cachedName.toLowerCase() !== 'learner') {
         setProfileName(extractFirstName(cachedName))
       }
+      if (cachedCse) {
+        setCseSchedule(cachedCse)
+        setCseLoading(false)
+      }
+      if (cachedRankings && Array.isArray(cachedRankings) && cachedRankings.length > 0) {
+        setRankings(cachedRankings)
+        setRankingsLoading(false)
+      }
+      if (cachedSubjects && Array.isArray(cachedSubjects)) {
+        setSubjectProgress(cachedSubjects)
+      }
     }).catch(() => {})
     return () => { isMounted = false }
   }, [])
 
   const quoteTimer = useRef(null)
   const quoteOpacity = useRef(new Animated.Value(1)).current
-  const notifSlideAnim = useRef(new Animated.Value(300)).current
+  const notifSlideAnim = useRef(new Animated.Value(500)).current
+  const notifFadeAnim = useRef(new Animated.Value(0)).current
 
   useEffect(() => {
     if (notifVisible) {
-      Animated.timing(notifSlideAnim, {
-        toValue: 0,
-        duration: 250,
-        useNativeDriver: true,
-      }).start()
+      Animated.parallel([
+        Animated.timing(notifFadeAnim, {
+          toValue: 1,
+          duration: 250,
+          useNativeDriver: true,
+        }),
+        Animated.timing(notifSlideAnim, {
+          toValue: 0,
+          duration: 250,
+          useNativeDriver: true,
+        }),
+      ]).start()
     } else {
-      notifSlideAnim.setValue(300)
+      notifSlideAnim.setValue(500)
+      notifFadeAnim.setValue(0)
     }
   }, [notifVisible])
 
@@ -168,7 +193,7 @@ export default function Home({ session, navigation, route }) {
           id: 'streak_notice',
           icon: 'fire',
           iconColor: '#f59e0b',
-          title: 'Study Streak! 🔥',
+          title: 'Study Streak!',
           body: `You're on a ${streakDays}-day study streak. Consistency is key!`,
           time: 'Active now',
           timestamp: Date.now(),
@@ -333,57 +358,19 @@ export default function Home({ session, navigation, route }) {
 
   const unreadCount = notifications.filter((n) => !n.read).length
 
-  // ─── Dynamic PhilNITS semi-annual cycles (Spring: April, Autumn: October) ──
-  const getNextPhilNitsExamCycle = () => {
-    const now = new Date()
-    const year = now.getFullYear()
-    const candidates = []
-
-    for (let y = year; y <= year + 2; y++) {
-      // April cycle: 4th Sunday of April
-      const apr1 = new Date(y, 3, 1)
-      const aprFirstSun = ((7 - apr1.getDay()) % 7) + 1
-      const aprExamDate = new Date(y, 3, aprFirstSun + 21)
-      candidates.push({
-        date: aprExamDate,
-        label: aprExamDate.toLocaleDateString('en-PH', { month: 'long', day: 'numeric', year: 'numeric' }),
-        appPeriod: `January 15 – March 20, ${y}`,
-        cycle: `${y} Spring Cycle (April)`,
-      })
-
-      // October cycle: 4th Sunday of October
-      const oct1 = new Date(y, 9, 1)
-      const octFirstSun = ((7 - oct1.getDay()) % 7) + 1
-      const octExamDate = new Date(y, 9, octFirstSun + 21)
-      candidates.push({
-        date: octExamDate,
-        label: octExamDate.toLocaleDateString('en-PH', { month: 'long', day: 'numeric', year: 'numeric' }),
-        appPeriod: `July 15 – September 20, ${y}`,
-        cycle: `${y} Autumn Cycle (October)`,
-      })
-    }
-
-    const future = candidates.filter((c) => c.date > now).sort((a, b) => a.date - b.date)
-    return future[0] || candidates[0]
-  }
-
   // ─── Fetch PhilNITS Schedule ────────────────────────────────────
   const fetchCSESchedule = useCallback(async () => {
     const cached = await getCache('home_cse_schedule')
     if (cached) {
       setCseSchedule(cached)
       setCseLoading(false)
-    } else {
-      setCseLoading(true)
     }
 
     const nextCycle = getNextPhilNitsExamCycle()
-    const now = new Date()
-    const diffDays = Math.ceil((nextCycle.date - now) / (1000 * 60 * 60 * 24))
     const payload = {
       date: nextCycle.date.toISOString(),
       label: nextCycle.label,
-      daysLeft: Math.max(diffDays, 0),
+      daysLeft: nextCycle.daysLeft,
       appPeriod: nextCycle.appPeriod,
       cycle: nextCycle.cycle,
       source: 'philnits_official',
@@ -398,8 +385,6 @@ export default function Home({ session, navigation, route }) {
     if (cached !== null && cached !== undefined) {
       setReadiness(Number(cached))
       setReadinessLoading(false)
-    } else {
-      setReadinessLoading(true)
     }
     try {
       const { data: { session } } = await supabase.auth.getSession()
@@ -523,8 +508,6 @@ export default function Home({ session, navigation, route }) {
       }))
       setRankings(sanitized)
       setRankingsLoading(false)
-    } else {
-      setRankingsLoading(true)
     }
 
     try {
@@ -766,47 +749,63 @@ export default function Home({ session, navigation, route }) {
 
 
 
-  // ─── Fetch quote from API ───────────────────────────────────────
-  const fetchQuote = useCallback(async (silent = false) => {
-    if (!silent) setQuoteLoading(true)
+  // ─── Fetch Daily Motivational Quote (Refreshed daily at 12:00 AM PH Time) ──
+  const fetchQuote = useCallback(async (forceRefresh = false) => {
+    const todayPH = getPHDateKey()
+    const quoteDateKey = 'daily_quote_date'
+    const quoteContentKey = 'daily_quote_data'
 
-    // Fade out current quote before swapping
-    await new Promise((resolve) =>
-      Animated.timing(quoteOpacity, {
-        toValue: 0,
-        duration: 300,
-        useNativeDriver: true,
-      }).start(resolve)
-    )
+    // 1. Instant Cache Hydration: If cached for today (PST / UTC+8), display with zero loading spinner
+    if (!forceRefresh) {
+      try {
+        const cachedDate = await getCache(quoteDateKey)
+        const cachedQuote = await getCache(quoteContentKey)
+        if (cachedDate === todayPH && cachedQuote?.content) {
+          setQuote(cachedQuote)
+          setQuoteLoading(false)
+          return
+        }
+      } catch (_) {}
+    }
+
+    setQuoteLoading(!quote)
+
+    // Deterministic daily fallback index based on today's Philippine date (YYYY-MM-DD)
+    const getDailyFallbackQuote = () => {
+      let hash = 0
+      for (let i = 0; i < todayPH.length; i++) {
+        hash = (hash << 5) - hash + todayPH.charCodeAt(i)
+        hash |= 0
+      }
+      const idx = Math.abs(hash) % FALLBACK_QUOTES.length
+      return FALLBACK_QUOTES[idx]
+    }
 
     try {
       const response = await fetch('https://api.quotable.io/random?tags=inspirational,motivational', {
-        signal: AbortSignal.timeout?.(5000),
+        signal: AbortSignal.timeout?.(4000),
       })
       if (!response.ok) throw new Error('API error')
       const data = await response.json()
-      setQuote({ content: data.content, author: data.author })
+      const newQuote = { content: data.content, author: data.author }
+      setQuote(newQuote)
+      await setCache(quoteDateKey, todayPH, 36 * 60 * 60 * 1000)
+      await setCache(quoteContentKey, newQuote, 36 * 60 * 60 * 1000)
     } catch {
-      // Use a random fallback quote
-      const fallback = FALLBACK_QUOTES[Math.floor(Math.random() * FALLBACK_QUOTES.length)]
+      // Deterministic fallback for today's PH date
+      const fallback = getDailyFallbackQuote()
       setQuote(fallback)
+      await setCache(quoteDateKey, todayPH, 36 * 60 * 60 * 1000).catch(() => {})
+      await setCache(quoteContentKey, fallback, 36 * 60 * 60 * 1000).catch(() => {})
     } finally {
       setQuoteLoading(false)
-      // Fade in new quote
-      Animated.timing(quoteOpacity, {
-        toValue: 1,
-        duration: 400,
-        useNativeDriver: true,
-      }).start()
     }
-  }, [quoteOpacity])
+  }, [quote])
 
-  // Fetch quote on mount and every 30 seconds
+  // Fetch daily quote on mount & check on screen focus
   useEffect(() => {
     fetchQuote()
-    quoteTimer.current = setInterval(() => fetchQuote(true), 30000)
-    return () => clearInterval(quoteTimer.current)
-  }, [fetchQuote])
+  }, [])
 
   const fetchHomeData = useCallback(async () => {
     const cachedName = await getCache('home_profile_name')
@@ -846,13 +845,14 @@ export default function Home({ session, navigation, route }) {
       setProfileName(resolvedName)
       await setCache('home_profile_name', resolvedName)
 
-      // 2. Fetch activity streak across ALL 5 activities (flashcards, MCQ, True/False, Matching, and Mock Exams)
-      const [sesRes, mcqRes, tfRes, matchRes, mockRes] = await Promise.allSettled([
+      // 2. Fetch activity & login streak across activities + daily logins
+      const [sesRes, mcqRes, tfRes, matchRes, mockRes, streakRes] = await Promise.allSettled([
         supabase.from('flashcard_sessions').select('created_at, completed_at, started_at').eq('user_id', uid),
         supabase.from('multiple_choice_results').select('answered_at').eq('user_id', uid),
         supabase.from('true_false_results').select('answered_at').eq('user_id', uid),
         supabase.from('matching_results').select('created_at, completed_at').eq('user_id', uid),
         supabase.from('mock_exam_attempts').select('created_at, completed_at, started_at').eq('user_id', uid),
+        supabase.from('points_ledger').select('created_at, metadata').eq('user_id', uid).eq('category', 'streak'),
       ])
 
       const ses = sesRes.status === 'fulfilled' ? (sesRes.value.data ?? []) : []
@@ -860,21 +860,25 @@ export default function Home({ session, navigation, route }) {
       const tf = tfRes.status === 'fulfilled' ? (tfRes.value.data ?? []) : []
       const match = matchRes.status === 'fulfilled' ? (matchRes.value.data ?? []) : []
       const mock = mockRes.status === 'fulfilled' ? (mockRes.value.data ?? []) : []
+      const streakLogs = streakRes.status === 'fulfilled' ? (streakRes.value.data ?? []) : []
 
+      const todayPH = getPHDateKey()
+      // Collect all active dates converted to Philippine Standard Time (UTC+8)
       const activityDays = new Set([
-        ...ses.map(s => (s.completed_at || s.started_at || s.created_at)?.slice(0, 10)),
-        ...mcq.map(r => r.answered_at?.slice(0, 10)),
-        ...tf.map(r => r.answered_at?.slice(0, 10)),
-        ...match.map(m => (m.completed_at || m.created_at)?.slice(0, 10)),
-        ...mock.map(m => (m.completed_at || m.started_at || m.created_at)?.slice(0, 10)),
+        todayPH, // Current app open/login session actively counts for today
+        ...ses.map(s => utcToPHDateKey(s.completed_at || s.started_at || s.created_at)),
+        ...mcq.map(r => utcToPHDateKey(r.answered_at)),
+        ...tf.map(r => utcToPHDateKey(r.answered_at)),
+        ...match.map(m => utcToPHDateKey(m.completed_at || m.created_at)),
+        ...mock.map(m => utcToPHDateKey(m.completed_at || m.started_at || m.created_at)),
+        ...streakLogs.map(p => p.metadata?.date || utcToPHDateKey(p.created_at)),
       ].filter(Boolean))
 
+      // Count consecutive days in Philippine Time (rolls over at 12:00 AM PH Time)
       let streak = 0
-      const today = new Date()
-      for (let i = 0; i < 30; i++) {
-        const d = new Date(today); d.setDate(today.getDate() - i)
-        const key = d.toISOString().slice(0, 10)
-        if (activityDays.has(key)) {
+      for (let i = 0; i < 60; i++) {
+        const phKey = getPHDateKeyOffset(i)
+        if (activityDays.has(phKey)) {
           streak++
         } else if (i > 0) {
           break
@@ -882,6 +886,16 @@ export default function Home({ session, navigation, route }) {
       }
       setStreakDays(streak)
       await setCache('home_streak_days', streak)
+
+      // Award daily login streak points once per PH calendar day
+      if (streak > 0) {
+        const awardKey = `streak_awarded_${uid}_${todayPH}`
+        const alreadyAwarded = await getCache(awardKey)
+        if (!alreadyAwarded) {
+          await checkAndAwardStreakPoints(streak)
+          await setCache(awardKey, true)
+        }
+      }
 
       // 3. Fetch target exam level to determine allowed subject areas
       const activeTrack = await resolveUserTargetExam(uid, 'IP')
@@ -998,11 +1012,14 @@ export default function Home({ session, navigation, route }) {
   // Re-fetch rankings, readiness, home data, and notifications when Home screen comes into focus
   useFocusEffect(
     useCallback(() => {
-      // Immediately hydrate cached streak and readiness on screen focus with zero lag
+      // Immediately hydrate cached profile, streak, readiness, and subjects on screen focus with zero lag
       Promise.all([
         getCache('home_streak_days'),
         getCache('home_readiness'),
-      ]).then(([cachedStreak, cachedReadiness]) => {
+        getCache('home_profile_name'),
+        getCache('home_subject_progress'),
+        getCache('home_rankings'),
+      ]).then(([cachedStreak, cachedReadiness, cachedName, cachedSubjects, cachedRankings]) => {
         if (cachedStreak !== null && cachedStreak !== undefined) {
           setStreakDays(Number(cachedStreak))
         }
@@ -1010,13 +1027,25 @@ export default function Home({ session, navigation, route }) {
           setReadiness(Number(cachedReadiness))
           setReadinessLoading(false)
         }
+        if (cachedName) {
+          setProfileName(cachedName)
+        }
+        if (cachedSubjects && Array.isArray(cachedSubjects)) {
+          setSubjectProgress(cachedSubjects)
+        }
+        if (cachedRankings && Array.isArray(cachedRankings) && cachedRankings.length > 0) {
+          setRankings(cachedRankings)
+          setRankingsLoading(false)
+        }
       }).catch(() => {})
 
+      // Silently refresh in the background
+      fetchQuote()
       fetchRankings()
       fetchReadiness()
       fetchHomeData()
       fetchNotifications()
-    }, [fetchRankings, fetchReadiness, fetchHomeData, fetchNotifications])
+    }, [fetchQuote, fetchRankings, fetchReadiness, fetchHomeData, fetchNotifications])
   )
 
   // ─── Pull-to-refresh ───────────────────────────────────────────
@@ -1046,11 +1075,18 @@ export default function Home({ session, navigation, route }) {
   }
 
   const closeNotifications = () => {
-    Animated.timing(notifSlideAnim, {
-      toValue: 300,
-      duration: 200,
-      useNativeDriver: true,
-    }).start(() => {
+    Animated.parallel([
+      Animated.timing(notifFadeAnim, {
+        toValue: 0,
+        duration: 200,
+        useNativeDriver: true,
+      }),
+      Animated.timing(notifSlideAnim, {
+        toValue: 500,
+        duration: 200,
+        useNativeDriver: true,
+      }),
+    ]).start(() => {
       setNotifVisible(false)
     })
   }
@@ -1152,7 +1188,7 @@ export default function Home({ session, navigation, route }) {
             <Text style={styles.quoteLabel}>  Daily Motivation</Text>
             <TouchableOpacity
               style={styles.refreshQuoteBtn}
-              onPress={() => fetchQuote()}
+              onPress={() => fetchQuote(true)}
               activeOpacity={0.7}
             >
               <Feather name="refresh-cw" size={14} color="#b45309" />
@@ -1324,15 +1360,17 @@ export default function Home({ session, navigation, route }) {
       <Modal
         visible={notifVisible}
         transparent
-        animationType="fade"
+        animationType="none"
         onRequestClose={closeNotifications}
       >
         <View style={styles.modalContainer}>
-          <TouchableOpacity
-            style={styles.modalBackdrop}
-            activeOpacity={1}
-            onPress={closeNotifications}
-          />
+          <Animated.View style={[styles.modalBackdrop, { opacity: notifFadeAnim }]}>
+            <TouchableOpacity
+              style={StyleSheet.absoluteFill}
+              activeOpacity={1}
+              onPress={closeNotifications}
+            />
+          </Animated.View>
           <Animated.View style={[styles.notifSheet, { transform: [{ translateY: notifSlideAnim }] }]}>
             {/* Handle */}
             <View style={styles.sheetHandle} />

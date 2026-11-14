@@ -9,6 +9,7 @@ import { SkeletonItem } from '../../../components/Skeleton'
 import { withTimeout } from '../../../utils/queryHelper'
 import { getScrollBottomPadding } from '../../../utils/responsiveLayout'
 import { resolveUserTargetExam } from '../../../utils/targetExam'
+import { getCache, setCache } from '../../../utils/cache'
 
 
 // ─── Colours matching the image ────────────────────────────────
@@ -55,6 +56,14 @@ const PRACTICE_CARDS = [
 
 const IP_SUBJECTS = ['Technology', 'Management', 'Strategy'];
 const FE_SUBJECTS = [
+  'Technology',
+  'Management',
+  'Strategy',
+  'General Aspects of Programming',
+  'Fundamental Elements for Programming Processes',
+  'Data Structures and Algorithms',
+  'Application of Programming to Various Fields',
+  'Ensuring Information Security',
   'Computer Systems & Architecture',
   'Algorithms & Programming',
   'Networks & Security',
@@ -88,12 +97,21 @@ export default function PracticeLibraryScreen({ navigation }) {
 
   const loadRecentActivity = async () => {
     try {
-      setLoading(true);
       const { data: sessionData } = await supabase.auth.getSession();
       const uid = sessionData?.session?.user?.id;
       if (!uid) {
         setLoading(false);
         return;
+      }
+
+      // 1. Immediately hydrate cached recent activities to render tab with zero loading lag
+      const cacheKey = `practice_recent_activities_${uid}`;
+      const cached = await getCache(cacheKey);
+      if (cached && Array.isArray(cached) && cached.length > 0) {
+        setRecentActivities(cached);
+        setLoading(false);
+      } else {
+        setLoading(true);
       }
 
       // Concurrently query target exam track and recent activity across types with timeouts
@@ -193,7 +211,9 @@ export default function PracticeLibraryScreen({ navigation }) {
 
       // Sort by newest first
       activities.sort((a, b) => b.timestamp - a.timestamp);
-      setRecentActivities(activities.slice(0, 5));
+      const topRecent = activities.slice(0, 5);
+      setRecentActivities(topRecent);
+      setCache(cacheKey, topRecent, 10 * 60 * 1000).catch(() => {});
     } catch (err) {
       console.error('Error loading recent activity:', err);
     } finally {

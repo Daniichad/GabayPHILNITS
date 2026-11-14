@@ -88,7 +88,7 @@ export default function Login({ navigation }) {
     await saveUserSession({ id: userId, email: effectiveEmail }, {
       pin_hash: hasPin ? pinData.pin_hash : null,
     })
-    precachePracticeContent().catch(() => {})
+    precachePracticeContent().catch(() => { })
 
     if (hasPin) {
       navigation?.replace('PinAuth')
@@ -448,7 +448,7 @@ export default function Login({ navigation }) {
       if (event?.url && (event.url.includes('code=') || event.url.includes('access_token=') || event.url.includes('error='))) {
         try {
           WebBrowser.dismissAuthSession()
-        } catch (_) {}
+        } catch (_) { }
         await handleAuthUrl(event.url)
       }
     }
@@ -459,7 +459,7 @@ export default function Login({ navigation }) {
       if (url && (url.includes('code=') || url.includes('access_token=') || url.includes('error='))) {
         handleAuthUrl(url)
       }
-    }).catch(() => {})
+    }).catch(() => { })
 
     return () => {
       sub.remove()
@@ -676,182 +676,191 @@ export default function Login({ navigation }) {
   const isResetPasswordDisabled = forgotLoading;
 
   return (
-    <View style={styles.container}>
+    <KeyboardAvoidingView
+      style={styles.container}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+    >
       <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
-      <View style={styles.content}>
-        {/* Logo */}
-        <View style={styles.logoContainer}>
-          <Image
-            source={require('../../assets/loading.png')}
-            style={styles.logoImage}
-            resizeMode="contain"
-          />
-        </View>
-
-        {/* Form */}
-        <View style={styles.formContainer}>
-          <Text style={styles.heading}>Enter to your account</Text>
-
-          {/* Google Button */}
-          <TouchableOpacity
-            style={styles.googleButton}
-            activeOpacity={0.85}
-            onPress={handleGoogleSignIn}
-            disabled={loading}
-          >
+      <ScrollView
+        contentContainerStyle={styles.scrollContent}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+      >
+        <View style={styles.content}>
+          {/* Logo */}
+          <View style={styles.logoContainer}>
             <Image
-              source={{ uri: 'https://developers.google.com/static/identity/images/g-logo.png' }}
-              style={{ width: 18, height: 18, marginRight: 10 }}
-            />
-            <Text style={styles.googleButtonText}>Continue with Google</Text>
-          </TouchableOpacity>
-
-          <View style={styles.divider} />
-
-          {/* Email Input */}
-          <View
-            style={[
-              styles.inputContainer,
-              emailFocused && styles.inputContainerFocused,
-              emailError ? styles.inputContainerError : null,
-            ]}
-          >
-            <Animated.Text
-              style={[
-                styles.floatingLabel,
-                {
-                  transform: [
-                    {
-                      translateY: emailAnim.interpolate({
-                        inputRange: [0, 1],
-                        outputRange: [0, -26], // Slides up along the top border line
-                      }),
-                    },
-                  ],
-                  fontSize: emailAnim.interpolate({
-                    inputRange: [0, 1],
-                    outputRange: [16, 12], // Scales down
-                  }),
-                  color: emailAnim.interpolate({
-                    inputRange: [0, 1],
-                    outputRange: ['#9CA3AF', '#3B82B8'], // Colors match active inputs
-                  }),
-                  zIndex: 10,
-                },
-              ]}
-              pointerEvents="none"
-            >
-              Email
-            </Animated.Text>
-            <TextInput
-              value={email}
-              onChangeText={handleEmailChange}
-              onFocus={() => {
-                setEmailFocused(true)
-                handleFocus(emailAnim)
-              }}
-              onBlur={handleEmailBlur}
-              autoCapitalize="none"
-              keyboardType="email-address"
-              style={styles.floatingInput}
+              source={require('../../assets/loading.png')}
+              style={styles.logoImage}
+              resizeMode="contain"
             />
           </View>
-          {emailError ? (
-            <Text style={styles.errorText}>{emailError}</Text>
-          ) : null}
 
-          {/* Password Input */}
-          <View
-            style={[
-              styles.inputContainer,
-              passFocused && styles.inputContainerFocused,
-              passwordError ? styles.inputContainerError : null,
-              { marginTop: emailError ? 10 : 14 },
-            ]}
-          >
-            <Animated.Text
-              style={[
-                styles.floatingLabel,
-                {
-                  transform: [
-                    {
-                      translateY: passAnim.interpolate({
-                        inputRange: [0, 1],
-                        outputRange: [0, -26], // Adjusted relative to inputContainer center line
-                      }),
-                    },
-                  ],
-                  fontSize: passAnim.interpolate({
-                    inputRange: [0, 1],
-                    outputRange: [16, 12],
-                  }),
-                  color: passAnim.interpolate({
-                    inputRange: [0, 1],
-                    outputRange: ['#9CA3AF', '#3B82B8'],
-                  }),
-                  zIndex: 10,
-                },
-              ]}
-              pointerEvents="none"
+          {/* Form */}
+          <View style={styles.formContainer}>
+            <Text style={styles.heading}>Enter to your account</Text>
+
+            {/* Google Button */}
+            <TouchableOpacity
+              style={styles.googleButton}
+              activeOpacity={0.85}
+              onPress={handleGoogleSignIn}
+              disabled={loading}
             >
-              Password
-            </Animated.Text>
-            <View style={styles.passwordRow}>
-              <TextInput
-                value={password}
-                onChangeText={handlePasswordChange}
-                onFocus={() => {
-                  setPassFocused(true)
-                  handleFocus(passAnim)
-                }}
-                onBlur={handlePasswordBlur}
-                secureTextEntry={!showPassword}
-                style={styles.passwordInput}
+              <Image
+                source={{ uri: 'https://developers.google.com/static/identity/images/g-logo.png' }}
+                style={{ width: 18, height: 18, marginRight: 10 }}
               />
-              <TouchableOpacity style={styles.eyeButton} onPress={() => setShowPassword((value) => !value)}>
-                <Feather name={showPassword ? 'eye' : 'eye-off'} size={18} color="#9CA3AF" />
+              <Text style={styles.googleButtonText}>Continue with Google</Text>
+            </TouchableOpacity>
+
+            <View style={styles.divider} />
+
+            {/* Email Input */}
+            <View
+              style={[
+                styles.inputContainer,
+                emailFocused && styles.inputContainerFocused,
+                emailError ? styles.inputContainerError : null,
+              ]}
+            >
+              <Animated.Text
+                style={[
+                  styles.floatingLabel,
+                  {
+                    transform: [
+                      {
+                        translateY: emailAnim.interpolate({
+                          inputRange: [0, 1],
+                          outputRange: [0, -26], // Slides up along the top border line
+                        }),
+                      },
+                    ],
+                    fontSize: emailAnim.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [16, 12], // Scales down
+                    }),
+                    color: emailAnim.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: ['#9CA3AF', '#3B82B8'], // Colors match active inputs
+                    }),
+                    zIndex: 10,
+                  },
+                ]}
+                pointerEvents="none"
+              >
+                Email
+              </Animated.Text>
+              <TextInput
+                value={email}
+                onChangeText={handleEmailChange}
+                onFocus={() => {
+                  setEmailFocused(true)
+                  handleFocus(emailAnim)
+                }}
+                onBlur={handleEmailBlur}
+                autoCapitalize="none"
+                keyboardType="email-address"
+                style={styles.floatingInput}
+              />
+            </View>
+            {emailError ? (
+              <Text style={styles.errorText}>{emailError}</Text>
+            ) : null}
+
+            {/* Password Input */}
+            <View
+              style={[
+                styles.inputContainer,
+                passFocused && styles.inputContainerFocused,
+                passwordError ? styles.inputContainerError : null,
+                { marginTop: emailError ? 10 : 14 },
+              ]}
+            >
+              <Animated.Text
+                style={[
+                  styles.floatingLabel,
+                  {
+                    transform: [
+                      {
+                        translateY: passAnim.interpolate({
+                          inputRange: [0, 1],
+                          outputRange: [0, -26], // Adjusted relative to inputContainer center line
+                        }),
+                      },
+                    ],
+                    fontSize: passAnim.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [16, 12],
+                    }),
+                    color: passAnim.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: ['#9CA3AF', '#3B82B8'],
+                    }),
+                    zIndex: 10,
+                  },
+                ]}
+                pointerEvents="none"
+              >
+                Password
+              </Animated.Text>
+              <View style={styles.passwordRow}>
+                <TextInput
+                  value={password}
+                  onChangeText={handlePasswordChange}
+                  onFocus={() => {
+                    setPassFocused(true)
+                    handleFocus(passAnim)
+                  }}
+                  onBlur={handlePasswordBlur}
+                  secureTextEntry={!showPassword}
+                  style={styles.passwordInput}
+                />
+                <TouchableOpacity style={styles.eyeButton} onPress={() => setShowPassword((value) => !value)}>
+                  <Feather name={showPassword ? 'eye' : 'eye-off'} size={18} color="#9CA3AF" />
+                </TouchableOpacity>
+              </View>
+            </View>
+            {passwordError ? (
+              <Text style={styles.errorText}>{passwordError}</Text>
+            ) : null}
+
+            {/* Forgot Password */}
+            <TouchableOpacity
+              activeOpacity={0.8}
+              onPress={() => {
+                setForgotEmailError('')
+                setForgotOtpError('')
+                setForgotNewPasswordError('')
+                setForgotConfirmPasswordError('')
+                setForgotVisible(true)
+              }}
+            >
+              <Text style={[styles.forgotPassword, { marginTop: passwordError ? 8 : 8 }]}>Forgot the password?</Text>
+            </TouchableOpacity>
+
+            {/* Login Button */}
+            <TouchableOpacity
+              style={[styles.loginButton, { backgroundColor: isLoginFormValid ? '#3c64b4' : '#a7aabc' }]}
+              onPress={handleLogin}
+              disabled={loading}
+            >
+              <Text style={styles.loginButtonText}>{loading ? 'Signing in...' : 'Login'}</Text>
+            </TouchableOpacity>
+
+            {/* Sign Up Link */}
+            <View style={styles.signupContainer}>
+              <Text style={styles.signupText}>Don't have an account? </Text>
+              <TouchableOpacity onPress={() => navigation && navigation.navigate('Register')}>
+                <Text style={styles.signupLink}>Sign Up</Text>
               </TouchableOpacity>
             </View>
           </View>
-          {passwordError ? (
-            <Text style={styles.errorText}>{passwordError}</Text>
-          ) : null}
-
-          {/* Forgot Password */}
-          <TouchableOpacity
-            activeOpacity={0.8}
-            onPress={() => {
-              setForgotEmailError('')
-              setForgotOtpError('')
-              setForgotNewPasswordError('')
-              setForgotConfirmPasswordError('')
-              setForgotVisible(true)
-            }}
-          >
-            <Text style={[styles.forgotPassword, { marginTop: passwordError ? 8 : 8 }]}>Forgot the password?</Text>
-          </TouchableOpacity>
-
-          {/* Login Button */}
-          <TouchableOpacity
-            style={[styles.loginButton, { backgroundColor: isLoginFormValid ? '#3c64b4' : '#a7aabc' }]}
-            onPress={handleLogin}
-            disabled={loading}
-          >
-            <Text style={styles.loginButtonText}>{loading ? 'Signing in...' : 'Login'}</Text>
-          </TouchableOpacity>
-
-          {/* Sign Up Link */}
-          <View style={styles.signupContainer}>
-            <Text style={styles.signupText}>Don't have an account? </Text>
-            <TouchableOpacity onPress={() => navigation && navigation.navigate('Register')}>
-              <Text style={styles.signupLink}>Sign Up</Text>
-            </TouchableOpacity>
-          </View>
         </View>
-      </View>
 
-      {/* Bottom Text */}
-      <Text style={styles.bottomText}>Log In to continue your PhilNITS preparation</Text>
+        {/* Bottom Text */}
+        <Text style={styles.bottomText}>Log In to continue your PhilNITS preparation</Text>
+      </ScrollView>
 
       {/* ── Forgot Password Modal (Steps 1, 2, 3) ── */}
       <Modal
@@ -1252,7 +1261,7 @@ export default function Login({ navigation }) {
         </View>
       </Modal>
 
-    </View>
+    </KeyboardAvoidingView>
   )
 }
 
@@ -1260,9 +1269,13 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#FFFFFF',
+  },
+  scrollContent: {
+    flexGrow: 1,
     justifyContent: 'center',
     alignItems: 'center',
     paddingHorizontal: 20,
+    paddingVertical: 36,
   },
   content: {
     width: '100%',

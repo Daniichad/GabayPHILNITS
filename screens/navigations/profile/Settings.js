@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react'
 import {
-  ActivityIndicator, Alert, Animated, Modal, Platform, ScrollView, StatusBar,
+  ActivityIndicator, Alert, Animated, KeyboardAvoidingView, Modal, Platform, ScrollView, StatusBar,
   StyleSheet, Switch, Text, TextInput, TouchableOpacity, View,
 } from 'react-native'
 import { Feather } from '@expo/vector-icons'
@@ -420,50 +420,55 @@ export default function Settings({ navigation }) {
         animationType="slide"
         onRequestClose={() => setPwModalOpen(false)}
       >
-        <TouchableOpacity
-          style={styles.backdrop}
-          activeOpacity={1}
-          onPress={() => setPwModalOpen(false)}
-        />
-        <View style={styles.sheet}>
-          <View style={styles.sheetHeader}>
-            <Text style={styles.sheetTitle}>Change Password</Text>
-            <TouchableOpacity onPress={() => setPwModalOpen(false)}>
-              <Feather name="x" size={22} color={NAVY} />
+        <KeyboardAvoidingView
+          style={{ flex: 1 }}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        >
+          <TouchableOpacity
+            style={styles.backdrop}
+            activeOpacity={1}
+            onPress={() => setPwModalOpen(false)}
+          />
+          <View style={styles.sheet}>
+            <View style={styles.sheetHeader}>
+              <Text style={styles.sheetTitle}>Change Password</Text>
+              <TouchableOpacity onPress={() => setPwModalOpen(false)}>
+                <Feather name="x" size={22} color={NAVY} />
+              </TouchableOpacity>
+            </View>
+
+            <Text style={styles.pwLabel}>New Password</Text>
+            <TextInput
+              style={styles.pwInput}
+              value={newPassword}
+              onChangeText={setNewPassword}
+              placeholder="At least 6 characters"
+              placeholderTextColor="#94a3b8"
+              secureTextEntry
+              autoCapitalize="none"
+            />
+
+            <Text style={styles.pwLabel}>Confirm Password</Text>
+            <TextInput
+              style={styles.pwInput}
+              value={confirmPassword}
+              onChangeText={setConfirmPassword}
+              placeholder="Re-enter new password"
+              placeholderTextColor="#94a3b8"
+              secureTextEntry
+              autoCapitalize="none"
+            />
+
+            <TouchableOpacity
+              style={[styles.pwBtn, pwLoading && { opacity: 0.7 }]}
+              onPress={handleChangePassword}
+              disabled={pwLoading}
+              activeOpacity={0.85}
+            >
+              <Text style={styles.pwBtnText}>{pwLoading ? 'Saving…' : 'Update Password'}</Text>
             </TouchableOpacity>
           </View>
-
-          <Text style={styles.pwLabel}>New Password</Text>
-          <TextInput
-            style={styles.pwInput}
-            value={newPassword}
-            onChangeText={setNewPassword}
-            placeholder="At least 6 characters"
-            placeholderTextColor="#94a3b8"
-            secureTextEntry
-            autoCapitalize="none"
-          />
-
-          <Text style={styles.pwLabel}>Confirm Password</Text>
-          <TextInput
-            style={styles.pwInput}
-            value={confirmPassword}
-            onChangeText={setConfirmPassword}
-            placeholder="Re-enter new password"
-            placeholderTextColor="#94a3b8"
-            secureTextEntry
-            autoCapitalize="none"
-          />
-
-          <TouchableOpacity
-            style={[styles.pwBtn, pwLoading && { opacity: 0.7 }]}
-            onPress={handleChangePassword}
-            disabled={pwLoading}
-            activeOpacity={0.85}
-          >
-            <Text style={styles.pwBtnText}>{pwLoading ? 'Saving…' : 'Update Password'}</Text>
-          </TouchableOpacity>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* ── PIN Security Options Modal ── */}
@@ -560,111 +565,116 @@ export default function Settings({ navigation }) {
         animationType="fade"
         onRequestClose={closePinAuthModal}
       >
-        <View style={styles.modalContainer}>
-          <TouchableOpacity
-            style={styles.modalBackdrop}
-            activeOpacity={1}
-            onPress={closePinAuthModal}
-          />
-          <Animated.View style={[styles.sheet, styles.pinAuthSheet, { paddingBottom: getModalBottomPadding(insets, 24), transform: [{ translateY: pinAuthSlideAnim }] }]}>
-            {/* Sheet header */}
-            <View style={styles.sheetHeader}>
-              {pinAuthStep === 'verify' ? (
-                <TouchableOpacity
-                  onPress={() => { setPinAuthStep('send'); setPinAuthOtp('') }}
-                  style={styles.closeBtn}
-                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                >
-                  <Feather name="arrow-left" size={22} color={NAVY} />
-                </TouchableOpacity>
-              ) : (
-                <TouchableOpacity onPress={closePinAuthModal} style={styles.closeBtn}>
-                  <Feather name="x" size={24} color="#64748b" />
-                </TouchableOpacity>
-              )}
-              <Text style={styles.sheetTitle}>
-                {pinAuthStep === 'send'
-                  ? (pinAuthAction === 'remove' ? 'Turn Off PIN' : 'Change PIN')
-                  : 'Enter Verification Code'}
-              </Text>
-              {pinAuthStep === 'verify' ? (
-                <TouchableOpacity onPress={closePinAuthModal} style={styles.closeBtn}>
-                  <Feather name="x" size={24} color="#64748b" />
-                </TouchableOpacity>
-              ) : (
-                <View style={styles.closeBtn} />
-              )}
-            </View>
-
-            {pinAuthStep === 'send' ? (
-              /* ── Step 1: send code ── */
-              <View style={styles.pinAuthBody}>
-                <View style={styles.pinAuthIconWrap}>
-                  <Feather name="mail" size={28} color={NAVY} />
-                </View>
-                <Text style={styles.pinAuthDesc}>
-                  {pinAuthAction === 'remove'
-                    ? "To turn off your PIN lock, we'll send a verification code to your registered email address."
-                    : "To change your PIN, we'll send a verification code to your registered email address."}
+        <KeyboardAvoidingView
+          style={{ flex: 1 }}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        >
+          <View style={styles.modalContainer}>
+            <TouchableOpacity
+              style={styles.modalBackdrop}
+              activeOpacity={1}
+              onPress={closePinAuthModal}
+            />
+            <Animated.View style={[styles.sheet, styles.pinAuthSheet, { paddingBottom: getModalBottomPadding(insets, 24), transform: [{ translateY: pinAuthSlideAnim }] }]}>
+              {/* Sheet header */}
+              <View style={styles.sheetHeader}>
+                {pinAuthStep === 'verify' ? (
+                  <TouchableOpacity
+                    onPress={() => { setPinAuthStep('send'); setPinAuthOtp('') }}
+                    style={styles.closeBtn}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  >
+                    <Feather name="arrow-left" size={22} color={NAVY} />
+                  </TouchableOpacity>
+                ) : (
+                  <TouchableOpacity onPress={closePinAuthModal} style={styles.closeBtn}>
+                    <Feather name="x" size={24} color="#64748b" />
+                  </TouchableOpacity>
+                )}
+                <Text style={styles.sheetTitle}>
+                  {pinAuthStep === 'send'
+                    ? (pinAuthAction === 'remove' ? 'Turn Off PIN' : 'Change PIN')
+                    : 'Enter Verification Code'}
                 </Text>
-                <View style={styles.pinEmailBox}>
-                  <Feather name="at-sign" size={15} color="#64748b" />
-                  <Text style={styles.pinEmailText} numberOfLines={1}>{pinAuthEmail}</Text>
-                </View>
-                <TouchableOpacity
-                  style={[styles.pwBtn, { alignSelf: 'stretch' }, pinAuthLoading && { opacity: 0.7 }]}
-                  onPress={handleSendPinOtp}
-                  disabled={pinAuthLoading}
-                  activeOpacity={0.85}
-                >
-                  {pinAuthLoading
-                    ? <ActivityIndicator size="small" color="#fff" />
-                    : <Text style={styles.pwBtnText}>Send Code</Text>
-                  }
-                </TouchableOpacity>
+                {pinAuthStep === 'verify' ? (
+                  <TouchableOpacity onPress={closePinAuthModal} style={styles.closeBtn}>
+                    <Feather name="x" size={24} color="#64748b" />
+                  </TouchableOpacity>
+                ) : (
+                  <View style={styles.closeBtn} />
+                )}
               </View>
-            ) : (
-              /* ── Step 2: enter code ── */
-              <View style={styles.pinAuthBody}>
-                <View style={styles.pinAuthIconWrap}>
-                  <Feather name="shield" size={28} color={NAVY} />
-                </View>
-                <Text style={styles.pinAuthDesc}>
-                  Enter the 4-digit code sent to{' '}
-                  <Text style={{ fontWeight: '700', color: NAVY }}>{pinAuthEmail}</Text>
-                </Text>
 
-                <OtpInput value={pinAuthOtp} onChange={setPinAuthOtp} />
-
-                <TouchableOpacity
-                  style={[styles.pwBtn, { marginTop: 20, alignSelf: 'stretch' }, pinAuthLoading && { opacity: 0.7 }]}
-                  onPress={handleVerifyPinOtp}
-                  disabled={pinAuthLoading}
-                  activeOpacity={0.85}
-                >
-                  {pinAuthLoading ? (
-                    <ActivityIndicator size="small" color="#fff" />
-                  ) : (
-                    <Text style={styles.pwBtnText}>
-                      {pinAuthAction === 'remove' ? 'Verify & Turn Off PIN' : 'Verify & Change PIN'}
-                    </Text>
-                  )}
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={styles.resendBtn}
-                  onPress={handleSendPinOtp}
-                  disabled={pinAuthCooldown > 0 || pinAuthLoading}
-                  activeOpacity={0.6}
-                >
-                  <Text style={[styles.resendText, pinAuthCooldown > 0 && { color: '#94a3b8' }]}>
-                    {pinAuthCooldown > 0 ? `Resend code in ${pinAuthCooldown}s` : 'Resend code'}
+              {pinAuthStep === 'send' ? (
+                /* ── Step 1: send code ── */
+                <View style={styles.pinAuthBody}>
+                  <View style={styles.pinAuthIconWrap}>
+                    <Feather name="mail" size={28} color={NAVY} />
+                  </View>
+                  <Text style={styles.pinAuthDesc}>
+                    {pinAuthAction === 'remove'
+                      ? "To turn off your PIN lock, we'll send a verification code to your registered email address."
+                      : "To change your PIN, we'll send a verification code to your registered email address."}
                   </Text>
-                </TouchableOpacity>
-              </View>
-            )}
-          </Animated.View>
-        </View>
+                  <View style={styles.pinEmailBox}>
+                    <Feather name="at-sign" size={15} color="#64748b" />
+                    <Text style={styles.pinEmailText} numberOfLines={1}>{pinAuthEmail}</Text>
+                  </View>
+                  <TouchableOpacity
+                    style={[styles.pwBtn, { alignSelf: 'stretch' }, pinAuthLoading && { opacity: 0.7 }]}
+                    onPress={handleSendPinOtp}
+                    disabled={pinAuthLoading}
+                    activeOpacity={0.85}
+                  >
+                    {pinAuthLoading
+                      ? <ActivityIndicator size="small" color="#fff" />
+                      : <Text style={styles.pwBtnText}>Send Code</Text>
+                    }
+                  </TouchableOpacity>
+                </View>
+              ) : (
+                /* ── Step 2: enter code ── */
+                <View style={styles.pinAuthBody}>
+                  <View style={styles.pinAuthIconWrap}>
+                    <Feather name="shield" size={28} color={NAVY} />
+                  </View>
+                  <Text style={styles.pinAuthDesc}>
+                    Enter the 4-digit code sent to{' '}
+                    <Text style={{ fontWeight: '700', color: NAVY }}>{pinAuthEmail}</Text>
+                  </Text>
+
+                  <OtpInput value={pinAuthOtp} onChange={setPinAuthOtp} />
+
+                  <TouchableOpacity
+                    style={[styles.pwBtn, { marginTop: 20, alignSelf: 'stretch' }, pinAuthLoading && { opacity: 0.7 }]}
+                    onPress={handleVerifyPinOtp}
+                    disabled={pinAuthLoading}
+                    activeOpacity={0.85}
+                  >
+                    {pinAuthLoading ? (
+                      <ActivityIndicator size="small" color="#fff" />
+                    ) : (
+                      <Text style={styles.pwBtnText}>
+                        {pinAuthAction === 'remove' ? 'Verify & Turn Off PIN' : 'Verify & Change PIN'}
+                      </Text>
+                    )}
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={styles.resendBtn}
+                    onPress={handleSendPinOtp}
+                    disabled={pinAuthCooldown > 0 || pinAuthLoading}
+                    activeOpacity={0.6}
+                  >
+                    <Text style={[styles.resendText, pinAuthCooldown > 0 && { color: '#94a3b8' }]}>
+                      {pinAuthCooldown > 0 ? `Resend code in ${pinAuthCooldown}s` : 'Resend code'}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+            </Animated.View>
+          </View>
+        </KeyboardAvoidingView>
       </Modal>
     </View>
   )

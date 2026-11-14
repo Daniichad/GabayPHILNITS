@@ -15,16 +15,13 @@ import { resolveUserTargetExam } from '../../../utils/targetExam'
 const NAVY = '#13294b'
 
 const IP_SUBJECTS = ['Technology', 'Management', 'Strategy']
-const FE_A_SUBJECTS = [
-  'Computer Systems & Architecture',
-  'Algorithms & Programming',
-  'Networks & Security',
-  'IT Management & Strategy',
-  'Databases & SQL',
-]
+const FE_A_SUBJECTS = ['Technology', 'Management', 'Strategy']
 const FE_B_SUBJECTS = [
-  'Algorithms & Data Structures',
-  'Security & System Design',
+  'General Aspects of Programming',
+  'Fundamental Elements for Programming Processes',
+  'Data Structures and Algorithms',
+  'Application of Programming to Various Fields',
+  'Ensuring Information Security',
 ]
 const FE_SUBJECTS = [...FE_A_SUBJECTS, ...FE_B_SUBJECTS]
 const PHILNITS_SUBJECTS = [...IP_SUBJECTS, ...FE_SUBJECTS]
@@ -432,6 +429,11 @@ const SUBJECT_THEMES = {
   Technology: { bg: '#0b192c', accent: '#38bdf8', icon: 'cpu', border: '#1e3a8a' },
   Management: { bg: '#064e3b', accent: '#34d399', icon: 'briefcase', border: '#047857' },
   Strategy: { bg: '#451a03', accent: '#fbbf24', icon: 'target', border: '#78350f' },
+  'General Aspects of Programming': { bg: '#022c22', accent: '#4ade80', icon: 'code', border: '#065f46' },
+  'Fundamental Elements for Programming Processes': { bg: '#1e1b4b', accent: '#a78bfa', icon: 'terminal', border: '#4338ca' },
+  'Data Structures and Algorithms': { bg: '#0f172a', accent: '#38bdf8', icon: 'layers', border: '#1e3a8a' },
+  'Application of Programming to Various Fields': { bg: '#172554', accent: '#60a5fa', icon: 'cpu', border: '#1e40af' },
+  'Ensuring Information Security': { bg: '#4c0519', accent: '#f87171', icon: 'shield', border: '#9f1239' },
   'Computer Systems & Architecture': { bg: '#1e1b4b', accent: '#a78bfa', icon: 'server', border: '#4338ca' },
   'Algorithms & Programming': { bg: '#022c22', accent: '#4ade80', icon: 'code', border: '#065f46' },
   'Algorithms & Data Structures': { bg: '#022c22', accent: '#4ade80', icon: 'code', border: '#065f46' },
@@ -471,6 +473,36 @@ const SUBJECT_FILTER_CONFIG = {
     shortLabel: 'Strategy',
     icon: 'target',
     color: '#d97706',
+  },
+  'General Aspects of Programming': {
+    label: 'General Aspects of Programming',
+    shortLabel: 'Programming',
+    icon: 'code',
+    color: '#059669',
+  },
+  'Fundamental Elements for Programming Processes': {
+    label: 'Fundamental Elements for Programming Processes',
+    shortLabel: 'Processes',
+    icon: 'terminal',
+    color: '#7c3aed',
+  },
+  'Data Structures and Algorithms': {
+    label: 'Data Structures and Algorithms',
+    shortLabel: 'Data & Algo',
+    icon: 'layers',
+    color: '#0284c7',
+  },
+  'Application of Programming to Various Fields': {
+    label: 'Application of Programming to Various Fields',
+    shortLabel: 'Applications',
+    icon: 'cpu',
+    color: '#2563eb',
+  },
+  'Ensuring Information Security': {
+    label: 'Ensuring Information Security',
+    shortLabel: 'Security',
+    icon: 'shield',
+    color: '#dc2626',
   },
   'Computer Systems & Architecture': {
     label: 'Computer Systems',
@@ -580,7 +612,7 @@ function DefaultBookCover({ item }) {
           {displaySpeed ? (
             <View style={[styles.defaultCoverEditionTag, { backgroundColor: `${theme.accent}22` }]}>
               <Text style={[styles.defaultCoverEditionText, { color: theme.accent }]}>
-                {displaySpeed === 'Quick' ? '⚡ Quick' : displaySpeed === 'Detailed' ? '📖 Detailed' : '🎯 Standard'}
+                {displaySpeed === 'Quick' ? 'Quick' : displaySpeed === 'Detailed' ? 'Detailed' : 'Standard'}
               </Text>
             </View>
           ) : null}
@@ -641,7 +673,7 @@ function MaterialCard({ item, onPress }) {
               String(displaySpeed).toLowerCase() === 'detailed' ? styles.speedBadgeTextDetailed :
               styles.speedBadgeTextStandard
             ]}>
-              {displaySpeed === 'Quick' ? '⚡ Quick' : displaySpeed === 'Detailed' ? '📖 Detailed' : '🎯 Standard'}
+              {displaySpeed === 'Quick' ? 'Quick' : displaySpeed === 'Detailed' ? 'Detailed' : 'Standard'}
             </Text>
           </View>
         ) : null}
@@ -808,7 +840,9 @@ export default function Library({ navigation }) {
 
   useEffect(() => {
     const unsubscribe = navigation.addListener('focus', () => {
-      loadMaterials(true)
+      // Reopening Library will instantly show cached books/videos with zero loading screen,
+      // then silently revalidate in the background
+      loadMaterials(false)
     })
     return unsubscribe
   }, [navigation])
@@ -850,12 +884,14 @@ export default function Library({ navigation }) {
         setLoading(true)
       }
 
-      // 2. Concurrently fetch all dependencies in parallel with 8s timeouts
+      // 2. Concurrently fetch all dependencies in parallel
+      // Note: We fetch reading materials metadata (30KB) instantly so the library renders in ~300ms,
+      // and we omit redundant heavy base64 fields so mobile requests never timeout.
       const [vRes, rRes, uRes, progRes, resolvedTrack] = await Promise.allSettled([
-        withTimeout(supabase.from('video_lectures').select('*').eq('is_published', true).order('sort_order', { ascending: true }), 8000),
-        withTimeout(supabase.from('reading_materials').select('id, title, subtitle, author, subject, exam_level, fe_section, cover_image_url, thumbnail_url, pdf_url, sort_order, total_pages, review_speed, learning_objective, description, is_published, created_at').eq('is_published', true).order('subject').order('sort_order'), 8000),
-        uemail ? withTimeout(supabase.from('users').select('review_speed').ilike('email', uemail).maybeSingle(), 8000) : Promise.resolve({ data: null }),
-        uid ? withTimeout(supabase.from('user_reading_progress').select('*').eq('user_id', uid), 8000) : Promise.resolve({ data: [] }),
+        withTimeout(supabase.from('video_lectures').select('*').eq('is_published', true).order('sort_order', { ascending: true }), 15000),
+        withTimeout(supabase.from('reading_materials').select('id, title, subtitle, author, subject, exam_level, fe_section, thumbnail_url, pdf_url, sort_order, total_pages, review_speed, learning_objective, is_published, created_at').eq('is_published', true).order('subject').order('sort_order'), 20000),
+        uemail ? withTimeout(supabase.from('users').select('review_speed').ilike('email', uemail).maybeSingle(), 10000) : Promise.resolve({ data: null }),
+        uid ? withTimeout(supabase.from('user_reading_progress').select('*').eq('user_id', uid), 10000) : Promise.resolve({ data: [] }),
         resolveUserTargetExam(uid, userTargetExam)
       ])
 
@@ -886,8 +922,24 @@ export default function Library({ navigation }) {
         if (p?.reading_material_id) progressMap[p.reading_material_id] = p
       })
 
-      // Reading materials without heavy content blob
-      const rawMaterials = (rRes.status === 'fulfilled' && Array.isArray(rRes.value?.data)) ? rRes.value.data : []
+      // Reading materials: if the comprehensive query timed out, attempt a lightweight fallback immediately
+      let rawMaterials = (rRes.status === 'fulfilled' && Array.isArray(rRes.value?.data)) ? rRes.value.data : []
+      if (rawMaterials.length === 0 && (rRes.status === 'rejected' || rRes.value?.error)) {
+        console.warn('Reading materials query issue, retrying lightweight fallback:', rRes.reason || rRes.value?.error)
+        try {
+          const fallbackRes = await supabase.from('reading_materials')
+            .select('id, title, subtitle, author, subject, exam_level, fe_section, thumbnail_url, pdf_url, sort_order, total_pages, review_speed, learning_objective, is_published, created_at')
+            .eq('is_published', true)
+            .order('subject')
+            .order('sort_order')
+          if (Array.isArray(fallbackRes.data) && fallbackRes.data.length > 0) {
+            rawMaterials = fallbackRes.data
+          }
+        } catch (fbErr) {
+          console.warn('Lightweight fallback error:', fbErr)
+        }
+      }
+
       const materialsWithProgress = rawMaterials.map(item => {
         const prog = progressMap[item.id]
         if (prog) {
@@ -908,6 +960,9 @@ export default function Library({ navigation }) {
         setCache('library_materials', materialsWithProgress).catch(() => {})
         setCache('library_videos', finalVideos).catch(() => {})
         setCache('user_review_speed', currentSpeed).catch(() => {})
+      } else if (rawMaterials.length === 0 && rRes.status === 'fulfilled') {
+        // Query succeeded but returned 0 items from remote
+        setMaterials([])
       }
     } catch (e) {
       console.error('Library load error:', e)
@@ -927,13 +982,20 @@ export default function Library({ navigation }) {
     const desc = String(item.description || '').toLowerCase()
 
     return (
+      sub.includes('general aspects of programming') ||
+      sub.includes('fundamental elements') ||
+      sub.includes('data structures and algorithms') ||
+      sub.includes('application of programming') ||
+      sub.includes('ensuring information security') ||
       sub.includes('algorithm') ||
       sub.includes('data structure') ||
       sub.includes('system design') ||
+      sub.includes('programming') ||
       title.includes('subject b') ||
       title.includes('algorithm') ||
       title.includes('data structure') ||
       title.includes('pseudo') ||
+      title.includes('programming') ||
       desc.includes('subject b') ||
       desc.includes('afternoon')
     )
@@ -958,11 +1020,12 @@ export default function Library({ navigation }) {
       }
     }
 
-    const matchChip = !activeChip || m.subject === activeChip
+    const matchChip = !activeChip || String(m.subject || '').trim().toLowerCase() === String(activeChip).trim().toLowerCase()
     const matchSearch = !search || (
       (m.title && m.title.toLowerCase().includes(search.toLowerCase())) ||
       (m.subtitle && m.subtitle.toLowerCase().includes(search.toLowerCase())) ||
       (m.subject && m.subject.toLowerCase().includes(search.toLowerCase())) ||
+      (m.learning_objective && m.learning_objective.toLowerCase().includes(search.toLowerCase())) ||
       (m.description && m.description.toLowerCase().includes(search.toLowerCase()))
     )
     return matchTrack && matchSection && matchChip && matchSearch
@@ -1163,11 +1226,6 @@ export default function Library({ navigation }) {
                 }}
                 activeOpacity={0.7}
               >
-                <MaterialCommunityIcons
-                  name="laptop"
-                  size={14}
-                  color={feSection === 'FE Subject A' ? '#fff' : '#64748b'}
-                />
                 <Text style={[styles.feTrackBtnText, feSection === 'FE Subject A' && styles.feTrackBtnTextActive]}>
                   Subject A (Morning)
                 </Text>
@@ -1182,11 +1240,6 @@ export default function Library({ navigation }) {
                 }}
                 activeOpacity={0.7}
               >
-                <MaterialCommunityIcons
-                  name="code-braces"
-                  size={14}
-                  color={feSection === 'FE Subject B' ? '#fff' : '#64748b'}
-                />
                 <Text style={[styles.feTrackBtnText, feSection === 'FE Subject B' && styles.feTrackBtnTextActive]}>
                   Subject B (Afternoon)
                 </Text>
@@ -1336,7 +1389,7 @@ export default function Library({ navigation }) {
               onPress={() => setActiveSpeed(activeSpeed === 'Quick' ? 'RECOMMENDED' : 'Quick')}
             >
               <Text style={[styles.paceChipText, activeSpeed === 'Quick' && styles.paceChipTextActive]}>
-                ⚡ Quick
+                Quick
               </Text>
             </TouchableOpacity>
 
@@ -1345,7 +1398,7 @@ export default function Library({ navigation }) {
               onPress={() => setActiveSpeed(activeSpeed === 'Standard' ? 'RECOMMENDED' : 'Standard')}
             >
               <Text style={[styles.paceChipText, activeSpeed === 'Standard' && styles.paceChipTextActive]}>
-                🎯 Standard
+                Standard
               </Text>
             </TouchableOpacity>
 
@@ -1354,7 +1407,7 @@ export default function Library({ navigation }) {
               onPress={() => setActiveSpeed(activeSpeed === 'Detailed' ? 'RECOMMENDED' : 'Detailed')}
             >
               <Text style={[styles.paceChipText, activeSpeed === 'Detailed' && styles.paceChipTextActive]}>
-                📖 Detailed
+                Detailed
               </Text>
             </TouchableOpacity>
 

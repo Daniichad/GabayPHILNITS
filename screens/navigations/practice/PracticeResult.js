@@ -59,7 +59,7 @@ export default function PracticeResult({ route, navigation }) {
 
         {earnedPoints > 0 && (
           <View style={{ backgroundColor: '#fff8e1', paddingHorizontal: 16, paddingVertical: 6, borderRadius: 20, marginBottom: 12, borderWidth: 1, borderColor: '#fde047' }}>
-            <Text style={{ fontSize: 13, fontWeight: '800', color: '#b45309' }}>🏆 +{earnedPoints} Leaderboard Points Earned!</Text>
+            <Text style={{ fontSize: 13, fontWeight: '800', color: '#b45309' }}>+{earnedPoints} Leaderboard Points Earned!</Text>
           </View>
         )}
 

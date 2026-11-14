@@ -1,12 +1,12 @@
 import React, { useState } from 'react'
 import {
-  Alert, Image, Modal, Platform, ScrollView, StatusBar,
+  Alert, Image, KeyboardAvoidingView, Modal, Platform, ScrollView, StatusBar,
   StyleSheet, Text, TextInput, TouchableOpacity, View,
 } from 'react-native'
 import { Feather } from '@expo/vector-icons'
 import { supabase } from '../../../utils/supabase'
 import { getActiveUserSession, saveUserSession } from '../../../utils/database'
-import { setCache } from '../../../utils/cache'
+import { getCache, setCache } from '../../../utils/cache'
 import { setUserTargetExamTrack } from '../../../utils/targetExam'
 
 const NAVY = '#0f2747'
@@ -169,7 +169,6 @@ export default function AccountInformation({ route, navigation }) {
 
   const loadData = async () => {
     try {
-      setLoading(true)
       let currentUser = user
       if (!currentUser?.id) {
         const { data: { user: aUser } } = await supabase.auth.getUser()
@@ -190,12 +189,31 @@ export default function AccountInformation({ route, navigation }) {
         setUser(currentUser)
         setEmail(currentUser.email || '')
 
-        // 1. Fetch from public.users or user metadata
-        const { data: uData } = await supabase
-          .from('users')
-          .select('fullname')
-          .eq('email', currentUser.email)
-          .maybeSingle()
+        // Check local cache first for instant hydration
+        const cacheKey = `account_info_${currentUser.id}`
+        const cached = await getCache(cacheKey)
+        if (cached) {
+          setFullName(cached.fullName || '')
+          setContactNumber(cached.contactNumber || '')
+          setCountryCode(cached.countryCode || '+63')
+          setBirthdate(cached.birthdate || '')
+          setGender(cached.gender || '')
+          setExamLevel(cached.examLevel || '')
+          setEducation(cached.education || '')
+          setInitialData(cached)
+          setLoading(false)
+        } else {
+          setLoading(true)
+        }
+
+        // Parallelize fetching users and personal_info from Supabase concurrently
+        const [uRes, pRes] = await Promise.allSettled([
+          supabase.from('users').select('fullname').eq('email', currentUser.email).maybeSingle(),
+          supabase.from('personal_info').select('birthdate, contact_number, gender, target_exam_level, highest_educational_attainment').eq('user_id', currentUser.id).maybeSingle()
+        ])
+
+        const uData = uRes.status === 'fulfilled' ? uRes.value.data : null
+        const pData = pRes.status === 'fulfilled' ? pRes.value.data : null
 
         let dbName = ''
         if (uData?.fullname) {
@@ -204,13 +222,6 @@ export default function AccountInformation({ route, navigation }) {
           dbName = currentUser.user_metadata.full_name
         }
         setFullName(dbName)
-
-        // 2. Fetch from personal_info
-        const { data: pData } = await supabase
-          .from('personal_info')
-          .select('birthdate, contact_number, gender, target_exam_level, highest_educational_attainment')
-          .eq('user_id', currentUser.id)
-          .maybeSingle()
 
         let dbBirthdate = ''
         let dbGender = ''
@@ -271,8 +282,7 @@ export default function AccountInformation({ route, navigation }) {
           }
         }
 
-        // Save baseline loaded values
-        setInitialData({
+        const freshData = {
           fullName: dbName,
           contactNumber: dbPhone,
           countryCode: dbCountry,
@@ -280,7 +290,11 @@ export default function AccountInformation({ route, navigation }) {
           gender: dbGender,
           examLevel: dbExamLevel,
           education: dbEducation,
-        })
+        }
+
+        // Save baseline loaded values and persist to local cache
+        setInitialData(freshData)
+        setCache(cacheKey, freshData, 30 * 60 * 1000).catch(() => {})
       }
     } catch (err) {
       console.warn('Error loading account information:', err)
@@ -426,8 +440,8 @@ export default function AccountInformation({ route, navigation }) {
         console.warn('Note: Cache sync on examLevel update:', cacheErr)
       }
 
-      // 6. Update baseline initial data
-      setInitialData({
+      // 6. Update baseline initial data and local cache
+      const updatedData = {
         fullName: fullName.trim(),
         contactNumber: contactNumber.trim(),
         countryCode,
@@ -435,8 +449,12 @@ export default function AccountInformation({ route, navigation }) {
         gender,
         examLevel,
         education,
-      })
+      }
+      setInitialData(updatedData)
       setBirthdate(normalizedBirthdate)
+      setCache(`account_info_${currentAuthUser.id}`, updatedData, 30 * 60 * 1000).catch(() => {})
+      setCache('home_profile_name', fullName.trim()).catch(() => {})
+      setCache(`user_profile_cache_${currentAuthUser.email}`, { fullname: fullName.trim(), email: currentAuthUser.email }, 30 * 60 * 1000).catch(() => {})
 
       showCustomAlert('Success', 'Personal information updated successfully!', 'success')
     } catch (err) {
@@ -448,7 +466,10 @@ export default function AccountInformation({ route, navigation }) {
   }
 
   return (
-    <View style={styles.screen}>
+    <KeyboardAvoidingView
+      style={styles.screen}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+    >
       <StatusBar barStyle="dark-content" backgroundColor="#fff" />
 
       <ScrollView
@@ -670,7 +691,7 @@ export default function AccountInformation({ route, navigation }) {
           />
         </View>
       </ScrollView>
-    </View>
+    </KeyboardAvoidingView>
   )
 }
 

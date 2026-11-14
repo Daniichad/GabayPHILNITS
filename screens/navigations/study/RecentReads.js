@@ -84,6 +84,8 @@ export default function RecentReads({ navigation }) {
               subject: mat.subject || 'Strategy',
               reviewSpeed: mat.review_speed,
               learningObjective: mat.learning_objective,
+              pdfUrl: mat.pdf_url || mat.file_url,
+              fileName: mat.file_name,
               currentChapter: current,
               totalPages: total,
               isCompleted: row.is_completed,
@@ -300,6 +302,8 @@ export default function RecentReads({ navigation }) {
                       title: item.title,
                       reviewSpeed: item.reviewSpeed,
                       learningObjective: item.learningObjective,
+                      pdfUrl: item.pdfUrl,
+                      fileName: item.fileName,
                     })
                   }
                 >

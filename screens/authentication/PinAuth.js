@@ -1,6 +1,7 @@
 import React, { useRef, useState, useEffect } from 'react'
 import {
   Animated,
+  KeyboardAvoidingView,
   Platform,
   StatusBar,
   StyleSheet,
@@ -428,13 +429,17 @@ export default function PinAuth({ navigation }) {
         animationType="slide"
         onRequestClose={closeForgotModal}
       >
-        <TouchableOpacity
-          style={styles.backdrop}
-          activeOpacity={1}
-          onPress={closeForgotModal}
-        />
-        <View style={styles.sheet}>
-          <View style={styles.sheetHeader}>
+        <KeyboardAvoidingView
+          style={{ flex: 1 }}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        >
+          <TouchableOpacity
+            style={styles.backdrop}
+            activeOpacity={1}
+            onPress={closeForgotModal}
+          />
+          <View style={styles.sheet}>
+            <View style={styles.sheetHeader}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
               {forgotStep === 'verify' && (
                 <TouchableOpacity
@@ -521,6 +526,7 @@ export default function PinAuth({ navigation }) {
             </View>
           )}
         </View>
+        </KeyboardAvoidingView>
       </Modal>
     </View>
   )

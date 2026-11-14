@@ -1,7 +1,7 @@
-import React from 'react'
+import React, { useState } from 'react'
 import {
   Platform, StatusBar, StyleSheet, Text, TouchableOpacity,
-  View, ActivityIndicator, Linking
+  View, ActivityIndicator, Linking, Alert
 } from 'react-native'
 import { Ionicons, Feather } from '@expo/vector-icons'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
@@ -11,24 +11,157 @@ import { SkeletonItem } from '../../../components/Skeleton'
 import { calculateReadingPoints, recordPointsEntry } from '../../../utils/pointsEngine'
 
 /**
- * Transforms standard cloud or public PDF links into embeddable viewer URIs.
+ * Transforms standard cloud or public PDF links into a complete PDF viewer configuration.
+ * On Android / Web, uses a self-contained PDF.js canvas renderer to guarantee 100% reliable
+ * rendering of Supabase Storage PDF files without relying on flaky third-party proxy wrappers.
+ *
  * @param {string | null | undefined} rawUrl
  */
-function getEmbeddablePdfUri(rawUrl) {
-  if (!rawUrl || typeof rawUrl !== 'string') return ''
+function getWebViewSource(rawUrl) {
+  if (!rawUrl || typeof rawUrl !== 'string') return { uri: '' }
   const trimmed = rawUrl.trim()
 
   // Handle Google Drive links
   if (trimmed.includes('drive.google.com')) {
-    return trimmed.replace(/\/view(\?.*)?$/, '/preview')
+    return { uri: trimmed.replace(/\/view(\?.*)?$/, '/preview') }
   }
 
-  // Android Google Docs PDF Viewer for direct remote PDFs
-  if (Platform.OS === 'android' && !trimmed.startsWith('data:') && !trimmed.includes('google.com/gview')) {
-    return `https://docs.google.com/gview?embedded=true&url=${encodeURIComponent(trimmed)}`
+  // iOS native WKWebView renders remote PDFs directly with high performance
+  if (Platform.OS === 'ios') {
+    return { uri: trimmed }
   }
 
-  return trimmed
+  // Self-contained, robust HTML5 PDF.js renderer for Android
+  const htmlContent = `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=3, user-scalable=yes">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background-color: #3b3e44;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 10px 8px;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    }
+    #loader {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 60px 20px;
+      color: #ffffff;
+      text-align: center;
+    }
+    .spinner {
+      width: 36px;
+      height: 36px;
+      border: 3px solid rgba(255,255,255,0.25);
+      border-radius: 50%;
+      border-top-color: #60a5fa;
+      animation: spin 0.9s linear infinite;
+      margin-bottom: 14px;
+    }
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+    #status-text {
+      font-size: 14px;
+      font-weight: 600;
+      color: #e2e8f0;
+    }
+    #pages-wrapper {
+      width: 100%;
+      max-width: 820px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+    .pdf-page-canvas {
+      width: 100% !important;
+      height: auto !important;
+      margin-bottom: 14px;
+      border-radius: 4px;
+      background-color: #ffffff;
+      box-shadow: 0 4px 14px rgba(0,0,0,0.35);
+    }
+    .page-indicator {
+      align-self: flex-end;
+      color: #94a3b8;
+      font-size: 11px;
+      font-weight: 600;
+      margin-bottom: 4px;
+      margin-right: 4px;
+    }
+  </style>
+</head>
+<body>
+  <div id="loader">
+    <div class="spinner"></div>
+    <div id="status-text">Loading document…</div>
+  </div>
+  <div id="pages-wrapper"></div>
+
+  <script>
+    (function() {
+      try {
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
+        const docUrl = ${JSON.stringify(trimmed)};
+
+        const loadingTask = pdfjsLib.getDocument({
+          url: docUrl,
+          withCredentials: false
+        });
+
+        loadingTask.promise.then(async function(pdf) {
+          const loader = document.getElementById('loader');
+          if (loader) loader.style.display = 'none';
+
+          const wrapper = document.getElementById('pages-wrapper');
+          for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+            const page = await pdf.getPage(pageNum);
+            const scale = 2.0; // Render at 2x for sharp text on high-DPI mobile screens
+            const viewport = page.getViewport({ scale: scale });
+
+            const indicator = document.createElement('div');
+            indicator.className = 'page-indicator';
+            indicator.innerText = 'Page ' + pageNum + ' of ' + pdf.numPages;
+            wrapper.appendChild(indicator);
+
+            const canvas = document.createElement('canvas');
+            canvas.className = 'pdf-page-canvas';
+            canvas.height = viewport.height;
+            canvas.width = viewport.width;
+            wrapper.appendChild(canvas);
+
+            const context = canvas.getContext('2d');
+            await page.render({
+              canvasContext: context,
+              viewport: viewport
+            }).promise;
+          }
+        }).catch(function(err) {
+          console.error(err);
+          const loader = document.getElementById('loader');
+          if (loader) {
+            loader.innerHTML = '<div style="color:#ef4444;font-size:15px;font-weight:700;margin-bottom:6px;">Unable to display document</div><div style="color:#cbd5e1;font-size:12px;">' + (err.message || 'Error parsing PDF') + '</div>';
+          }
+        });
+      } catch (e) {
+        console.error(e);
+      }
+    })();
+  </script>
+</body>
+</html>
+  `;
+
+  return { html: htmlContent, baseUrl: 'https://dufuuyjwxhbwtydgylau.supabase.co' }
 }
 
 export default function ReadingMaterial({ navigation, route }) {
@@ -158,7 +291,7 @@ export default function ReadingMaterial({ navigation, route }) {
     )
   }
 
-  const embedUrl = getEmbeddablePdfUri(pdfUrl)
+  const webViewSource = getWebViewSource(pdfUrl)
   const displayTitle = materialMeta?.title || selectedTitle
 
   return (
@@ -188,12 +321,13 @@ export default function ReadingMaterial({ navigation, route }) {
         <View style={styles.topBarActions}>
           {pdfUrl ? (
             <TouchableOpacity
-              style={styles.topBarIconBtn}
-              activeOpacity={0.7}
+              style={styles.downloadTopBtn}
+              activeOpacity={0.75}
               onPress={() => Linking.openURL(pdfUrl)}
               hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
             >
-              <Feather name="external-link" size={18} color="#13294b" />
+              <Feather name="download" size={15} color="#13294b" />
+              <Text style={styles.downloadTopBtnText}>Download</Text>
             </TouchableOpacity>
           ) : null}
 
@@ -218,9 +352,15 @@ export default function ReadingMaterial({ navigation, route }) {
       {pdfUrl ? (
         <View style={styles.pdfViewerContainer}>
           <WebView
-            source={{ uri: embedUrl }}
+            source={webViewSource}
             style={styles.webView}
             startInLoadingState
+            originWhitelist={['*']}
+            javaScriptEnabled={true}
+            domStorageEnabled={true}
+            allowFileAccess={true}
+            allowUniversalAccessFromFileURLs={true}
+            mixedContentMode="always"
             renderLoading={() => (
               <View style={styles.pdfLoadingContainer}>
                 <ActivityIndicator size="large" color="#13294b" />
@@ -321,6 +461,20 @@ const styles = StyleSheet.create({
     backgroundColor: '#f1f5f9',
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  downloadTopBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 9,
+    paddingVertical: 6,
+    borderRadius: 14,
+    backgroundColor: '#f1f5f9',
+  },
+  downloadTopBtnText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#13294b',
   },
   completeTopBtn: {
     flexDirection: 'row',

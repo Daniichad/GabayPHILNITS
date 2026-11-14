@@ -8,6 +8,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import * as ImagePicker from 'expo-image-picker'
 import { supabase } from '../../../utils/supabase'
 import { clearUserSession } from '../../../utils/database'
+import { getCache, setCache } from '../../../utils/cache'
 
 const NAVY = '#0f2747'
 const ACCENT = '#d85e67'
@@ -55,6 +56,14 @@ export default function Profile({ session: initialSession, navigation }) {
       }
 
       if (currentUser?.email) {
+        // Fast-hydrate from local cache first for instant display
+        const cacheKey = `user_profile_cache_${currentUser.email}`
+        const cached = await getCache(cacheKey)
+        if (cached) {
+          setProfile(cached)
+          setLoading(false)
+        }
+
         const { data, error } = await supabase
           .from('users')
           .select('fullname, email, avatar_url')
@@ -66,6 +75,7 @@ export default function Profile({ session: initialSession, navigation }) {
         }
         if (data) {
           setProfile(data)
+          setCache(cacheKey, data, 30 * 60 * 1000).catch(() => {})
         }
       }
     } catch (err) {
@@ -77,7 +87,11 @@ export default function Profile({ session: initialSession, navigation }) {
 
   React.useEffect(() => {
     loadSessionAndProfile()
-  }, [initialSession])
+    const unsubscribe = navigation?.addListener?.('focus', loadSessionAndProfile)
+    return () => {
+      unsubscribe?.()
+    }
+  }, [initialSession, navigation])
 
   const handleLogout = async () => {
     setLogoutVisible(false)
@@ -107,16 +121,23 @@ export default function Profile({ session: initialSession, navigation }) {
         setUploading(true)
         const base64Image = `data:image/jpeg;base64,${result.assets[0].base64}`
 
-        // Update in users table
+        // Optimistically update profile avatar in state and cache immediately
+        setProfile((prev) => {
+          const updated = prev
+            ? { ...prev, avatar_url: base64Image }
+            : { fullname: user?.user_metadata?.full_name || 'Student', email: user?.email, avatar_url: base64Image }
+          setCache(`user_profile_cache_${user.email}`, updated, 30 * 60 * 1000).catch(() => {})
+          return updated
+        })
+
+        // Update in users table asynchronously in background
         const { error } = await supabase
           .from('users')
           .update({ avatar_url: base64Image })
           .eq('email', user.email)
 
         if (error) {
-          Alert.alert('Upload Error', error.message || 'Could not save profile picture')
-        } else {
-          setProfile((prev) => prev ? { ...prev, avatar_url: base64Image } : { fullname: user?.user_metadata?.full_name || 'Student', email: user?.email, avatar_url: base64Image })
+          Alert.alert('Upload Notice', error.message || 'Could not sync profile picture to server.')
         }
       }
     } catch (err) {

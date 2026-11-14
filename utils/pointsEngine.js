@@ -166,17 +166,21 @@ export const calculateMockExamPoints = ({ examId, score, isFirstAttempt, previou
   }
 }
 
+import { getPHDateKey } from './dateHelper.js'
+
 /**
- * Checks and awards daily streak points.
+ * Checks and awards daily streak points (anchored to 12:00 AM Philippine Time).
  */
 export const checkAndAwardStreakPoints = async (streakDays = 1) => {
   try {
-    const { addLocalPointEntry } = require('./database')
-    const todayKey = new Date().toISOString().slice(0, 10)
+    const todayKey = getPHDateKey()
     const ptsObj = calculateStreakPoints(streakDays)
-    ptsObj.metadata.date = todayKey
-    await addLocalPointEntry(ptsObj.category, ptsObj.points, ptsObj.metadata)
-    return ptsObj.points
+    ptsObj.metadata = {
+      ...(ptsObj.metadata || {}),
+      date: todayKey,
+      streakDay: streakDays,
+    }
+    return await recordPointsEntry(ptsObj)
   } catch (err) {
     console.warn('Error awarding streak points:', err)
     return 0

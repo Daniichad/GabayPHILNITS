@@ -43,7 +43,8 @@ export default function Register({ navigation }) {
     }
   }
 
-  const [fullName, setFullName] = useState('')
+  const [firstName, setFirstName] = useState('')
+  const [lastName, setLastName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
@@ -58,12 +59,14 @@ export default function Register({ navigation }) {
   const [generatedOtp, setGeneratedOtp] = useState(null)
 
   // Floating placeholder animations
-  const nameAnim = useState(new Animated.Value(fullName ? 1 : 0))[0]
+  const firstNameAnim = useState(new Animated.Value(firstName ? 1 : 0))[0]
+  const lastNameAnim = useState(new Animated.Value(lastName ? 1 : 0))[0]
   const emailAnim = useState(new Animated.Value(email ? 1 : 0))[0]
   const passAnim = useState(new Animated.Value(password ? 1 : 0))[0]
   const confirmAnim = useState(new Animated.Value(confirmPassword ? 1 : 0))[0]
 
-  const [nameFocused, setNameFocused] = useState(false)
+  const [firstNameFocused, setFirstNameFocused] = useState(false)
+  const [lastNameFocused, setLastNameFocused] = useState(false)
   const [emailFocused, setEmailFocused] = useState(false)
   const [passFocused, setPassFocused] = useState(false)
   const [confirmFocused, setConfirmFocused] = useState(false)
@@ -93,14 +96,16 @@ export default function Register({ navigation }) {
   const [isOtpFocused, setIsOtpFocused] = useState(false)
 
   // Validation error states
-  const [nameError, setNameError] = useState('')
+  const [firstNameError, setFirstNameError] = useState('')
+  const [lastNameError, setLastNameError] = useState('')
   const [emailError, setEmailError] = useState('')
   const [passwordError, setPasswordError] = useState('')
   const [confirmPasswordError, setConfirmPasswordError] = useState('')
   const [otpError, setOtpError] = useState('')
 
   // Debounce refs
-  const nameDebounceRef = useRef(null)
+  const firstNameDebounceRef = useRef(null)
+  const lastNameDebounceRef = useRef(null)
   const emailDebounceRef = useRef(null)
   const passwordDebounceRef = useRef(null)
   const confirmPasswordDebounceRef = useRef(null)
@@ -109,7 +114,8 @@ export default function Register({ navigation }) {
   // Clear debounce timers on unmount
   useEffect(() => {
     return () => {
-      if (nameDebounceRef.current) clearTimeout(nameDebounceRef.current)
+      if (firstNameDebounceRef.current) clearTimeout(firstNameDebounceRef.current)
+      if (lastNameDebounceRef.current) clearTimeout(lastNameDebounceRef.current)
       if (emailDebounceRef.current) clearTimeout(emailDebounceRef.current)
       if (passwordDebounceRef.current) clearTimeout(passwordDebounceRef.current)
       if (confirmPasswordDebounceRef.current) clearTimeout(confirmPasswordDebounceRef.current)
@@ -118,10 +124,17 @@ export default function Register({ navigation }) {
   }, [])
 
   // Validation helper functions
-  const validateFullName = (val) => {
+  const validateFirstName = (val) => {
     const trimmed = (val || '').trim()
-    if (!trimmed) return 'Full name is required'
-    if (trimmed.length < 2) return 'Full name must be at least 2 characters'
+    if (!trimmed) return 'First name is required'
+    if (trimmed.length < 2) return 'First name must be at least 2 characters'
+    return ''
+  }
+
+  const validateLastName = (val) => {
+    const trimmed = (val || '').trim()
+    if (!trimmed) return 'Last name is required'
+    if (trimmed.length < 2) return 'Last name must be at least 2 characters'
     return ''
   }
 
@@ -163,22 +176,40 @@ export default function Register({ navigation }) {
   }
 
   // Field change and blur handlers
-  const handleNameChange = (text) => {
-    setFullName(text)
-    if (text) handleFocus(nameAnim)
-    if (nameError) setNameError('')
+  const handleFirstNameChange = (text) => {
+    setFirstName(text)
+    if (text) handleFocus(firstNameAnim)
+    if (firstNameError) setFirstNameError('')
 
-    if (nameDebounceRef.current) clearTimeout(nameDebounceRef.current)
-    nameDebounceRef.current = setTimeout(() => {
-      setNameError(validateFullName(text))
+    if (firstNameDebounceRef.current) clearTimeout(firstNameDebounceRef.current)
+    firstNameDebounceRef.current = setTimeout(() => {
+      setFirstNameError(validateFirstName(text))
     }, 600)
   }
 
-  const handleNameBlur = () => {
-    setNameFocused(false)
-    handleBlur(nameAnim, fullName)
-    if (nameDebounceRef.current) clearTimeout(nameDebounceRef.current)
-    setNameError(validateFullName(fullName))
+  const handleFirstNameBlur = () => {
+    setFirstNameFocused(false)
+    handleBlur(firstNameAnim, firstName)
+    if (firstNameDebounceRef.current) clearTimeout(firstNameDebounceRef.current)
+    setFirstNameError(validateFirstName(firstName))
+  }
+
+  const handleLastNameChange = (text) => {
+    setLastName(text)
+    if (text) handleFocus(lastNameAnim)
+    if (lastNameError) setLastNameError('')
+
+    if (lastNameDebounceRef.current) clearTimeout(lastNameDebounceRef.current)
+    lastNameDebounceRef.current = setTimeout(() => {
+      setLastNameError(validateLastName(text))
+    }, 600)
+  }
+
+  const handleLastNameBlur = () => {
+    setLastNameFocused(false)
+    handleBlur(lastNameAnim, lastName)
+    if (lastNameDebounceRef.current) clearTimeout(lastNameDebounceRef.current)
+    setLastNameError(validateLastName(lastName))
   }
 
   const handleEmailChange = (text) => {
@@ -282,17 +313,19 @@ export default function Register({ navigation }) {
 
   // ─── Register ─────────────────────────────────────────────────
   const handleRegister = async () => {
-    const nameErr = validateFullName(fullName)
+    const firstErr = validateFirstName(firstName)
+    const lastErr = validateLastName(lastName)
     const emailErr = validateRegisterEmail(email)
     const passErr = validateRegisterPassword(password)
     const confirmErr = validateRegisterConfirmPassword(confirmPassword, password)
 
-    setNameError(nameErr)
+    setFirstNameError(firstErr)
+    setLastNameError(lastErr)
     setEmailError(emailErr)
     setPasswordError(passErr)
     setConfirmPasswordError(confirmErr)
 
-    if (nameErr || emailErr || passErr || confirmErr) {
+    if (firstErr || lastErr || emailErr || passErr || confirmErr) {
       return
     }
 
@@ -301,7 +334,7 @@ export default function Register({ navigation }) {
       return
     }
 
-    const trimmedName = fullName.trim()
+    const trimmedFullName = `${firstName.trim()} ${lastName.trim()}`.trim()
     const trimmedEmail = email.trim()
     setLoading(true)
     try {
@@ -327,7 +360,7 @@ export default function Register({ navigation }) {
       setGeneratedOtp(code)
 
       // 3. Send 4-digit code using EmailJS
-      await sendEmailJsOtp(trimmedEmail, code, trimmedName)
+      await sendEmailJsOtp(trimmedEmail, code, trimmedFullName)
 
       // 3. Open Verification Modal
       setOtp('')
@@ -355,6 +388,8 @@ export default function Register({ navigation }) {
       return
     }
 
+    const trimmedFullName = `${firstName.trim()} ${lastName.trim()}`.trim()
+
     setVerifying(true)
     try {
       // Create user account in Supabase since verification is successful
@@ -363,7 +398,9 @@ export default function Register({ navigation }) {
         password,
         options: {
           data: {
-            full_name: fullName.trim(),
+            full_name: trimmedFullName,
+            first_name: firstName.trim(),
+            last_name: lastName.trim(),
           },
         },
       })
@@ -373,11 +410,11 @@ export default function Register({ navigation }) {
         return
       }
 
-      // Save profile to users table
+      // Save profile to users table with full name in 'fullname' column
       const { error: profileError } = await supabase.from('users').upsert(
         [
           {
-            fullname: fullName.trim(),
+            fullname: trimmedFullName,
             email: email.trim(),
             role: 'user',
             password: password,
@@ -418,7 +455,8 @@ export default function Register({ navigation }) {
       const code = Math.floor(1000 + Math.random() * 9000).toString()
       setGeneratedOtp(code)
 
-      await sendEmailJsOtp(email.trim(), code, fullName.trim() || 'Student')
+      const trimmedFullName = `${firstName.trim()} ${lastName.trim()}`.trim()
+      await sendEmailJsOtp(email.trim(), code, trimmedFullName || 'Student')
 
       setOtp('')
       startResendCooldown()
@@ -431,14 +469,16 @@ export default function Register({ navigation }) {
   }
 
   const isRegisterFormValid =
-    fullName.trim().length >= 2 &&
+    firstName.trim().length >= 2 &&
+    lastName.trim().length >= 2 &&
     email.trim() !== '' &&
     /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()) &&
     password !== '' &&
     /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&#])[A-Za-z\d@$!%*?&#]{8,}$/.test(password) &&
     password === confirmPassword &&
     agreeTerms &&
-    !nameError &&
+    !firstNameError &&
+    !lastNameError &&
     !emailError &&
     !passwordError &&
     !confirmPasswordError;
@@ -468,12 +508,12 @@ export default function Register({ navigation }) {
         <View style={styles.formContainer}>
           <Text style={styles.heading}>Create your account</Text>
 
-          {/* Full Name */}
+          {/* First Name */}
           <View
             style={[
               styles.inputContainer,
-              nameFocused && styles.inputContainerFocused,
-              nameError ? styles.inputContainerError : null,
+              firstNameFocused && styles.inputContainerFocused,
+              firstNameError ? styles.inputContainerError : null,
             ]}
           >
             <Animated.Text
@@ -482,17 +522,17 @@ export default function Register({ navigation }) {
                 {
                   transform: [
                     {
-                      translateY: nameAnim.interpolate({
+                      translateY: firstNameAnim.interpolate({
                         inputRange: [0, 1],
                         outputRange: [0, -26],
                       }),
                     },
                   ],
-                  fontSize: nameAnim.interpolate({
+                  fontSize: firstNameAnim.interpolate({
                     inputRange: [0, 1],
                     outputRange: [16, 12],
                   }),
-                  color: nameAnim.interpolate({
+                  color: firstNameAnim.interpolate({
                     inputRange: [0, 1],
                     outputRange: ['#9CA3AF', '#3B82B8'],
                   }),
@@ -501,21 +541,72 @@ export default function Register({ navigation }) {
               ]}
               pointerEvents="none"
             >
-              Full Name
+              First Name
             </Animated.Text>
             <TextInput
-              value={fullName}
-              onChangeText={handleNameChange}
+              value={firstName}
+              onChangeText={handleFirstNameChange}
               onFocus={() => {
-                setNameFocused(true)
-                handleFocus(nameAnim)
+                setFirstNameFocused(true)
+                handleFocus(firstNameAnim)
               }}
-              onBlur={handleNameBlur}
+              onBlur={handleFirstNameBlur}
               style={styles.floatingInput}
             />
           </View>
-          {nameError ? (
-            <Text style={styles.errorText}>{nameError}</Text>
+          {firstNameError ? (
+            <Text style={styles.errorText}>{firstNameError}</Text>
+          ) : null}
+
+          {/* Last Name */}
+          <View
+            style={[
+              styles.inputContainer,
+              lastNameFocused && styles.inputContainerFocused,
+              lastNameError ? styles.inputContainerError : null,
+              { marginTop: firstNameError ? 10 : 14 },
+            ]}
+          >
+            <Animated.Text
+              style={[
+                styles.floatingLabel,
+                {
+                  transform: [
+                    {
+                      translateY: lastNameAnim.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [0, -26],
+                      }),
+                    },
+                  ],
+                  fontSize: lastNameAnim.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [16, 12],
+                  }),
+                  color: lastNameAnim.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: ['#9CA3AF', '#3B82B8'],
+                  }),
+                  zIndex: 10,
+                },
+              ]}
+              pointerEvents="none"
+            >
+              Last Name
+            </Animated.Text>
+            <TextInput
+              value={lastName}
+              onChangeText={handleLastNameChange}
+              onFocus={() => {
+                setLastNameFocused(true)
+                handleFocus(lastNameAnim)
+              }}
+              onBlur={handleLastNameBlur}
+              style={styles.floatingInput}
+            />
+          </View>
+          {lastNameError ? (
+            <Text style={styles.errorText}>{lastNameError}</Text>
           ) : null}
 
           {/* Email */}
@@ -524,7 +615,7 @@ export default function Register({ navigation }) {
               styles.inputContainer,
               emailFocused && styles.inputContainerFocused,
               emailError ? styles.inputContainerError : null,
-              { marginTop: nameError ? 10 : 14 },
+              { marginTop: lastNameError ? 10 : 14 },
             ]}
           >
             <Animated.Text

@@ -530,13 +530,13 @@ export default function PersonalInfo({ navigation }) {
         onRequestClose={() => setDatePickerVisible(false)}
       >
         <View style={styles.modalOverlay}>
-          <View style={[styles.modalCard, { width: '92%', maxWidth: 400, borderRadius: 24, padding: 20, maxHeight: '90%' }]}>
+          <View style={[styles.modalCard, styles.dateModalCard]}>
             <Text style={styles.modalTitle}>Select Birthdate</Text>
             <Text style={styles.modalSubtitle}>Pick your date of birth</Text>
 
             {/* Selected Date Badge */}
             <View style={styles.dateDisplayBadge}>
-              <Ionicons name="calendar" size={18} color="#3c64b4" style={{ marginRight: 8 }} />
+              <Ionicons name="calendar" size={17} color="#3c64b4" style={{ marginRight: 8 }} />
               <Text style={styles.dateDisplayText}>{displayDateText}</Text>
             </View>
 
@@ -661,6 +661,30 @@ export default function PersonalInfo({ navigation }) {
                     textDayFontSize: 13,
                     textMonthFontSize: 15,
                     textDayHeaderFontSize: 12,
+                    'stylesheet.calendar.header': {
+                      header: {
+                        flexDirection: 'row',
+                        justifyContent: 'space-between',
+                        paddingLeft: 6,
+                        paddingRight: 6,
+                        marginTop: 2,
+                        marginBottom: 4,
+                        alignItems: 'center',
+                      },
+                    },
+                    'stylesheet.calendar.main': {
+                      container: {
+                        paddingLeft: 0,
+                        paddingRight: 0,
+                        backgroundColor: '#FFFFFF',
+                      },
+                      week: {
+                        marginTop: 2,
+                        marginBottom: 2,
+                        flexDirection: 'row',
+                        justifyContent: 'space-around',
+                      },
+                    },
                   }}
                   enableSwipeMonths={true}
                 />
@@ -670,14 +694,14 @@ export default function PersonalInfo({ navigation }) {
             {/* Action Buttons */}
             <View style={styles.dateConfirmRow}>
               <TouchableOpacity
-                style={[styles.modalCancelButton, { flex: 1, marginRight: 8, marginTop: 0 }]}
+                style={styles.modalCancelButtonCompact}
                 activeOpacity={0.8}
                 onPress={() => setDatePickerVisible(false)}
               >
                 <Text style={styles.modalCancelButtonText}>Cancel</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={[styles.alertButton, { flex: 1, marginLeft: 8, backgroundColor: '#3c64b4' }]}
+                style={styles.alertButtonCompact}
                 activeOpacity={0.8}
                 onPress={() => {
                   setBirthdate(tempBirthdate)
@@ -920,7 +944,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(15, 30, 53, 0.78)',
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 20,
+    padding: 16,
   },
   modalCard: {
     width: '100%',
@@ -929,6 +953,16 @@ const styles = StyleSheet.create({
     borderRadius: 24,
     padding: 20,
     maxHeight: '80%',
+  },
+  dateModalCard: {
+    width: '94%',
+    maxWidth: 390,
+    maxHeight: '94%',
+    borderRadius: 24,
+    paddingHorizontal: 18,
+    paddingTop: 18,
+    paddingBottom: 16,
+    overflow: 'hidden',
   },
   modalTitle: {
     fontSize: 20,
@@ -970,9 +1004,18 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginTop: 6,
   },
+  modalCancelButtonCompact: {
+    flex: 1,
+    marginRight: 8,
+    backgroundColor: '#F3F4F6',
+    borderRadius: 12,
+    paddingVertical: 11,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   modalCancelButtonText: {
     color: '#4B5563',
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '600',
   },
   alertButton: {
@@ -981,9 +1024,18 @@ const styles = StyleSheet.create({
     paddingVertical: 13,
     alignItems: 'center',
   },
+  alertButtonCompact: {
+    flex: 1,
+    marginLeft: 8,
+    backgroundColor: '#3c64b4',
+    borderRadius: 12,
+    paddingVertical: 11,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   alertButtonText: {
     color: '#fff',
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '700',
   },
   dateDisplayBadge: {
@@ -992,19 +1044,19 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: '#EEF2F6',
     borderRadius: 12,
-    paddingVertical: 10,
-    paddingHorizontal: 14,
-    marginBottom: 14,
+    paddingVertical: 7,
+    paddingHorizontal: 12,
+    marginBottom: 10,
   },
   dateDisplayText: {
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: '700',
     color: '#0F2747',
   },
   quickNavRow: {
     flexDirection: 'row',
     gap: 10,
-    marginBottom: 12,
+    marginBottom: 8,
   },
   quickNavBtn: {
     flex: 1,
@@ -1012,7 +1064,7 @@ const styles = StyleSheet.create({
     borderColor: '#E2E8F0',
     backgroundColor: '#F8FAFC',
     borderRadius: 12,
-    paddingVertical: 9,
+    paddingVertical: 7,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -1029,19 +1081,19 @@ const styles = StyleSheet.create({
     color: '#3c64b4',
   },
   calendarContainer: {
-    minHeight: 310,
+    minHeight: 280,
     justifyContent: 'center',
-    marginBottom: 16,
+    marginBottom: 10,
   },
   monthGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 8,
     justifyContent: 'space-between',
-    paddingVertical: 12,
+    paddingVertical: 8,
   },
   yearScrollView: {
-    maxHeight: 280,
+    maxHeight: 270,
   },
   yearGrid: {
     flexDirection: 'row',
@@ -1057,7 +1109,7 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
     borderColor: '#E2E8F0',
     borderRadius: 12,
-    paddingVertical: 14,
+    paddingVertical: 12,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 8,
@@ -1068,7 +1120,7 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
     borderColor: '#E2E8F0',
     borderRadius: 10,
-    paddingVertical: 10,
+    paddingVertical: 9,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 8,

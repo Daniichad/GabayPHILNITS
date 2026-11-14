@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import {
-  ActivityIndicator, Modal, Platform, ScrollView, StatusBar, StyleSheet, Text,
+  ActivityIndicator, Animated, Modal, Platform, ScrollView, StatusBar, StyleSheet, Text,
   TouchableOpacity, View,
 } from 'react-native'
 import { Feather, Ionicons } from '@expo/vector-icons'
@@ -54,17 +54,18 @@ const IP_SUBJECTS = [
 
 const FE_MORNING_SUBJECTS = [
   'All',
-  'Computer Systems & Architecture',
-  'Networks & Security',
-  'IT Management & Strategy',
-  'Databases & SQL',
+  'Technology',
+  'Management',
+  'Strategy',
 ]
 
 const FE_AFTERNOON_SUBJECTS = [
   'All',
-  'Algorithms & Programming',
-  'Algorithms & Data Structures',
-  'Security & System Design',
+  'General Aspects of Programming',
+  'Fundamental Elements for Programming Processes',
+  'Data Structures and Algorithms',
+  'Application of Programming to Various Fields',
+  'Ensuring Information Security',
 ]
 
 const ITEM_COUNTS = [10, 20, 30, 40, 50]
@@ -80,7 +81,7 @@ export default function PracticeOverview({ navigation, route }) {
   const routeReviewSpeed = route?.params?.reviewSpeed
 
   const [userTargetExam, setUserTargetExam] = useState(routeTargetExam || null)
-  const [loadingExam, setLoadingExam] = useState(!routeTargetExam)
+  const [loading, setLoading] = useState(true)
   const [feSection, setFeSection] = useState('Subject A') // 'Subject A' | 'Subject B'
   const [selectedSubject, setSelectedSubject] = useState(routeSubject || 'All')
   const [selectedLimit, setSelectedLimit] = useState(10)
@@ -90,6 +91,54 @@ export default function PracticeOverview({ navigation, route }) {
 
   const [subjectPickerOpen, setSubjectPickerOpen] = useState(false)
   const [limitPickerOpen, setLimitPickerOpen] = useState(false)
+
+  // Bottom sheet slide animations (same as logout transition: bottom to top)
+  const subjectSlideAnim = useRef(new Animated.Value(400)).current
+  const limitSlideAnim = useRef(new Animated.Value(400)).current
+
+  useEffect(() => {
+    if (subjectPickerOpen) {
+      Animated.timing(subjectSlideAnim, {
+        toValue: 0,
+        duration: 250,
+        useNativeDriver: true,
+      }).start()
+    } else {
+      subjectSlideAnim.setValue(400)
+    }
+  }, [subjectPickerOpen])
+
+  useEffect(() => {
+    if (limitPickerOpen) {
+      Animated.timing(limitSlideAnim, {
+        toValue: 0,
+        duration: 250,
+        useNativeDriver: true,
+      }).start()
+    } else {
+      limitSlideAnim.setValue(400)
+    }
+  }, [limitPickerOpen])
+
+  const closeSubjectPicker = () => {
+    Animated.timing(subjectSlideAnim, {
+      toValue: 400,
+      duration: 200,
+      useNativeDriver: true,
+    }).start(() => {
+      setSubjectPickerOpen(false)
+    })
+  }
+
+  const closeLimitPicker = () => {
+    Animated.timing(limitSlideAnim, {
+      toValue: 400,
+      duration: 200,
+      useNativeDriver: true,
+    }).start(() => {
+      setLimitPickerOpen(false)
+    })
+  }
 
   const isMatching = typeId === 'Matching'
   const subjectsList = userTargetExam === 'FE'
@@ -121,17 +170,17 @@ export default function PracticeOverview({ navigation, route }) {
             const rawSpeed = String(uRes.data.review_speed).trim()
             setUserReviewSpeed(rawSpeed)
             if (!routeReviewSpeed) setSelectedSpeed(rawSpeed)
-            setCache('user_review_speed', rawSpeed).catch(() => {})
+            setCache('user_review_speed', rawSpeed).catch(() => { })
           }
           const validSubs = track === 'FE'
             ? (feSection === 'Subject B' ? FE_AFTERNOON_SUBJECTS : FE_MORNING_SUBJECTS)
             : IP_SUBJECTS
           setSelectedSubject((curr) => (validSubs.includes(curr) ? curr : 'All'))
-          setLoadingExam(false)
+          setLoading(false)
         }
       } catch (err) {
         console.warn('Error fetching target exam in PracticeOverview:', err)
-        if (isMounted) setLoadingExam(false)
+        if (isMounted) setLoading(false)
       }
     }
 
@@ -144,13 +193,16 @@ export default function PracticeOverview({ navigation, route }) {
   }, [navigation, feSection])
 
   const handleStart = () => {
+    const activePace = selectedSpeed || userReviewSpeed || 'Standard'
+    setCache('user_review_speed', activePace).catch(() => { })
+
     navigation.replace(typeId, {
       subject: selectedSubject === 'All' ? null : selectedSubject,
       limit: isMatching ? selectedSets * 6 : selectedLimit, // for Matching, 1 set = 6 pairs (12 cards)
       sets: selectedSets,
       targetExam: userTargetExam || 'IP',
       feSection: userTargetExam === 'FE' ? feSection : null,
-      reviewSpeed: selectedSpeed || userReviewSpeed || 'Standard',
+      reviewSpeed: activePace,
     })
   }
 
@@ -167,258 +219,255 @@ export default function PracticeOverview({ navigation, route }) {
         <View style={styles.backBtn} />
       </View>
 
-      <ScrollView
-        style={styles.scroll}
-        contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={false}
-      >
-        <Text style={styles.practiceTitle}>{info.title}</Text>
-
-        {/* Expect block */}
-        <View style={styles.flatSection}>
-          <Text style={styles.sectionHeader}>What to Expect</Text>
-          <Text style={styles.sectionBody}>{info.expect}</Text>
+      {loading ? (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={NAVY} />
+          <Text style={styles.loadingText}>Preparing practice settings...</Text>
         </View>
+      ) : (
+        <>
+          <ScrollView
+            style={styles.scroll}
+            contentContainerStyle={styles.scrollContent}
+            showsVerticalScrollIndicator={false}
+          >
+            <Text style={styles.practiceTitle}>{info.title}</Text>
 
-        {/* How to block */}
-        <View style={styles.flatSection}>
-          <Text style={styles.sectionHeader}>How to Practice</Text>
-          <Text style={styles.sectionBody}>{info.how}</Text>
-        </View>
+            {/* Expect block */}
+            <View style={styles.flatSection}>
+              <Text style={styles.sectionHeader}>What to Expect</Text>
+              <Text style={styles.sectionBody}>{info.expect}</Text>
+            </View>
 
-        {/* Morning / Afternoon Exam Session for FE */}
-        {userTargetExam === 'FE' && (
-          <View style={styles.flatSection}>
-            <Text style={styles.sectionHeader}>Exam Session</Text>
-            <View style={styles.feTrackSegment}>
-              <TouchableOpacity
-                style={[styles.feTrackBtn, feSection === 'Subject A' && styles.feTrackBtnActive]}
-                onPress={() => {
-                  setFeSection('Subject A')
-                  setSelectedSubject('All')
-                }}
-                activeOpacity={0.7}
-              >
-                <Ionicons
-                  name="sunny-outline"
-                  size={15}
-                  color={feSection === 'Subject A' ? '#fff' : '#64748b'}
-                />
-                <Text style={[styles.feTrackBtnText, feSection === 'Subject A' && styles.feTrackBtnTextActive]}>
-                  Subject A (Morning)
+            {/* How to block */}
+            <View style={styles.flatSection}>
+              <Text style={styles.sectionHeader}>How to Practice</Text>
+              <Text style={styles.sectionBody}>{info.how}</Text>
+            </View>
+
+            {/* Morning / Afternoon Exam Session for FE */}
+            {userTargetExam === 'FE' && (
+              <View style={styles.flatSection}>
+                <Text style={styles.sectionHeader}>Exam Session</Text>
+                <View style={styles.feTrackSegment}>
+                  <TouchableOpacity
+                    style={[styles.feTrackBtn, feSection === 'Subject A' && styles.feTrackBtnActive]}
+                    onPress={() => {
+                      setFeSection('Subject A')
+                      setSelectedSubject('All')
+                    }}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={[styles.feTrackBtnText, feSection === 'Subject A' && styles.feTrackBtnTextActive]}>
+                      Subject A (Morning)
+                    </Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={[styles.feTrackBtn, feSection === 'Subject B' && styles.feTrackBtnActive]}
+                    onPress={() => {
+                      setFeSection('Subject B')
+                      setSelectedSubject('All')
+                    }}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={[styles.feTrackBtnText, feSection === 'Subject B' && styles.feTrackBtnTextActive]}>
+                      Subject B (Afternoon)
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            )}
+
+            {/* Review Pace / Speed Selection */}
+            <View style={styles.flatSection}>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                <Text style={styles.sectionHeader}>Review Pace</Text>
+                {userReviewSpeed && (
+                  <Text style={{ fontSize: 11.5, fontWeight: '700', color: '#10b981' }}>
+                    Profile Pace: {userReviewSpeed}
+                  </Text>
+                )}
+              </View>
+              <View style={styles.feTrackSegment}>
+                {[
+                  { id: 'Quick', label: 'Quick' },
+                  { id: 'Standard', label: 'Standard' },
+                  { id: 'Detailed', label: 'Detailed' },
+                ].map((pace) => {
+                  const isActive = selectedSpeed === pace.id
+                  return (
+                    <TouchableOpacity
+                      key={pace.id}
+                      style={[styles.feTrackBtn, isActive && styles.feTrackBtnActive]}
+                      onPress={() => setSelectedSpeed(pace.id)}
+                      activeOpacity={0.7}
+                    >
+                      <Text style={[styles.feTrackBtnText, isActive && styles.feTrackBtnTextActive]}>
+                        {pace.label}
+                      </Text>
+                    </TouchableOpacity>
+                  )
+                })}
+              </View>
+            </View>
+
+            {/* Subject Area Dropdown selection card */}
+            <View style={styles.flatSection}>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 }}>
+                <Text style={styles.sectionHeader}>Subject Area</Text>
+                <Text style={{ fontSize: 11.5, fontWeight: '700', color: '#2563eb' }}>
+                  {userTargetExam === 'FE' ? 'Fundamental IT Engineer (FE)' : 'IT Passport (IP)'}
                 </Text>
-              </TouchableOpacity>
-
+              </View>
               <TouchableOpacity
-                style={[styles.feTrackBtn, feSection === 'Subject B' && styles.feTrackBtnActive]}
-                onPress={() => {
-                  setFeSection('Subject B')
-                  setSelectedSubject('All')
-                }}
+                style={styles.pickerTrigger}
                 activeOpacity={0.7}
+                onPress={() => setSubjectPickerOpen(true)}
               >
-                <Ionicons
-                  name="moon-outline"
-                  size={15}
-                  color={feSection === 'Subject B' ? '#fff' : '#64748b'}
-                />
-                <Text style={[styles.feTrackBtnText, feSection === 'Subject B' && styles.feTrackBtnTextActive]}>
-                  Subject B (Afternoon)
+                <Text style={styles.pickerTriggerText}>
+                  {selectedSubject}
                 </Text>
+                <Feather name="chevron-down" size={16} color={NAVY} />
               </TouchableOpacity>
             </View>
-          </View>
-        )}
 
-        {/* Review Pace / Speed Selection */}
-        <View style={styles.flatSection}>
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-            <Text style={styles.sectionHeader}>Review Pace</Text>
-            {userReviewSpeed && (
-              <Text style={{ fontSize: 11.5, fontWeight: '700', color: '#10b981' }}>
-                Profile Pace: {userReviewSpeed}
+            {/* Quantity (Items or Sets) selection card */}
+            <View style={styles.flatSection}>
+              <Text style={styles.sectionHeader}>
+                {isMatching ? 'Number of Sets (1 Set = 12 Cards)' : 'Number of Items'}
               </Text>
-            )}
-          </View>
-          <View style={styles.feTrackSegment}>
-            {[
-              { id: 'Quick', label: '⚡ Quick' },
-              { id: 'Standard', label: '🎯 Standard' },
-              { id: 'Detailed', label: '📖 Detailed' },
-            ].map((pace) => {
-              const isActive = selectedSpeed === pace.id
-              return (
-                <TouchableOpacity
-                  key={pace.id}
-                  style={[styles.feTrackBtn, isActive && styles.feTrackBtnActive]}
-                  onPress={() => setSelectedSpeed(pace.id)}
-                  activeOpacity={0.7}
-                >
-                  <Text style={[styles.feTrackBtnText, isActive && styles.feTrackBtnTextActive]}>
-                    {pace.label}
-                  </Text>
-                </TouchableOpacity>
-              )
-            })}
-          </View>
-        </View>
-
-        {/* Subject Area Dropdown selection card */}
-        <View style={styles.flatSection}>
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 }}>
-            <Text style={styles.sectionHeader}>Subject Area</Text>
-            {loadingExam ? (
-              <ActivityIndicator size="small" color="#2563eb" style={{ transform: [{ scale: 0.75 }] }} />
-            ) : (
-              <Text style={{ fontSize: 11.5, fontWeight: '700', color: '#2563eb' }}>
-                {userTargetExam === 'FE' ? 'Fundamental IT Engineer (FE)' : 'IT Passport (IP)'}
-              </Text>
-            )}
-          </View>
-          <TouchableOpacity
-            style={styles.pickerTrigger}
-            activeOpacity={0.7}
-            disabled={loadingExam}
-            onPress={() => setSubjectPickerOpen(true)}
-          >
-            <Text style={styles.pickerTriggerText}>
-              {loadingExam ? 'Loading...' : selectedSubject}
-            </Text>
-            <Feather name="chevron-down" size={16} color={NAVY} />
-          </TouchableOpacity>
-        </View>
-
-        {/* Quantity (Items or Sets) selection card */}
-        <View style={styles.flatSection}>
-          <Text style={styles.sectionHeader}>
-            {isMatching ? 'Number of Sets (1 Set = 12 Cards)' : 'Number of Items'}
-          </Text>
-          <TouchableOpacity
-            style={styles.pickerTrigger}
-            activeOpacity={0.7}
-            onPress={() => setLimitPickerOpen(true)}
-          >
-            <Text style={styles.pickerTriggerText}>
-              {isMatching ? `${selectedSets} Set(s)` : `${selectedLimit} Items`}
-            </Text>
-            <Feather name="chevron-down" size={16} color={NAVY} />
-          </TouchableOpacity>
-        </View>
-
-        {/* Format parameters block */}
-        <View style={styles.formatSection}>
-          <View style={styles.formatRow}>
-            <Feather name="clock" size={16} color={NAVY} />
-            <Text style={styles.formatText}>{info.duration}</Text>
-          </View>
-        </View>
-      </ScrollView>
-
-      {/* ── Subject Picker Modal Bottom Sheet ── */}
-      <Modal
-        visible={subjectPickerOpen}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setSubjectPickerOpen(false)}
-      >
-        <TouchableOpacity
-          style={styles.modalBackdrop}
-          activeOpacity={1}
-          onPress={() => setSubjectPickerOpen(false)}
-        />
-        <View style={styles.pickerSheet}>
-          <View style={styles.sheetHeader}>
-            <Text style={styles.sheetTitle}>Choose Subject Area</Text>
-            <TouchableOpacity onPress={() => setSubjectPickerOpen(false)}>
-              <Feather name="x" size={22} color={NAVY} />
-            </TouchableOpacity>
-          </View>
-          {subjectsList.map((sub) => (
-            <TouchableOpacity
-              key={sub}
-              style={[
-                styles.sheetOption,
-                selectedSubject === sub && styles.sheetOptionActive,
-              ]}
-              onPress={() => {
-                setSelectedSubject(sub)
-                setSubjectPickerOpen(false)
-              }}
-            >
-              <Text
-                style={[
-                  styles.sheetOptionText,
-                  selectedSubject === sub && styles.sheetOptionTextActive,
-                ]}
-              >
-                {sub}
-              </Text>
-              {selectedSubject === sub && <Feather name="check" size={16} color={NAVY} />}
-            </TouchableOpacity>
-          ))}
-        </View>
-      </Modal>
-
-      {/* ── Limit Picker Modal Bottom Sheet ── */}
-      <Modal
-        visible={limitPickerOpen}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setLimitPickerOpen(false)}
-      >
-        <TouchableOpacity
-          style={styles.modalBackdrop}
-          activeOpacity={1}
-          onPress={() => setLimitPickerOpen(false)}
-        />
-        <View style={styles.pickerSheet}>
-          <View style={styles.sheetHeader}>
-            <Text style={styles.sheetTitle}>
-              {isMatching ? 'Choose Sets Count' : 'Choose Items Limit'}
-            </Text>
-            <TouchableOpacity onPress={() => setLimitPickerOpen(false)}>
-              <Feather name="x" size={22} color={NAVY} />
-            </TouchableOpacity>
-          </View>
-          {(isMatching ? SET_COUNTS : ITEM_COUNTS).map((count) => {
-            const isSel = isMatching ? selectedSets === count : selectedLimit === count
-            return (
               <TouchableOpacity
-                key={count}
-                style={[styles.sheetOption, isSel && styles.sheetOptionActive]}
-                onPress={() => {
-                  if (isMatching) {
-                    setSelectedSets(count)
-                  } else {
-                    setSelectedLimit(count)
-                  }
-                  setLimitPickerOpen(false)
-                }}
+                style={styles.pickerTrigger}
+                activeOpacity={0.7}
+                onPress={() => setLimitPickerOpen(true)}
               >
-                <Text
-                  style={[
-                    styles.sheetOptionText,
-                    isSel && styles.sheetOptionTextActive,
-                  ]}
-                >
-                  {isMatching ? `${count} Set(s) (${count * 12} cards)` : `${count} Items`}
+                <Text style={styles.pickerTriggerText}>
+                  {isMatching ? `${selectedSets} Set(s)` : `${selectedLimit} Items`}
                 </Text>
-                {isSel && <Feather name="check" size={16} color={NAVY} />}
+                <Feather name="chevron-down" size={16} color={NAVY} />
               </TouchableOpacity>
-            )
-          })}
-        </View>
-      </Modal>
+            </View>
 
-      {/* Start button pinned at bottom */}
-      <TouchableOpacity
-        style={[styles.startBtn, { marginBottom: Math.max(insets.bottom, 16) }, loadingExam && { opacity: 0.6 }]}
-        disabled={loadingExam}
-        activeOpacity={0.85}
-        onPress={handleStart}
-      >
-        <Text style={styles.startBtnText}>Start</Text>
-      </TouchableOpacity>
+            {/* Format parameters block */}
+            <View style={styles.formatSection}>
+              <View style={styles.formatRow}>
+                <Feather name="clock" size={16} color={NAVY} />
+                <Text style={styles.formatText}>{info.duration}</Text>
+              </View>
+            </View>
+          </ScrollView>
+
+          {/* ── Subject Picker Modal Bottom Sheet ── */}
+          <Modal
+            visible={subjectPickerOpen}
+            transparent
+            animationType="fade"
+            onRequestClose={closeSubjectPicker}
+          >
+            <View style={styles.modalContainer}>
+              <TouchableOpacity
+                style={styles.modalBackdrop}
+                activeOpacity={1}
+                onPress={closeSubjectPicker}
+              />
+              <Animated.View style={[styles.pickerSheet, { transform: [{ translateY: subjectSlideAnim }] }]}>
+                <View style={styles.sheetHeader}>
+                  <Text style={styles.sheetTitle}>Choose Subject Area</Text>
+                  <TouchableOpacity onPress={closeSubjectPicker}>
+                    <Feather name="x" size={22} color={NAVY} />
+                  </TouchableOpacity>
+                </View>
+                {subjectsList.map((sub) => (
+                  <TouchableOpacity
+                    key={sub}
+                    style={[
+                      styles.sheetOption,
+                      selectedSubject === sub && styles.sheetOptionActive,
+                    ]}
+                    onPress={() => {
+                      setSelectedSubject(sub)
+                      closeSubjectPicker()
+                    }}
+                  >
+                    <Text
+                      style={[
+                        styles.sheetOptionText,
+                        selectedSubject === sub && styles.sheetOptionTextActive,
+                      ]}
+                    >
+                      {sub}
+                    </Text>
+                    {selectedSubject === sub && <Feather name="check" size={16} color={NAVY} />}
+                  </TouchableOpacity>
+                ))}
+              </Animated.View>
+            </View>
+          </Modal>
+
+          {/* ── Limit Picker Modal Bottom Sheet ── */}
+          <Modal
+            visible={limitPickerOpen}
+            transparent
+            animationType="fade"
+            onRequestClose={closeLimitPicker}
+          >
+            <View style={styles.modalContainer}>
+              <TouchableOpacity
+                style={styles.modalBackdrop}
+                activeOpacity={1}
+                onPress={closeLimitPicker}
+              />
+              <Animated.View style={[styles.pickerSheet, { transform: [{ translateY: limitSlideAnim }] }]}>
+                <View style={styles.sheetHeader}>
+                  <Text style={styles.sheetTitle}>
+                    {isMatching ? 'Choose Sets Count' : 'Choose Items Limit'}
+                  </Text>
+                  <TouchableOpacity onPress={closeLimitPicker}>
+                    <Feather name="x" size={22} color={NAVY} />
+                  </TouchableOpacity>
+                </View>
+                {(isMatching ? SET_COUNTS : ITEM_COUNTS).map((count) => {
+                  const isSel = isMatching ? selectedSets === count : selectedLimit === count
+                  return (
+                    <TouchableOpacity
+                      key={count}
+                      style={[styles.sheetOption, isSel && styles.sheetOptionActive]}
+                      onPress={() => {
+                        if (isMatching) {
+                          setSelectedSets(count)
+                        } else {
+                          setSelectedLimit(count)
+                        }
+                        closeLimitPicker()
+                      }}
+                    >
+                      <Text
+                        style={[
+                          styles.sheetOptionText,
+                          isSel && styles.sheetOptionTextActive,
+                        ]}
+                      >
+                        {isMatching ? `${count} Set(s) (${count * 12} cards)` : `${count} Items`}
+                      </Text>
+                      {isSel && <Feather name="check" size={16} color={NAVY} />}
+                    </TouchableOpacity>
+                  )
+                })}
+              </Animated.View>
+            </View>
+          </Modal>
+
+          {/* Start button pinned at bottom */}
+          <TouchableOpacity
+            style={[styles.startBtn, { marginBottom: Math.max(insets.bottom, 16) }]}
+            activeOpacity={0.85}
+            onPress={handleStart}
+          >
+            <Text style={styles.startBtnText}>Start</Text>
+          </TouchableOpacity>
+        </>
+      )}
     </View>
   )
 }
@@ -516,8 +565,16 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: NAVY,
   },
-  modalBackdrop: {
+  modalContainer: {
     flex: 1,
+    justifyContent: 'flex-end',
+  },
+  modalBackdrop: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
     backgroundColor: 'rgba(0,0,0,0.3)',
   },
   pickerSheet: {
@@ -608,5 +665,17 @@ const styles = StyleSheet.create({
   },
   feTrackBtnTextActive: {
     color: '#fff',
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 24,
+  },
+  loadingText: {
+    marginTop: 14,
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#64748b',
   },
 })

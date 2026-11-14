@@ -24,21 +24,28 @@ const IP_SUBJECTS = [
 ]
 
 const FE_A_SUBJECTS = [
-  'Computer Systems & Architecture',
-  'Databases & SQL',
-  'Networks & Security',
-  'IT Management & Strategy',
+  'Technology',
+  'Management',
+  'Strategy',
 ]
 
 const FE_B_SUBJECTS = [
-  'Algorithms & Programming',
-  'Security & System Design',
+  'General Aspects of Programming',
+  'Fundamental Elements for Programming Processes',
+  'Data Structures and Algorithms',
+  'Application of Programming to Various Fields',
+  'Ensuring Information Security',
 ]
 
 const SUBJECT_COLORS = {
   'Technology': '#2563eb',
   'Management': '#d97706',
   'Strategy': '#9333ea',
+  'General Aspects of Programming': '#059669',
+  'Fundamental Elements for Programming Processes': '#7c3aed',
+  'Data Structures and Algorithms': '#0284c7',
+  'Application of Programming to Various Fields': '#2563eb',
+  'Ensuring Information Security': '#dc2626',
   'Computer Systems & Architecture': '#2563eb',
   'Databases & SQL': '#06b6d4',
   'Algorithms & Programming': '#059669',
@@ -144,6 +151,11 @@ const DOMAIN_TARGET_ATTEMPTS = {
   'IT Management & Strategy': 25,
 
   // FE Subject B
+  'General Aspects of Programming': 25,
+  'Fundamental Elements for Programming Processes': 25,
+  'Data Structures and Algorithms': 25,
+  'Application of Programming to Various Fields': 25,
+  'Ensuring Information Security': 25,
   'Algorithms & Programming': 25,
   'Algorithms & Data Structures': 20,
   'Security & System Design': 20,
@@ -193,6 +205,16 @@ function getSubjectTip(subjectName) {
       return 'Focus on project management methodologies, IT service management (ITIL), system audits, and risk assessment.'
     case 'Strategy':
       return 'Study business administration, corporate strategy, legal compliance (IP rights, GDPR), and digital transformation.'
+    case 'General Aspects of Programming':
+      return 'Review programming paradigms, software lifecycles, and code modularity.'
+    case 'Fundamental Elements for Programming Processes':
+      return 'Master control structures, scoping, variables, and function execution frames.'
+    case 'Data Structures and Algorithms':
+      return 'Trace searching, sorting, trees, stacks, queues, and complexity analysis.'
+    case 'Application of Programming to Various Fields':
+      return 'Review mathematical modeling, UI development, and data manipulation applications.'
+    case 'Ensuring Information Security':
+      return 'Review secure coding standards, vulnerability mitigation, and cryptographic validation.'
     case 'Computer Systems & Architecture':
       return 'Master CPU architecture, logic circuits, memory hierarchies, and peripheral interfaces.'
     case 'Algorithms & Programming':
@@ -544,9 +566,10 @@ function getItemExamLevel(item, type) {
       if (s.includes('IP')) return 'IP'
     }
     const catName = q?.practice_categories?.name || ''
-    if (IP_SUBJECTS.includes(catName)) return 'IP'
-    if (FE_A_SUBJECTS.includes(catName) || FE_B_SUBJECTS.includes(catName) || catName === 'Databases & SQL') return 'FE'
-    return null
+    if (q?.exam_level === 'IP') return 'IP'
+    if (q?.exam_level === 'FE') return 'FE'
+    if (['Technology', 'Management', 'Strategy'].includes(catName)) return 'IP'
+    return 'FE'
   }
   if (type === 'tf') {
     const q = item.true_false_questions
@@ -557,9 +580,10 @@ function getItemExamLevel(item, type) {
       if (s.includes('IP')) return 'IP'
     }
     const catName = q?.practice_categories?.name || ''
-    if (IP_SUBJECTS.includes(catName)) return 'IP'
-    if (FE_A_SUBJECTS.includes(catName) || FE_B_SUBJECTS.includes(catName) || catName === 'Databases & SQL') return 'FE'
-    return null
+    if (q?.exam_level === 'IP') return 'IP'
+    if (q?.exam_level === 'FE') return 'FE'
+    if (['Technology', 'Management', 'Strategy'].includes(catName)) return 'IP'
+    return 'FE'
   }
   if (type === 'flashcard') {
     const d = item.flashcard_decks
@@ -570,9 +594,9 @@ function getItemExamLevel(item, type) {
       if (s.includes('IP')) return 'IP'
     }
     const catName = d?.practice_categories?.name || d?.title || ''
-    if (IP_SUBJECTS.some(s => catName.includes(s))) return 'IP'
-    if (FE_A_SUBJECTS.some(s => catName.includes(s)) || FE_B_SUBJECTS.some(s => catName.includes(s)) || catName.includes('FE') || catName.includes('Databases')) return 'FE'
-    return null
+    if (d?.exam_level === 'IP') return 'IP'
+    if (d?.exam_level === 'FE') return 'FE'
+    return 'FE'
   }
   if (type === 'matching') {
     if (item.exam_level) {
@@ -583,9 +607,7 @@ function getItemExamLevel(item, type) {
     const title = item.set_title || ''
     if (title.includes('[FE]') || title.toLowerCase().includes('fe')) return 'FE'
     if (title.includes('[IP]') || title.toLowerCase().includes('ip')) return 'IP'
-    if (FE_A_SUBJECTS.some(s => title.includes(s)) || FE_B_SUBJECTS.some(s => title.includes(s)) || title.includes('Memory') || title.includes('Pipelining') || title.includes('Databases')) return 'FE'
-    if (IP_SUBJECTS.some(s => title.includes(s))) return 'IP'
-    return null
+    return 'FE'
   }
   return null
 }
@@ -604,67 +626,97 @@ function normalizeCategory(cat, level) {
     if (c.includes('Corporate Strategy') || c.includes('Business') || c.includes('Legal') || c.includes('Governance') || c.includes('Ethics')) return 'Strategy'
     return null
   } else if (level === 'FE Subject A') {
+    if (c === 'Technology' || c.toLowerCase() === 'technology') return 'Technology'
+    if (c === 'Management' || c.toLowerCase() === 'management') return 'Management'
+    if (c === 'Strategy' || c.toLowerCase() === 'strategy') return 'Strategy'
     if (
       c === 'Computer Systems & Architecture' ||
       c.includes('Architecture') ||
       c.includes('Computer Systems') ||
       c.includes('Memory Hierarchy') ||
       c.includes('Pipelining') ||
-      c === 'Subject A'
-    ) return 'Computer Systems & Architecture'
-
-    if (
       c === 'Databases & SQL' ||
       c.includes('Databases') ||
       c.includes('Database') ||
       c.includes('SQL') ||
-      c.includes('Normalization')
-    ) return 'Databases & SQL'
-
-    if (
+      c.includes('Normalization') ||
       c === 'Networks & Security' ||
       c.includes('Networks & Security') ||
       c.includes('Network') ||
       c.includes('Protocols') ||
       c.includes('Cybersecurity') ||
       c.includes('Cryptography') ||
-      (c.includes('Security') && !c.includes('Design'))
-    ) return 'Networks & Security'
+      c === 'Subject A'
+    ) return 'Technology'
+
+    if (
+      c.includes('Project Management') ||
+      c.includes('Service Management') ||
+      c.includes('Audit') ||
+      c.includes('IT Management')
+    ) return 'Management'
 
     if (
       c === 'IT Management & Strategy' ||
       c.includes('IT Management & Strategy') ||
       c.includes('Management & Strategy') ||
-      c.includes('IT Management') ||
-      c.includes('Management') ||
       c.includes('Strategy') ||
       c.includes('Governance') ||
-      c.includes('Legal')
-    ) return 'IT Management & Strategy'
+      c.includes('Legal') ||
+      c.includes('Business')
+    ) return 'Strategy'
 
-    return null
+    // Default FE Subject A bucket
+    return 'Technology'
   } else if (level === 'FE Subject B') {
     if (
-      c === 'Algorithms & Programming' ||
-      c === 'Algorithms & Data Structures' ||
-      c.includes('Algorithms') ||
-      c.includes('Programming') ||
-      c.includes('Data Structure') ||
-      c.includes('Pseudo') ||
-      c.includes('Big-O') ||
-      c === 'Subject B'
-    ) return 'Algorithms & Programming'
+      c === 'Ensuring Information Security' ||
+      c.includes('Information Security') ||
+      c.includes('Security & System Design') ||
+      c.includes('Security') ||
+      c.includes('Cryptography')
+    ) return 'Ensuring Information Security'
 
     if (
-      c === 'Security & System Design' ||
-      c.includes('Security') ||
-      c.includes('System Design') ||
-      c.includes('Cryptography') ||
-      c.includes('Network') ||
-      c.includes('Architecture')
-    ) return 'Security & System Design'
+      c === 'Data Structures and Algorithms' ||
+      c === 'Algorithms & Data Structures' ||
+      c.includes('Data Structure') ||
+      c.includes('Data Structures') ||
+      c.includes('Tree') ||
+      c.includes('Graph') ||
+      c.includes('Sort') ||
+      c.includes('Search') ||
+      c.includes('Big-O')
+    ) return 'Data Structures and Algorithms'
 
-    return null
+    if (
+      c === 'Fundamental Elements for Programming Processes' ||
+      c.includes('Fundamental Elements') ||
+      c.includes('Processes') ||
+      c.includes('Control Structure') ||
+      c.includes('Function') ||
+      c.includes('Loop') ||
+      c.includes('Variable')
+    ) return 'Fundamental Elements for Programming Processes'
+
+    if (
+      c === 'Application of Programming to Various Fields' ||
+      c.includes('Various Fields') ||
+      c.includes('Application') ||
+      c.includes('Field')
+    ) return 'Application of Programming to Various Fields'
+
+    if (
+      c === 'General Aspects of Programming' ||
+      c === 'Algorithms & Programming' ||
+      c.includes('General Aspects') ||
+      c.includes('Algorithms') ||
+      c.includes('Programming') ||
+      c.includes('Pseudo') ||
+      c === 'Subject B'
+    ) return 'General Aspects of Programming'
+
+    return 'General Aspects of Programming'
   }
   return null
 }
@@ -1251,12 +1303,21 @@ export default function Performance({ navigation }) {
   // ── Resilient Parallel Data fetching ─────────────────────────────
   const fetchAll = async () => {
     try {
-      setLoading(true)
       setError(null)
       const { data: { session } } = await supabase.auth.getSession()
       const uid = session?.user?.id
       const userEmail = session?.user?.email
-      if (!uid) { setError('Not logged in.'); return }
+      if (!uid) { setError('Not logged in.'); setLoading(false); return }
+
+      // 1. Instantly hydrate from local cache on mount/tab focus so screen shows zero spinner lag
+      const cacheKey = `perf_data_cache_${uid}_${examLevel}`
+      const cached = await getCache(cacheKey)
+      if (cached) {
+        setData(cached)
+        setLoading(false)
+      } else if (!data) {
+        setLoading(true)
+      }
 
       // Parallelize all queries concurrently with timeouts so no single request blocks
       const [
@@ -1364,8 +1425,9 @@ export default function Performance({ navigation }) {
       const computed = computePerformanceData(currentLevel, rawDataRef.current)
       setData(computed)
 
-      // Sync readiness and streak to home cache
+      // Cache computed metrics for instant background rehydration
       if (computed) {
+        setCache(cacheKey, computed, 10 * 60 * 1000).catch(() => {})
         setCache('home_readiness', computed.readiness).catch(() => {})
         setCache('home_streak_days', computed.streak).catch(() => {})
       }
@@ -2072,7 +2134,7 @@ export default function Performance({ navigation }) {
             <Text style={styles.goalNote}>
               {data.todayMins > 0
                 ? (data.todayMins >= goalMins
-                    ? `🎉 Daily ${activeProfile.name} goal achieved!`
+                    ? `Daily ${activeProfile.name} goal achieved!`
                     : `${fmtMins(goalMins - data.todayMins)} remaining to reach your ${activeProfile.name} daily goal`)
                 : `0m completed today. Start practicing to reach your ${activeProfile.name} daily goal (${goalMins}m).`}
             </Text>
@@ -2102,11 +2164,6 @@ export default function Performance({ navigation }) {
               onPress={() => handleTrackSwitch('FE Subject A')}
               activeOpacity={0.7}
             >
-              <MaterialCommunityIcons
-                name="laptop"
-                size={14}
-                color={examLevel === 'FE Subject A' ? '#fff' : '#64748b'}
-              />
               <Text style={[styles.trackBtnText, examLevel === 'FE Subject A' && styles.trackBtnTextActive]}>
                 Subject A (Morning)
               </Text>
@@ -2117,11 +2174,6 @@ export default function Performance({ navigation }) {
               onPress={() => handleTrackSwitch('FE Subject B')}
               activeOpacity={0.7}
             >
-              <MaterialCommunityIcons
-                name="code-braces"
-                size={14}
-                color={examLevel === 'FE Subject B' ? '#fff' : '#64748b'}
-              />
               <Text style={[styles.trackBtnText, examLevel === 'FE Subject B' && styles.trackBtnTextActive]}>
                 Subject B (Afternoon)
               </Text>

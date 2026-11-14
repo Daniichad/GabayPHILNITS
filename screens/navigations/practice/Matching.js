@@ -1,22 +1,23 @@
 import React, { useState, useRef, useMemo, useEffect } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity,
-  StatusBar, Platform, ActivityIndicator, ScrollView, Modal } from 'react-native';
+  StatusBar, Platform, ActivityIndicator, ScrollView, Modal
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';;
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../../../supabase';
 import { resolveUserTargetExam } from '../../../utils/targetExam';
 import { getCache, setCache } from '../../../utils/cache';
 
-const NAVY        = '#0B2540';
-const MATCH_DELAY   = 450;
+const NAVY = '#0B2540';
+const MATCH_DELAY = 450;
 const MISMATCH_DELAY = 600;
 
 function buildCards(pairs) {
   const cards = [];
   pairs.forEach((p) => {
     cards.push({ key: p.id + '-term', pairId: p.id, label: p.term });
-    cards.push({ key: p.id + '-def',  pairId: p.id, label: p.definition });
+    cards.push({ key: p.id + '-def', pairId: p.id, label: p.definition });
   });
   // Shuffle
   for (let i = cards.length - 1; i > 0; i--) {
@@ -28,24 +29,24 @@ function buildCards(pairs) {
 
 export default function Matching({ navigation, route }) {
   const subject = route?.params?.subject;
-  const limit   = route?.params?.limit ?? 6; // 6 pairs = 12 cards (1 set default)
+  const limit = route?.params?.limit ?? 6; // 6 pairs = 12 cards (1 set default)
   const passedTargetExam = route?.params?.targetExam;
   const feSection = route?.params?.feSection; // 'Subject A' | 'Subject B'
   const passedReviewSpeed = route?.params?.reviewSpeed; // 'Quick' | 'Standard' | 'Detailed'
 
-  const [pairs,     setPairs]     = useState([]);
-  const [loading,   setLoading]   = useState(true);
-  const [error,     setError]     = useState(null);
-  const [userId,    setUserId]    = useState(null);
+  const [pairs, setPairs] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [userId, setUserId] = useState(null);
   const [startTime, setStartTime] = useState(null);
 
   // Game state
-  const [cards,     setCards]     = useState([]);
-  const [selected,  setSelected]  = useState([]);
-  const [matched,   setMatched]   = useState(new Set());
-  const [wrongFlash,setWrongFlash]= useState([]);
-  const [locked,    setLocked]    = useState(false);
-  const [mistakes,  setMistakes]  = useState(0);
+  const [cards, setCards] = useState([]);
+  const [selected, setSelected] = useState([]);
+  const [matched, setMatched] = useState(new Set());
+  const [wrongFlash, setWrongFlash] = useState([]);
+  const [locked, setLocked] = useState(false);
+  const [mistakes, setMistakes] = useState(0);
   const [activeTrack, setActiveTrack] = useState(passedTargetExam || 'IP');
 
   const timeoutRef = useRef(null);
@@ -75,24 +76,21 @@ export default function Matching({ navigation, route }) {
             const { data: uData } = await supabase.from('users').select('review_speed').ilike('email', uemail).maybeSingle();
             if (uData?.review_speed) {
               activeSpeed = String(uData.review_speed).trim();
-              setCache('user_review_speed', activeSpeed).catch(() => {});
+              setCache('user_review_speed', activeSpeed).catch(() => { });
             }
-          } catch (_) {}
+          } catch (_) { }
         }
       }
       if (!activeSpeed) activeSpeed = 'Standard';
 
       const IP_SUBJECTS = ['Technology', 'Management', 'Strategy'];
-      const FE_MORNING_SUBJECTS = [
-        'Computer Systems & Architecture',
-        'Networks & Security',
-        'IT Management & Strategy',
-        'Databases & SQL',
-      ];
+      const FE_MORNING_SUBJECTS = ['Technology', 'Management', 'Strategy'];
       const FE_AFTERNOON_SUBJECTS = [
-        'Algorithms & Programming',
-        'Algorithms & Data Structures',
-        'Security & System Design',
+        'General Aspects of Programming',
+        'Fundamental Elements for Programming Processes',
+        'Data Structures and Algorithms',
+        'Application of Programming to Various Fields',
+        'Ensuring Information Security',
       ];
 
       const normSection = String(feSection || '').trim().toLowerCase().replace(/_/g, ' ');
@@ -101,6 +99,32 @@ export default function Matching({ navigation, route }) {
       const trackSubjects = track === 'FE'
         ? (isSubjectB ? FE_AFTERNOON_SUBJECTS : FE_MORNING_SUBJECTS)
         : IP_SUBJECTS;
+
+      // Translate UI selected subject to database category names
+      const getDbCategories = (selectedSub) => {
+        if (!selectedSub || selectedSub === 'All') {
+          if (track === 'IP') return ['Technology', 'Management', 'Strategy'];
+          if (isSubjectB) return ['Algorithms & Programming', 'Algorithms & Data Structures', 'Security & System Design'];
+          return ['Technology', 'Management', 'Strategy', 'Computer Systems & Architecture', 'Databases & SQL', 'Networks & Security', 'IT Management & Strategy'];
+        }
+        if (track === 'IP') return [selectedSub];
+        if (isSubjectB) {
+          return ['Algorithms & Programming', 'Algorithms & Data Structures', 'Security & System Design'];
+        }
+        // FE Subject A
+        if (selectedSub === 'Technology') {
+          return ['Technology', 'Computer Systems & Architecture', 'Databases & SQL', 'Networks & Security'];
+        }
+        if (selectedSub === 'Management') {
+          return ['Management', 'IT Management & Strategy'];
+        }
+        if (selectedSub === 'Strategy') {
+          return ['Strategy', 'IT Management & Strategy'];
+        }
+        return [selectedSub];
+      };
+
+      const targetDbCategories = getDbCategories(subject);
 
       // Base query matching target exam and session
       const buildBaseQuery = () => {
@@ -113,15 +137,15 @@ export default function Matching({ navigation, route }) {
           q = q.eq('fe_section', activeSection);
         }
 
-        if (subject && subject !== 'All') {
-          q = q.eq('practice_categories.name', subject);
+        if (targetDbCategories.length === 1) {
+          q = q.eq('practice_categories.name', targetDbCategories[0]);
         } else {
-          q = q.in('practice_categories.name', trackSubjects);
+          q = q.in('practice_categories.name', targetDbCategories);
         }
         return q;
       };
 
-      // Prioritize pairs strictly matching user's review speed
+      // Strictly fetch pairs matching user's selected review speed
       const normalizedSpeed = (activeSpeed === 'Quick' || activeSpeed === 'Detailed') ? activeSpeed : 'Standard';
       let speedQ = buildBaseQuery().ilike('review_speed', normalizedSpeed);
 
@@ -130,19 +154,12 @@ export default function Matching({ navigation, route }) {
 
       let loadedPairs = speedMatched ? [...speedMatched] : [];
 
-      // Fallback / pad if specific speed has fewer items than requested limit
-      if (loadedPairs.length < limit) {
-        const existingIds = new Set(loadedPairs.map(p => p.id));
+      // If the specific speed has zero items for this narrow criteria, only then fetch from base query
+      if (loadedPairs.length === 0) {
         const fallbackQ = buildBaseQuery();
-        const { data: fallbackPairs } = await fallbackQ.limit(limit * 2);
+        const { data: fallbackPairs } = await fallbackQ.limit(limit);
         if (fallbackPairs) {
-          for (const p of fallbackPairs) {
-            if (!existingIds.has(p.id)) {
-              loadedPairs.push(p);
-              existingIds.add(p.id);
-              if (loadedPairs.length >= limit) break;
-            }
-          }
+          loadedPairs = [...fallbackPairs];
         }
       }
 
@@ -170,20 +187,20 @@ export default function Matching({ navigation, route }) {
     const taggedTitle = rawSetTitle.includes(`[${activeTrack}]`) ? rawSetTitle : `${rawSetTitle} [${activeTrack}]`;
 
     await supabase.from('matching_results').insert({
-      user_id:         userId,
-      set_title:       taggedTitle,
-      pairs_total:     pairs.length,
-      pairs_matched:   allMatched,
+      user_id: userId,
+      set_title: taggedTitle,
+      pairs_total: pairs.length,
+      pairs_matched: allMatched,
       mistakes,
-      completed:       allMatched === pairs.length,
+      completed: allMatched === pairs.length,
       duration_seconds: duration,
-      exam_level:      activeTrack,
+      exam_level: activeTrack,
     });
   };
 
   // ------------------------------------------------------------
   const totalPairs = pairs.length;
-  const allSolved  = matched.size === totalPairs && totalPairs > 0;
+  const allSolved = matched.size === totalPairs && totalPairs > 0;
 
   const handlePress = (idx) => {
     if (locked || selected.includes(idx) || matched.has(cards[idx]?.pairId)) return;
@@ -233,8 +250,8 @@ export default function Matching({ navigation, route }) {
   const getCardState = (idx) => {
     if (!cards[idx]) return 'default';
     if (matched.has(cards[idx].pairId)) return 'matched';
-    if (wrongFlash.includes(idx))       return 'wrong';
-    if (selected.includes(idx))         return 'selected';
+    if (wrongFlash.includes(idx)) return 'wrong';
+    if (selected.includes(idx)) return 'selected';
     return 'default';
   };
 
@@ -307,8 +324,8 @@ export default function Matching({ navigation, route }) {
               style={[
                 styles.card,
                 state === 'selected' && styles.cardSelected,
-                state === 'matched'  && styles.cardMatched,
-                state === 'wrong'    && styles.cardWrong,
+                state === 'matched' && styles.cardMatched,
+                state === 'wrong' && styles.cardWrong,
               ]}
             >
               <Text style={[styles.cardText, (state === 'selected' || state === 'matched' || state === 'wrong') && styles.cardTextActive]}>
@@ -329,26 +346,26 @@ export default function Matching({ navigation, route }) {
 }
 
 const styles = StyleSheet.create({
-  safeArea:        { flex: 1, backgroundColor: '#FFFFFF' },
-  header:          { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 8, paddingTop: 8, paddingBottom: 4 },
-  iconButton:      { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
-  headerTitle:     { fontSize: 17, fontWeight: '700', color: NAVY },
-  centered:        { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 28 },
-  loadingText:     { marginTop: 12, fontSize: 14, color: '#9AA5B1', fontWeight: '600' },
-  emptyText:       { marginTop: 12, fontSize: 14, color: '#9AA5B1', fontWeight: '600', textAlign: 'center' },
-  retryBtn:        { marginTop: 16, paddingHorizontal: 24, paddingVertical: 10, backgroundColor: NAVY, borderRadius: 20 },
-  retryText:       { color: '#fff', fontWeight: '700', fontSize: 14 },
-  scroll:          { flex: 1 },
-  grid:            { flexGrow: 1, flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', alignContent: 'center', justifyContent: 'center', gap: 10, paddingHorizontal: 16, paddingTop: 20 },
-  card:            { width: '30%', height: 100, borderRadius: 16, borderWidth: 1, borderColor: '#D7DEE8', backgroundColor: '#FFFFFF', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 6, marginBottom: 4, shadowColor: '#000', shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.06, shadowRadius: 6, elevation: 2 },
-  cardSelected:    { backgroundColor: NAVY, borderColor: NAVY },
-  cardMatched:     { backgroundColor: NAVY, borderColor: NAVY, opacity: 0.45 },
-  cardWrong:       { backgroundColor: '#B23B3B', borderColor: '#B23B3B' },
-  cardText:        { fontSize: 11, fontWeight: '600', color: NAVY, textAlign: 'center', lineHeight: 14 },
-  cardTextActive:  { color: '#FFFFFF' },
-  footer:          { paddingVertical: 20, alignItems: 'center' },
-  footerText:      { fontSize: 14, fontWeight: '600', color: '#6B7684' },
-  resetButton:     { marginTop: 18, paddingHorizontal: 32, paddingVertical: 12, borderRadius: 24, backgroundColor: NAVY },
+  safeArea: { flex: 1, backgroundColor: '#FFFFFF' },
+  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 8, paddingTop: 8, paddingBottom: 4 },
+  iconButton: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
+  headerTitle: { fontSize: 17, fontWeight: '700', color: NAVY },
+  centered: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 28 },
+  loadingText: { marginTop: 12, fontSize: 14, color: '#9AA5B1', fontWeight: '600' },
+  emptyText: { marginTop: 12, fontSize: 14, color: '#9AA5B1', fontWeight: '600', textAlign: 'center' },
+  retryBtn: { marginTop: 16, paddingHorizontal: 24, paddingVertical: 10, backgroundColor: NAVY, borderRadius: 20 },
+  retryText: { color: '#fff', fontWeight: '700', fontSize: 14 },
+  scroll: { flex: 1 },
+  grid: { flexGrow: 1, flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', alignContent: 'center', justifyContent: 'center', gap: 10, paddingHorizontal: 16, paddingTop: 20 },
+  card: { width: '30%', height: 100, borderRadius: 16, borderWidth: 1, borderColor: '#D7DEE8', backgroundColor: '#FFFFFF', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 6, marginBottom: 4, shadowColor: '#000', shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.06, shadowRadius: 6, elevation: 2 },
+  cardSelected: { backgroundColor: NAVY, borderColor: NAVY },
+  cardMatched: { backgroundColor: NAVY, borderColor: NAVY, opacity: 0.45 },
+  cardWrong: { backgroundColor: '#B23B3B', borderColor: '#B23B3B' },
+  cardText: { fontSize: 11, fontWeight: '600', color: NAVY, textAlign: 'center', lineHeight: 14 },
+  cardTextActive: { color: '#FFFFFF' },
+  footer: { paddingVertical: 20, alignItems: 'center' },
+  footerText: { fontSize: 14, fontWeight: '600', color: '#6B7684' },
+  resetButton: { marginTop: 18, paddingHorizontal: 32, paddingVertical: 12, borderRadius: 24, backgroundColor: NAVY },
   resetButtonText: { color: '#FFFFFF', fontWeight: '700', fontSize: 14 },
   overlayContainer: {
     flex: 1,
@@ -386,7 +403,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: NAVY,
   },
-  topMetaRow:    { width: '100%', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, paddingHorizontal: 22, marginTop: 10 },
+  topMetaRow: { width: '100%', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, paddingHorizontal: 22, marginTop: 10 },
   metaSubjectText: { fontSize: 13, fontWeight: '700', color: NAVY, textTransform: 'uppercase', letterSpacing: 0.5 },
   metaProgressText: { fontSize: 13, fontWeight: '600', color: '#9AA5B1' },
 });

@@ -183,17 +183,17 @@ function computeFocusListForLevel(targetLevel, attempt, mcqRaw, tfRaw) {
       role = 'Primary Focus'
       timePerDay = '35 mins/day'
       badgeColor = '#ef4444'
-      tagText = '🔥 Priority Focus'
+      tagText = 'Priority Focus'
     } else if (index === 1) {
       role = 'Secondary Focus'
       timePerDay = '25 mins/day'
       badgeColor = '#f59e0b'
-      tagText = '⚡ Target Practice'
+      tagText = 'Target Practice'
     } else {
       role = 'Maintenance'
       timePerDay = '15 mins/day'
       badgeColor = '#3b82f6'
-      tagText = '📘 Skill Maintenance'
+      tagText = 'Skill Maintenance'
     }
 
     const meta = (/** @type {Record<string, any>} */ (SUBJECT_METADATA))[item.subject] || {
@@ -297,6 +297,8 @@ export default function StudyPlan({ navigation }) {
   const [hasDiagnosticForPending, setHasDiagnosticForPending] = useState(false)
 
   const [reviewSpeed, setReviewSpeed] = useState('Standard')
+  const [savingSpeed, setSavingSpeed] = useState(false)
+  const [speedSavedNotice, setSpeedSavedNotice] = useState(false)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [diagnosticAttempt, setDiagnosticAttempt] = useState(/** @type {any} */ (null))
@@ -318,9 +320,16 @@ export default function StudyPlan({ navigation }) {
     return unsubscribe
   }, [navigation])
 
-  const loadStudyPlanData = async () => {
+  const loadStudyPlanData = async (preserveExistingSpeed = false) => {
     try {
       setLoading(true)
+
+      // 0. Instant Cache Check for instant responsiveness
+      const cachedSpeed = await getCache('user_review_speed')
+      if (cachedSpeed && !preserveExistingSpeed) {
+        setReviewSpeed(cachedSpeed)
+      }
+
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) {
         setLoading(false)
@@ -336,13 +345,16 @@ export default function StudyPlan({ navigation }) {
       ])
 
       // 1. User review speed
-      const userData = (uRes.status === 'fulfilled' && uRes.value?.data) ? uRes.value.data : null
-      if (userData?.review_speed && typeof userData.review_speed === 'string') {
-        let speed = userData.review_speed.charAt(0).toUpperCase() + userData.review_speed.slice(1).toLowerCase()
-        if (speed === 'Slow') speed = 'Detailed'
-        if (speed === 'Normal') speed = 'Standard'
-        if (speed === 'Fast') speed = 'Quick'
-        setReviewSpeed(speed)
+      if (!preserveExistingSpeed) {
+        const userData = (uRes.status === 'fulfilled' && uRes.value?.data) ? uRes.value.data : null
+        if (userData?.review_speed && typeof userData.review_speed === 'string') {
+          let speed = userData.review_speed.charAt(0).toUpperCase() + userData.review_speed.slice(1).toLowerCase()
+          if (speed === 'Slow') speed = 'Detailed'
+          if (speed === 'Normal') speed = 'Standard'
+          if (speed === 'Fast') speed = 'Quick'
+          setReviewSpeed(speed)
+          setCache('user_review_speed', speed).catch(() => {})
+        }
       }
 
       // 2. Target exam level
@@ -487,6 +499,34 @@ export default function StudyPlan({ navigation }) {
     setAlertMessage(message)
     setAlertType(type)
     setAlertVisible(true)
+  }
+
+  const handleSpeedSelect = async (newSpeed) => {
+    if (newSpeed === reviewSpeed) return
+
+    // 1. Instant optimistic UI update
+    setReviewSpeed(newSpeed)
+    setSpeedSavedNotice(true)
+    setTimeout(() => setSpeedSavedNotice(false), 2500)
+
+    // 2. Cache immediately
+    await setCache('user_review_speed', newSpeed).catch(() => {})
+
+    // 3. Persist asynchronously in background
+    setSavingSpeed(true)
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (user?.email) {
+        await supabase
+          .from('users')
+          .update({ review_speed: newSpeed })
+          .eq('email', user.email)
+      }
+    } catch (e) {
+      console.warn('Error updating review speed:', e)
+    } finally {
+      setSavingSpeed(false)
+    }
   }
 
   const handleSaveAndStart = async () => {
@@ -705,7 +745,20 @@ export default function StudyPlan({ navigation }) {
             </View>
 
             {/* Review Speed Selector */}
-            <Text style={styles.sectionTitle}>Review Speed</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+              <Text style={styles.sectionTitle}>Review Speed</Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                {savingSpeed && (
+                  <ActivityIndicator size="small" color="#c14954" style={{ marginRight: 6 }} />
+                )}
+                {speedSavedNotice && (
+                  <View style={styles.examSavedBadge}>
+                    <Feather name="check" size={12} color="#10b981" />
+                    <Text style={styles.examSavedBadgeText}>Speed Saved</Text>
+                  </View>
+                )}
+              </View>
+            </View>
             <Text style={styles.sectionSubtitle}>
               Adjust how quickly practice questions and study modules are recommended
             </Text>
@@ -717,7 +770,7 @@ export default function StudyPlan({ navigation }) {
                   <TouchableOpacity
                     key={speed}
                     activeOpacity={0.8}
-                    onPress={() => setReviewSpeed(speed)}
+                    onPress={() => handleSpeedSelect(speed)}
                     style={[
                       styles.speedTab,
                       isSelected && styles.speedTabActive

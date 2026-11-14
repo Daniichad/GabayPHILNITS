@@ -11,6 +11,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../../../supabase';
+import { getNextPhilNitsExamCycle } from '../../../utils/dateHelper';
 
 // ---------------------------------------------------------------------------
 // PHILNITS STATIC METADATA & CONFIG
@@ -71,25 +72,6 @@ function ScoreGauge({ correct = 0, incorrect = 0, score = 0, width = 120 }) {
   );
 }
 
-// Dynamic computation of next PhilNITS exam cycle (April / October semi-annual cycles)
-function getNextPhilnitsExamDate() {
-  const now = new Date();
-  const currentYear = now.getFullYear();
-  const candidateYears = [currentYear, currentYear + 1];
-  /** @type {{ date: Date, label: string }[]} */
-  const candidates = [];
-
-  candidateYears.forEach((y) => {
-    // April cycle: 4th Sunday of April
-    candidates.push({ date: new Date(y, 3, 26), label: `April ${y} Cycle` });
-    // October cycle: 4th Sunday of October
-    candidates.push({ date: new Date(y, 9, 25), label: `October ${y} Cycle` });
-  });
-
-  const future = candidates.filter((c) => c.date.getTime() > now.getTime()).sort((a, b) => a.date.getTime() - b.date.getTime());
-  return future[0] || candidates[0];
-}
-
 /**
  * @param {{ navigation: any, route?: any }} props
  */
@@ -105,12 +87,10 @@ export default function MockExamHome({ navigation, route }) {
 
     const computeSchedule = async () => {
       try {
-        const nextCycle = getNextPhilnitsExamDate();
-        const now = new Date();
-        const diffDays = Math.ceil((nextCycle.date.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+        const nextCycle = getNextPhilNitsExamCycle();
         if (active) {
-          setDaysLeft(diffDays > 0 ? diffDays : 0);
-          setExamCycleLabel(`PhilNITS Exam (${nextCycle.label})`);
+          setDaysLeft(nextCycle.daysLeft);
+          setExamCycleLabel(`PhilNITS Exam (${nextCycle.shortLabel})`);
         }
       } catch (e) {
         console.warn('Schedule calculation error:', e);

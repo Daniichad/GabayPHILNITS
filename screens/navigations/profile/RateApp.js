@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import {
-  Image, Modal, Platform, ScrollView, StatusBar, StyleSheet,
+  Image, KeyboardAvoidingView, Modal, Platform, ScrollView, StatusBar, StyleSheet,
   Text, TextInput, TouchableOpacity, View, ActivityIndicator
 } from 'react-native'
 import { Feather, FontAwesome, Ionicons } from '@expo/vector-icons'
@@ -281,77 +281,82 @@ export default function RateApp({ navigation }) {
         animationType="slide"
         onRequestClose={() => setRatingModalOpen(false)}
       >
-        <TouchableOpacity
-          style={styles.backdrop}
-          activeOpacity={1}
-          onPress={() => setRatingModalOpen(false)}
-        />
-        <View style={styles.sheet}>
-          <View style={styles.sheetTop}>
-            <Image
-              source={require('../../../assets/loading.png')}
-              style={styles.sheetLogo}
-              resizeMode="contain"
+        <KeyboardAvoidingView
+          style={{ flex: 1 }}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        >
+          <TouchableOpacity
+            style={styles.backdrop}
+            activeOpacity={1}
+            onPress={() => setRatingModalOpen(false)}
+          />
+          <View style={styles.sheet}>
+            <View style={styles.sheetTop}>
+              <Image
+                source={require('../../../assets/loading.png')}
+                style={styles.sheetLogo}
+                resizeMode="contain"
+              />
+              <View style={styles.sheetTitleCol}>
+                <Text style={styles.sheetAppTitle}>GABAY PhilNITS</Text>
+                <Text style={styles.sheetAppSub}>
+                  Your review is public and includes your profile name and photo
+                </Text>
+              </View>
+            </View>
+
+            {/* Stars */}
+            <View style={styles.starsContainer}>
+              {[1, 2, 3, 4, 5].map((val) => (
+                <TouchableOpacity
+                  key={val}
+                  onPress={() => handleStarPress(val)}
+                  style={{ padding: 6 }}
+                  activeOpacity={0.7}
+                >
+                  <FontAwesome
+                    name={val <= rating ? 'star' : 'star-o'}
+                    size={32}
+                    color={val <= rating ? '#fbbf24' : '#cbd5e1'}
+                  />
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            {/* Comment Input */}
+            <TextInput
+              style={styles.commentInput}
+              value={comment}
+              onChangeText={setComment}
+              placeholder="(Optional) Tell others what you think"
+              placeholderTextColor="#94a3b8"
+              multiline
             />
-            <View style={styles.sheetTitleCol}>
-              <Text style={styles.sheetAppTitle}>GABAY PhilNITS</Text>
-              <Text style={styles.sheetAppSub}>
-                Your review is public and includes your profile name and photo
-              </Text>
+            <Text style={styles.publicNote}>Public Review</Text>
+
+            {/* Actions */}
+            <View style={styles.actionsRow}>
+              <TouchableOpacity
+                style={styles.btnSecondary}
+                onPress={() => setRatingModalOpen(false)}
+              >
+                <Text style={styles.btnSecondaryText}>Not now</Text>
+              </TouchableOpacity>
+
+               <TouchableOpacity
+                style={[styles.btnPrimary, submitting && { opacity: 0.7 }]}
+                onPress={handleSubmit}
+                disabled={submitting}
+              >
+                {submitting ? (
+                  <ActivityIndicator color="#fff" size="small" />
+                ) : (
+                  <Text style={styles.btnPrimaryText}>Submit</Text>
+                )}
+              </TouchableOpacity>
             </View>
           </View>
-
-          {/* Stars */}
-          <View style={styles.starsContainer}>
-            {[1, 2, 3, 4, 5].map((val) => (
-              <TouchableOpacity
-                key={val}
-                onPress={() => handleStarPress(val)}
-                style={{ padding: 6 }}
-                activeOpacity={0.7}
-              >
-                <FontAwesome
-                  name={val <= rating ? 'star' : 'star-o'}
-                  size={32}
-                  color={val <= rating ? '#fbbf24' : '#cbd5e1'}
-                />
-              </TouchableOpacity>
-            ))}
-          </View>
-
-          {/* Comment Input */}
-          <TextInput
-            style={styles.commentInput}
-            value={comment}
-            onChangeText={setComment}
-            placeholder="(Optional) Tell others what you think"
-            placeholderTextColor="#94a3b8"
-            multiline
-          />
-          <Text style={styles.publicNote}>Public Review</Text>
-
-          {/* Actions */}
-          <View style={styles.actionsRow}>
-            <TouchableOpacity
-              style={styles.btnSecondary}
-              onPress={() => setRatingModalOpen(false)}
-            >
-              <Text style={styles.btnSecondaryText}>Not now</Text>
-            </TouchableOpacity>
-
-             <TouchableOpacity
-              style={[styles.btnPrimary, submitting && { opacity: 0.7 }]}
-              onPress={handleSubmit}
-              disabled={submitting}
-            >
-              {submitting ? (
-                <ActivityIndicator color="#fff" size="small" />
-              ) : (
-                <Text style={styles.btnPrimaryText}>Submit</Text>
-              )}
-            </TouchableOpacity>
-          </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* ── Success Dialog Bottom Sheet ── */}

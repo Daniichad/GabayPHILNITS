@@ -89,14 +89,24 @@ export default function App() {
 			// 1. If online, check Supabase session
 			if (isOnline) {
 				try {
-					const { data: { session }, error } = await supabase.auth.getSession()
-					if (!error && session?.user) {
-						activeUser = session.user
-						await saveUserSession(session.user)
+					const { data, error } = await supabase.auth.getSession()
+					if (error) {
+						const errMsg = error.message || ''
+						if (errMsg.toLowerCase().includes('refresh token') || error.status === 400) {
+							console.warn('Stale/invalid refresh token detected, clearing session:', errMsg)
+							await supabase.auth.signOut().catch(() => {})
+						}
+					} else if (data?.session?.user) {
+						activeUser = data.session.user
+						await saveUserSession(data.session.user)
 						precachePracticeContent().catch(() => { })
 					}
 				} catch (netErr) {
 					console.warn('Network issue fetching session, will check local cache:', netErr)
+					const errMsg = netErr?.message || ''
+					if (errMsg.toLowerCase().includes('refresh token')) {
+						await supabase.auth.signOut().catch(() => {})
+					}
 				}
 			}
 
