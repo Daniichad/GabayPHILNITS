@@ -8,7 +8,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import * as ImagePicker from 'expo-image-picker'
 import { supabase } from '../../../utils/supabase'
 import { clearUserSession } from '../../../utils/database'
-import { getCache, setCache } from '../../../utils/cache'
+import { getCache, setCache, clearCache } from '../../../utils/cache'
 
 const NAVY = '#0f2747'
 const ACCENT = '#d85e67'
@@ -95,7 +95,12 @@ export default function Profile({ session: initialSession, navigation }) {
 
   const handleLogout = async () => {
     setLogoutVisible(false)
-    await clearUserSession()
+    try {
+      await clearUserSession()
+      await clearCache()
+    } catch (e) {
+      console.warn('Error clearing cache on profile logout:', e?.message || e)
+    }
     const { error } = await supabase.auth.signOut()
     if (error) Alert.alert('Error', error.message)
   }

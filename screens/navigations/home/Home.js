@@ -534,7 +534,7 @@ export default function Home({ session, navigation, route }) {
         }))
       } else {
         // Strategy 2: Query points_ledger directly
-        let ledgerQuery = supabase.from('points_ledger').select('user_id, points, created_at')
+        let ledgerQuery = supabase.from('points_ledger').select('user_id, points, created_at').limit(100)
         if (selectedTimeframe === 'monthly') {
           const startOfMonth = new Date()
           startOfMonth.setDate(1)
@@ -560,69 +560,6 @@ export default function Home({ session, navigation, route }) {
           leaderboardData = Object.keys(userMap).map(uid => ({
             user_id: uid,
             points: userMap[uid],
-          }))
-        } else {
-          // Strategy 3: Legacy fallback calculations
-          const { data: publicUsers } = await supabase
-            .from('users')
-            .select('id, email, fullname, role')
-            .neq('role', 'admin')
-
-          const { data: attempts } = await supabase
-            .from('mock_exam_attempts')
-            .select('user_id, correct_count')
-            .eq('status', 'completed')
-
-          const { data: mcqRaw } = await supabase.from('multiple_choice_results').select('user_id, is_correct')
-          const { data: tfRaw } = await supabase.from('true_false_results').select('user_id, is_correct')
-          const { data: matchRaw } = await supabase.from('matching_results').select('user_id, completed, mistakes')
-          const { data: sessions } = await supabase.from('flashcard_sessions').select('user_id, completed')
-
-          const userScores = {}
-          if (publicUsers) {
-            publicUsers.forEach(u => {
-              userScores[u.id] = { name: extractFirstName(u.fullname, u.email), points: 0 }
-            })
-          }
-          if (attempts) {
-            attempts.forEach(att => {
-              if (userScores[att.user_id]) {
-                userScores[att.user_id].points += 150 + (att.correct_count || 0) * 2
-              }
-            })
-          }
-          if (mcqRaw) {
-            mcqRaw.forEach(r => {
-              if (userScores[r.user_id]) {
-                userScores[r.user_id].points += 10 + (r.is_correct ? 5 : 0)
-              }
-            })
-          }
-          if (tfRaw) {
-            tfRaw.forEach(r => {
-              if (userScores[r.user_id]) {
-                userScores[r.user_id].points += 10 + (r.is_correct ? 5 : 0)
-              }
-            })
-          }
-          if (matchRaw) {
-            matchRaw.forEach(r => {
-              if (userScores[r.user_id] && r.completed) {
-                userScores[r.user_id].points += 50 + Math.max(10, 30 - (r.mistakes || 0) * 2)
-              }
-            })
-          }
-          if (sessions) {
-            sessions.forEach(s => {
-              if (userScores[s.user_id]) {
-                userScores[s.user_id].points += s.completed ? 30 : 10
-              }
-            })
-          }
-
-          leaderboardData = Object.keys(userScores).map(uid => ({
-            user_id: uid,
-            points: userScores[uid].points,
           }))
         }
       }
@@ -1186,13 +1123,6 @@ export default function Home({ session, navigation, route }) {
           <View style={styles.quoteHeader}>
             <Feather name="message-circle" size={16} color="#b45309" />
             <Text style={styles.quoteLabel}>  Daily Motivation</Text>
-            <TouchableOpacity
-              style={styles.refreshQuoteBtn}
-              onPress={() => fetchQuote(true)}
-              activeOpacity={0.7}
-            >
-              <Feather name="refresh-cw" size={14} color="#b45309" />
-            </TouchableOpacity>
           </View>
           {quoteLoading ? (
             <ActivityIndicator size="small" color="#b45309" style={{ marginVertical: 18 }} />

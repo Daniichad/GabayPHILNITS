@@ -15,6 +15,7 @@ import {
 } from 'react-native'
 import { Ionicons } from '@expo/vector-icons'
 import { Calendar } from 'react-native-calendars'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { supabase } from '../../utils/supabase'
 import { saveUserCache, saveUserSession } from '../../utils/database'
 
@@ -95,6 +96,7 @@ const MONTH_NAMES = [
 ]
 
 export default function PersonalInfo({ navigation }) {
+  const insets = useSafeAreaInsets()
   const [birthdate, setBirthdate] = React.useState('')
   const [contactNumber, setContactNumber] = React.useState('')
   const [countryCode, setCountryCode] = React.useState('+63')
@@ -389,7 +391,10 @@ export default function PersonalInfo({ navigation }) {
     >
       <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
       <ScrollView
-        contentContainerStyle={styles.scrollContent}
+        contentContainerStyle={[
+          styles.scrollContent,
+          { paddingBottom: Math.max(insets.bottom + 24, 40) }
+        ]}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >

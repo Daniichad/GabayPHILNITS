@@ -7,13 +7,16 @@ import {
   View,
   FlatList,
   Dimensions,
+  Platform,
 } from 'react-native'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons'
 
 const { width, height } = Dimensions.get('window')
 
 export default function Onboarding({ navigation }) {
+  const insets = useSafeAreaInsets()
   const [currentIndex, setCurrentIndex] = useState(0)
   const flatListRef = useRef(null)
 
@@ -158,14 +161,14 @@ export default function Onboarding({ navigation }) {
       />
 
       {/* Sticky Header with Skip Button */}
-      <View style={styles.stickyHeader}>
+      <View style={[styles.stickyHeader, { top: Math.max(insets.top + 10, 48) }]}>
         <TouchableOpacity onPress={handleSkip}>
           <Text style={styles.skipText}>Skip</Text>
         </TouchableOpacity>
       </View>
 
       {/* Sticky Dots Indicator */}
-      <View style={styles.stickyDotsContainer}>
+      <View style={[styles.stickyDotsContainer, { bottom: Math.max(insets.bottom + 74, 88) }]}>
         {onboardingData.map((_, index) => (
           <TouchableOpacity
             key={index}
@@ -193,7 +196,7 @@ export default function Onboarding({ navigation }) {
       </View>
 
       {/* Sticky Bottom Button */}
-      <View style={styles.stickyButton}>
+      <View style={[styles.stickyButton, { bottom: Math.max(insets.bottom + 14, 24) }]}>
         <TouchableOpacity
           style={[
             styles.actionButton,
@@ -317,7 +320,6 @@ const styles = StyleSheet.create({
   },
   stickyDotsContainer: {
     position: 'absolute',
-    bottom: 80,
     left: 0,
     right: 0,
     flexDirection: 'row',
@@ -334,7 +336,6 @@ const styles = StyleSheet.create({
   },
   stickyButton: {
     position: 'absolute',
-    bottom: 20,
     left: 24,
     right: 24,
     zIndex: 10,

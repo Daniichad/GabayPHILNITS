@@ -1,6 +1,7 @@
 import React, { useRef, useState, useEffect } from 'react'
 import {
   Animated,
+  Keyboard,
   KeyboardAvoidingView,
   Platform,
   StatusBar,
@@ -16,7 +17,8 @@ import {
 } from 'react-native'
 import { Feather } from '@expo/vector-icons'
 import { supabase } from '../../utils/supabase'
-import { getUserCache, saveUserCache, getActiveUserSession } from '../../utils/database'
+import { getUserCache, saveUserCache, getActiveUserSession, clearUserSession } from '../../utils/database'
+import { clearCache } from '../../utils/cache'
 import { sendEmailJsOtp } from '../../utils/emailjs'
 
 const NAVY = '#0f1e35'
@@ -104,6 +106,24 @@ export default function PinAuth({ navigation }) {
   const [generatedForgotOtp, setGeneratedForgotOtp] = useState(null)
   const [forgotLoading, setForgotLoading] = useState(false)
   const [forgotCooldown, setForgotCooldown] = useState(0)
+  const [keyboardHeight, setKeyboardHeight] = useState(0)
+
+  useEffect(() => {
+    const showSub = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
+      (e) => {
+        if (e?.endCoordinates?.height) setKeyboardHeight(e.endCoordinates.height)
+      }
+    )
+    const hideSub = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide',
+      () => setKeyboardHeight(0)
+    )
+    return () => {
+      showSub.remove()
+      hideSub.remove()
+    }
+  }, [])
 
   const locked = attempts >= MAX_ATTEMPTS
 
@@ -278,7 +298,11 @@ export default function PinAuth({ navigation }) {
 
   const handleSignOut = async () => {
     try {
+      await clearUserSession()
+      await clearCache()
       await supabase.auth.signOut()
+    } catch (e) {
+      console.warn('Sign out cleanup notice:', e?.message || e)
     } finally {
       navigation.replace('Login')
     }
@@ -438,7 +462,10 @@ export default function PinAuth({ navigation }) {
             activeOpacity={1}
             onPress={closeForgotModal}
           />
-          <View style={styles.sheet}>
+          <View style={[
+            styles.sheet,
+            Platform.OS === 'android' && keyboardHeight > 0 && { paddingBottom: Math.max(keyboardHeight, 28) }
+          ]}>
             <View style={styles.sheetHeader}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
               {forgotStep === 'verify' && (

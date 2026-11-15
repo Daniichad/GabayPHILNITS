@@ -25,9 +25,7 @@ const ROUTE_TAB_MAP = {
   AccountInformation: 4,
   Settings: 4,
   HelpCenter: 4,
-  Report: 4,
   TermsConditions: 4,
-  RateApp: 4,
   AboutApp: 4,
 }
 
@@ -89,8 +87,11 @@ export default function BottomNav({ navigation, activeRoute }) {
     navigation?.dispatch(StackActions.replace(tab.route))
   }
 
+  const navHeight = 60 + Math.max(insets.bottom, 8)
+  const navPaddingBottom = Math.max(insets.bottom, 8)
+
   return (
-    <View style={[styles.container, { paddingBottom: Math.max(insets.bottom, 8), height: 60 + insets.bottom }]}>
+    <View style={[styles.container, { paddingBottom: navPaddingBottom, height: navHeight }]}>
       {TABS.map((tab, index) => {
         const active = index === activeIndex
         return (

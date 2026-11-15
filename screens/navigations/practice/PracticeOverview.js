@@ -6,8 +6,9 @@ import {
 import { Feather, Ionicons } from '@expo/vector-icons'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { supabase } from '../../../supabase'
-import { resolveUserTargetExam } from '../../../utils/targetExam'
 import { getCache, setCache } from '../../../utils/cache'
+import { resolveUserTargetExam } from '../../../utils/targetExam'
+import { getModalBottomPadding } from '../../../utils/responsiveLayout'
 
 const NAVY = '#0f2747'
 const ACCENT = '#d85e67'
@@ -52,6 +53,24 @@ const IP_SUBJECTS = [
   'Strategy',
 ]
 
+const IP_HIERARCHY = {
+  Technology: {
+    'Basic Theory': ['Basic Theory', 'Algorithms and Programming'],
+    'Computer Systems': ['Computer Components', 'Hardware', 'Software', 'System Components'],
+    'Technical Elements': ['Databases', 'Information Design', 'Information Media', 'Network', 'Security'],
+  },
+  Management: {
+    'Development Technology': ['Software Development Management Techniques', 'System Development Technology'],
+    'Project Management': ['Project Management'],
+    'Service Management': ['Service Management', 'System Audit'],
+  },
+  Strategy: {
+    'Business Strategy': ['Business Industry', 'Business Strategy Management', 'Technology Strategy Management'],
+    'Companies and Legal Affairs': ['Corporate Activities', 'Legal Affairs'],
+    'System Strategy': ['System Planning', 'System Strategy'],
+  },
+}
+
 const FE_MORNING_SUBJECTS = [
   'All',
   'Technology',
@@ -78,22 +97,30 @@ export default function PracticeOverview({ navigation, route }) {
 
   const routeTargetExam = route?.params?.targetExam
   const routeSubject = route?.params?.subject
+  const routeMajorCategory = route?.params?.majorCategory
+  const routeMinorCategory = route?.params?.minorCategory
   const routeReviewSpeed = route?.params?.reviewSpeed
 
   const [userTargetExam, setUserTargetExam] = useState(routeTargetExam || null)
   const [loading, setLoading] = useState(true)
   const [feSection, setFeSection] = useState('Subject A') // 'Subject A' | 'Subject B'
   const [selectedSubject, setSelectedSubject] = useState(routeSubject || 'All')
+  const [selectedMajorCategory, setSelectedMajorCategory] = useState(routeMajorCategory || 'All')
+  const [selectedMinorCategory, setSelectedMinorCategory] = useState(routeMinorCategory || 'All')
   const [selectedLimit, setSelectedLimit] = useState(10)
   const [selectedSets, setSelectedSets] = useState(1)
   const [userReviewSpeed, setUserReviewSpeed] = useState('Standard')
   const [selectedSpeed, setSelectedSpeed] = useState(routeReviewSpeed || 'Standard')
 
   const [subjectPickerOpen, setSubjectPickerOpen] = useState(false)
+  const [majorPickerOpen, setMajorPickerOpen] = useState(false)
+  const [minorPickerOpen, setMinorPickerOpen] = useState(false)
   const [limitPickerOpen, setLimitPickerOpen] = useState(false)
 
   // Bottom sheet slide animations (same as logout transition: bottom to top)
   const subjectSlideAnim = useRef(new Animated.Value(400)).current
+  const majorSlideAnim = useRef(new Animated.Value(400)).current
+  const minorSlideAnim = useRef(new Animated.Value(400)).current
   const limitSlideAnim = useRef(new Animated.Value(400)).current
 
   useEffect(() => {
@@ -107,6 +134,30 @@ export default function PracticeOverview({ navigation, route }) {
       subjectSlideAnim.setValue(400)
     }
   }, [subjectPickerOpen])
+
+  useEffect(() => {
+    if (majorPickerOpen) {
+      Animated.timing(majorSlideAnim, {
+        toValue: 0,
+        duration: 250,
+        useNativeDriver: true,
+      }).start()
+    } else {
+      majorSlideAnim.setValue(400)
+    }
+  }, [majorPickerOpen])
+
+  useEffect(() => {
+    if (minorPickerOpen) {
+      Animated.timing(minorSlideAnim, {
+        toValue: 0,
+        duration: 250,
+        useNativeDriver: true,
+      }).start()
+    } else {
+      minorSlideAnim.setValue(400)
+    }
+  }, [minorPickerOpen])
 
   useEffect(() => {
     if (limitPickerOpen) {
@@ -130,6 +181,26 @@ export default function PracticeOverview({ navigation, route }) {
     })
   }
 
+  const closeMajorPicker = () => {
+    Animated.timing(majorSlideAnim, {
+      toValue: 400,
+      duration: 200,
+      useNativeDriver: true,
+    }).start(() => {
+      setMajorPickerOpen(false)
+    })
+  }
+
+  const closeMinorPicker = () => {
+    Animated.timing(minorSlideAnim, {
+      toValue: 400,
+      duration: 200,
+      useNativeDriver: true,
+    }).start(() => {
+      setMinorPickerOpen(false)
+    })
+  }
+
   const closeLimitPicker = () => {
     Animated.timing(limitSlideAnim, {
       toValue: 400,
@@ -141,26 +212,96 @@ export default function PracticeOverview({ navigation, route }) {
   }
 
   const isMatching = typeId === 'Matching'
+  const normExam = String(userTargetExam || 'IP').toUpperCase()
+  const isFE = normExam.includes('FE')
+  const isIP = !isFE
+
   const subjectsList = userTargetExam === 'FE'
     ? (feSection === 'Subject B' ? FE_AFTERNOON_SUBJECTS : FE_MORNING_SUBJECTS)
     : IP_SUBJECTS
 
+  // Calculate available Major Categories based on selected Subject Area
+  const availableMajorCategories = ['All']
+  if (isIP) {
+    if (selectedSubject && selectedSubject !== 'All' && IP_HIERARCHY[selectedSubject]) {
+      availableMajorCategories.push(...Object.keys(IP_HIERARCHY[selectedSubject]))
+    } else {
+      // If "All", show all unique major categories across all subjects
+      Object.keys(IP_HIERARCHY).forEach(sub => {
+        Object.keys(IP_HIERARCHY[sub]).forEach(m => {
+          if (!availableMajorCategories.includes(m)) availableMajorCategories.push(m)
+        })
+      })
+    }
+  }
+
+  // Calculate available Minor Categories based on selected Subject and Major
+  const availableMinorCategories = ['All']
+  if (isIP) {
+    if (selectedSubject !== 'All' && IP_HIERARCHY[selectedSubject]) {
+      if (selectedMajorCategory !== 'All' && IP_HIERARCHY[selectedSubject][selectedMajorCategory]) {
+        availableMinorCategories.push(...IP_HIERARCHY[selectedSubject][selectedMajorCategory])
+      } else {
+        Object.values(IP_HIERARCHY[selectedSubject]).forEach(topicList => {
+          topicList.forEach(t => {
+            if (!availableMinorCategories.includes(t)) availableMinorCategories.push(t)
+          })
+        })
+      }
+    } else {
+      // All subjects
+      if (selectedMajorCategory !== 'All') {
+        Object.keys(IP_HIERARCHY).forEach(sub => {
+          if (IP_HIERARCHY[sub][selectedMajorCategory]) {
+            IP_HIERARCHY[sub][selectedMajorCategory].forEach(t => {
+              if (!availableMinorCategories.includes(t)) availableMinorCategories.push(t)
+            })
+          }
+        })
+      } else {
+        Object.keys(IP_HIERARCHY).forEach(sub => {
+          Object.values(IP_HIERARCHY[sub]).forEach(topicList => {
+            topicList.forEach(t => {
+              if (!availableMinorCategories.includes(t)) availableMinorCategories.push(t)
+            })
+          })
+        })
+      }
+    }
+  }
+
   useEffect(() => {
     let isMounted = true
-    const fetchTargetExam = async () => {
+    const initOverview = async () => {
       try {
-        // Check cache first for review speed
-        const cachedSpeed = await getCache('user_review_speed')
-        if (cachedSpeed && isMounted) {
-          setUserReviewSpeed(cachedSpeed)
-          if (!routeReviewSpeed) setSelectedSpeed(cachedSpeed)
+        // 1. Instant cache read: unlocks UI immediately with zero spinner wait
+        const [cachedSpeed, cachedTrack] = await Promise.all([
+          getCache('user_review_speed'),
+          getCache('user_target_exam')
+        ])
+
+        if (isMounted) {
+          if (cachedSpeed) {
+            setUserReviewSpeed(cachedSpeed)
+            if (!routeReviewSpeed) setSelectedSpeed(cachedSpeed)
+          }
+          if (cachedTrack) {
+            setUserTargetExam(cachedTrack)
+          }
+          // Immediately unblock spinner if we already have the track or route target
+          if (cachedTrack || routeTargetExam) {
+            setLoading(false)
+          }
         }
 
-        const { data: { user } } = await supabase.auth.getUser()
+        // 2. Fast non-blocking background verification via session (avoids network getUser roundtrip)
+        const { data: { session } } = await supabase.auth.getSession()
+        const currentUser = session?.user
+
         const [track, uRes] = await Promise.all([
-          resolveUserTargetExam(user?.id, routeTargetExam || userTargetExam || 'IP'),
-          user?.email
-            ? supabase.from('users').select('review_speed').ilike('email', user.email).maybeSingle()
+          resolveUserTargetExam(currentUser?.id, routeTargetExam || cachedTrack || userTargetExam || 'IP'),
+          currentUser?.email
+            ? supabase.from('users').select('review_speed').ilike('email', currentUser.email).maybeSingle()
             : Promise.resolve({ data: null })
         ])
 
@@ -184,8 +325,8 @@ export default function PracticeOverview({ navigation, route }) {
       }
     }
 
-    fetchTargetExam()
-    const unsubscribe = navigation?.addListener?.('focus', fetchTargetExam)
+    initOverview()
+    const unsubscribe = navigation?.addListener?.('focus', initOverview)
     return () => {
       isMounted = false
       unsubscribe?.()
@@ -198,6 +339,8 @@ export default function PracticeOverview({ navigation, route }) {
 
     navigation.replace(typeId, {
       subject: selectedSubject === 'All' ? null : selectedSubject,
+      majorCategory: selectedMajorCategory === 'All' ? null : selectedMajorCategory,
+      minorCategory: selectedMinorCategory === 'All' ? null : selectedMinorCategory,
       limit: isMatching ? selectedSets * 6 : selectedLimit, // for Matching, 1 set = 6 pairs (12 cards)
       sets: selectedSets,
       targetExam: userTargetExam || 'IP',
@@ -317,7 +460,7 @@ export default function PracticeOverview({ navigation, route }) {
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 }}>
                 <Text style={styles.sectionHeader}>Subject Area</Text>
                 <Text style={{ fontSize: 11.5, fontWeight: '700', color: '#2563eb' }}>
-                  {userTargetExam === 'FE' ? 'Fundamental IT Engineer (FE)' : 'IT Passport (IP)'}
+                  {isFE ? 'Fundamental IT Engineer (FE)' : 'IT Passport (IP)'}
                 </Text>
               </View>
               <TouchableOpacity
@@ -327,6 +470,36 @@ export default function PracticeOverview({ navigation, route }) {
               >
                 <Text style={styles.pickerTriggerText}>
                   {selectedSubject}
+                </Text>
+                <Feather name="chevron-down" size={16} color={NAVY} />
+              </TouchableOpacity>
+            </View>
+
+            {/* Major Category Dropdown selection card */}
+            <View style={styles.flatSection}>
+              <Text style={styles.sectionHeader}>Major Category</Text>
+              <TouchableOpacity
+                style={styles.pickerTrigger}
+                activeOpacity={0.7}
+                onPress={() => setMajorPickerOpen(true)}
+              >
+                <Text style={styles.pickerTriggerText}>
+                  {selectedMajorCategory}
+                </Text>
+                <Feather name="chevron-down" size={16} color={NAVY} />
+              </TouchableOpacity>
+            </View>
+
+            {/* Minor Category Dropdown selection card */}
+            <View style={styles.flatSection}>
+              <Text style={styles.sectionHeader}>Minor Category</Text>
+              <TouchableOpacity
+                style={styles.pickerTrigger}
+                activeOpacity={0.7}
+                onPress={() => setMinorPickerOpen(true)}
+              >
+                <Text style={styles.pickerTriggerText}>
+                  {selectedMinorCategory}
                 </Text>
                 <Feather name="chevron-down" size={16} color={NAVY} />
               </TouchableOpacity>
@@ -371,7 +544,7 @@ export default function PracticeOverview({ navigation, route }) {
                 activeOpacity={1}
                 onPress={closeSubjectPicker}
               />
-              <Animated.View style={[styles.pickerSheet, { transform: [{ translateY: subjectSlideAnim }] }]}>
+              <Animated.View style={[styles.pickerSheet, { paddingBottom: getModalBottomPadding(insets, 16), transform: [{ translateY: subjectSlideAnim }] }]}>
                 <View style={styles.sheetHeader}>
                   <Text style={styles.sheetTitle}>Choose Subject Area</Text>
                   <TouchableOpacity onPress={closeSubjectPicker}>
@@ -387,6 +560,8 @@ export default function PracticeOverview({ navigation, route }) {
                     ]}
                     onPress={() => {
                       setSelectedSubject(sub)
+                      setSelectedMajorCategory('All')
+                      setSelectedMinorCategory('All')
                       closeSubjectPicker()
                     }}
                   >
@@ -405,6 +580,103 @@ export default function PracticeOverview({ navigation, route }) {
             </View>
           </Modal>
 
+          {/* ── Major Category Picker Modal Bottom Sheet ── */}
+          <Modal
+            visible={majorPickerOpen}
+            transparent
+            animationType="fade"
+            onRequestClose={closeMajorPicker}
+          >
+            <View style={styles.modalContainer}>
+              <TouchableOpacity
+                style={styles.modalBackdrop}
+                activeOpacity={1}
+                onPress={closeMajorPicker}
+              />
+              <Animated.View style={[styles.pickerSheet, { paddingBottom: getModalBottomPadding(insets, 16), transform: [{ translateY: majorSlideAnim }] }]}>
+                <View style={styles.sheetHeader}>
+                  <Text style={styles.sheetTitle}>Choose Major Category</Text>
+                  <TouchableOpacity onPress={closeMajorPicker}>
+                    <Feather name="x" size={22} color={NAVY} />
+                  </TouchableOpacity>
+                </View>
+                {availableMajorCategories.map((major) => (
+                  <TouchableOpacity
+                    key={major}
+                    style={[
+                      styles.sheetOption,
+                      selectedMajorCategory === major && styles.sheetOptionActive,
+                    ]}
+                    onPress={() => {
+                      setSelectedMajorCategory(major)
+                      setSelectedMinorCategory('All')
+                      closeMajorPicker()
+                    }}
+                  >
+                    <Text
+                      style={[
+                        styles.sheetOptionText,
+                        selectedMajorCategory === major && styles.sheetOptionTextActive,
+                      ]}
+                    >
+                      {major}
+                    </Text>
+                    {selectedMajorCategory === major && <Feather name="check" size={16} color={NAVY} />}
+                  </TouchableOpacity>
+                ))}
+              </Animated.View>
+            </View>
+          </Modal>
+
+          {/* ── Minor Category Picker Modal Bottom Sheet ── */}
+          <Modal
+            visible={minorPickerOpen}
+            transparent
+            animationType="fade"
+            onRequestClose={closeMinorPicker}
+          >
+            <View style={styles.modalContainer}>
+              <TouchableOpacity
+                style={styles.modalBackdrop}
+                activeOpacity={1}
+                onPress={closeMinorPicker}
+              />
+              <Animated.View style={[styles.pickerSheet, { paddingBottom: getModalBottomPadding(insets, 16), transform: [{ translateY: minorSlideAnim }] }]}>
+                <View style={styles.sheetHeader}>
+                  <Text style={styles.sheetTitle}>Choose Minor Category</Text>
+                  <TouchableOpacity onPress={closeMinorPicker}>
+                    <Feather name="x" size={22} color={NAVY} />
+                  </TouchableOpacity>
+                </View>
+                <ScrollView style={{ maxHeight: 360 }} showsVerticalScrollIndicator={false}>
+                  {availableMinorCategories.map((minor) => (
+                    <TouchableOpacity
+                      key={minor}
+                      style={[
+                        styles.sheetOption,
+                        selectedMinorCategory === minor && styles.sheetOptionActive,
+                      ]}
+                      onPress={() => {
+                        setSelectedMinorCategory(minor)
+                        closeMinorPicker()
+                      }}
+                    >
+                      <Text
+                        style={[
+                          styles.sheetOptionText,
+                          selectedMinorCategory === minor && styles.sheetOptionTextActive,
+                        ]}
+                      >
+                        {minor}
+                      </Text>
+                      {selectedMinorCategory === minor && <Feather name="check" size={16} color={NAVY} />}
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+              </Animated.View>
+            </View>
+          </Modal>
+
           {/* ── Limit Picker Modal Bottom Sheet ── */}
           <Modal
             visible={limitPickerOpen}
@@ -418,7 +690,7 @@ export default function PracticeOverview({ navigation, route }) {
                 activeOpacity={1}
                 onPress={closeLimitPicker}
               />
-              <Animated.View style={[styles.pickerSheet, { transform: [{ translateY: limitSlideAnim }] }]}>
+              <Animated.View style={[styles.pickerSheet, { paddingBottom: getModalBottomPadding(insets, 16), transform: [{ translateY: limitSlideAnim }] }]}>
                 <View style={styles.sheetHeader}>
                   <Text style={styles.sheetTitle}>
                     {isMatching ? 'Choose Sets Count' : 'Choose Items Limit'}

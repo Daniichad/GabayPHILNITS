@@ -3,7 +3,7 @@ import {
   View, Text, StyleSheet, TouchableOpacity,
   StatusBar, Platform, ActivityIndicator, ScrollView
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import NetInfo from '@react-native-community/netinfo';
 import { supabase } from '../../../supabase';
@@ -20,7 +20,10 @@ import { resolveUserTargetExam } from '../../../utils/targetExam';
 const NAVY = '#0B2540';
 
 export default function TrueOrFalse({ navigation, route }) {
+  const insets = useSafeAreaInsets();
   const subject = route?.params?.subject;
+  const majorCategory = route?.params?.majorCategory;
+  const minorCategory = route?.params?.minorCategory;
   const limit = route?.params?.limit ?? 10;
   const passedTargetExam = route?.params?.targetExam;
   const feSection = route?.params?.feSection; // 'Subject A' | 'Subject B'
@@ -125,69 +128,68 @@ export default function TrueOrFalse({ navigation, route }) {
 
       const targetDbCategories = getDbCategories(subject);
 
-      const cacheScope = `${activeTrack.toLowerCase()}_${activeSection ? activeSection.replace(/\s+/g, '').toLowerCase() : 'all'}_${activeSpeed.toLowerCase()}_${(subject || 'all').toLowerCase()}`;
+      const cacheScope = `${activeTrack.toLowerCase()}_${activeSection ? activeSection.replace(/\s+/g, '').toLowerCase() : 'all'}_${activeSpeed.toLowerCase()}_${(subject || 'all').toLowerCase()}_${(majorCategory || 'all').toLowerCase()}_${(minorCategory || 'all').toLowerCase()}`;
 
       let loadedQuestions = [];
-      const net = await NetInfo.fetch();
 
-      // 1. Try remote fetch if online
-      if (net.isConnected) {
-        try {
-          // Base query matching target exam and session
-          const buildBaseQuery = () => {
-            let q = supabase.from('true_false_questions')
-              .select('*, practice_categories!inner(name, exam_level)')
-              .eq('is_published', true)
-              .eq('exam_level', activeTrack);
-
-            if (activeTrack === 'FE' && activeSection) {
-              q = q.eq('fe_section', activeSection);
-            }
-
-            if (targetDbCategories.length === 1) {
-              q = q.eq('practice_categories.name', targetDbCategories[0]);
-            } else {
-              q = q.in('practice_categories.name', targetDbCategories);
-            }
-            return q;
-          };
-
-          // Strictly fetch questions matching user's selected review speed
-          const normalizedSpeed = (activeSpeed === 'Quick' || activeSpeed === 'Detailed') ? activeSpeed : 'Standard';
-          let speedQ = buildBaseQuery().ilike('review_speed', normalizedSpeed);
-
-          const { data: speedMatched, error: qErr } = await speedQ.limit(limit);
-          if (!qErr && speedMatched) {
-            loadedQuestions = [...speedMatched];
-          }
-
-          // If the specific speed has zero items for this narrow criteria, only then fetch from base query
-          if (loadedQuestions.length === 0) {
-            const fallbackQ = buildBaseQuery();
-            const { data: fallbackItems } = await fallbackQ.limit(limit);
-            if (fallbackItems) {
-              loadedQuestions = [...fallbackItems];
-            }
-          }
-
-          if (loadedQuestions.length > 0) {
-            cacheQuestionsLocally('tf', cacheScope, loadedQuestions).catch(() => {});
-          }
-        } catch (netErr) {
-          console.warn('Network issue loading TrueFalse, falling back to SQLite:', netErr);
-        }
-      }
-
-      // 2. If offline or online fetch yielded nothing, fall back to SQLite cache
-      if (loadedQuestions.length === 0) {
+      // 1. Instant local SQLite cache lookup first (renders in under 50ms)
+      try {
         const localQs = await getLocalQuestions('tf', cacheScope, limit);
         if (localQs && localQs.length > 0) {
           loadedQuestions = localQs;
+          setQuestions([...loadedQuestions].sort(() => 0.5 - Math.random()));
+          setLoading(false);
         }
+      } catch (_) {}
+
+      // 2. Fetch fresh questions
+      try {
+        const buildBaseQuery = () => {
+          let q = supabase.from('true_false_questions')
+            .select('*, practice_categories!inner(name, exam_level)')
+            .eq('is_published', true)
+            .eq('exam_level', activeTrack);
+
+          if (activeTrack === 'FE' && activeSection) {
+            q = q.eq('fe_section', activeSection);
+          }
+
+          if (minorCategory) {
+            q = q.eq('minor_category', minorCategory);
+          } else if (majorCategory) {
+            q = q.eq('major_category', majorCategory);
+          } else if (targetDbCategories.length === 1) {
+            q = q.eq('practice_categories.name', targetDbCategories[0]);
+          } else {
+            q = q.in('practice_categories.name', targetDbCategories);
+          }
+          return q;
+        };
+
+        const normalizedSpeed = (activeSpeed === 'Quick' || activeSpeed === 'Detailed') ? activeSpeed : 'Standard';
+        let speedQ = buildBaseQuery().ilike('review_speed', normalizedSpeed);
+
+        const { data: speedMatched, error: qErr } = await speedQ.limit(limit);
+        let freshQuestions = [];
+        if (!qErr && speedMatched && speedMatched.length > 0) {
+          freshQuestions = [...speedMatched];
+        } else {
+          const fallbackQ = buildBaseQuery();
+          const { data: fallbackItems } = await fallbackQ.limit(limit);
+          if (fallbackItems) freshQuestions = [...fallbackItems];
+        }
+
+        if (freshQuestions.length > 0) {
+          loadedQuestions = freshQuestions;
+          setQuestions([...freshQuestions].sort(() => 0.5 - Math.random()));
+          cacheQuestionsLocally('tf', cacheScope, freshQuestions).catch(() => {});
+        }
+      } catch (netErr) {
+        console.warn('Network issue loading TrueFalse, falling back to cached state:', netErr);
       }
 
       if (loadedQuestions.length === 0) {
-        setError('No questions available offline. Connect to the internet once to download questions.');
+        setError('No questions available. Please check your connection or try another topic.');
         return;
       }
 
@@ -386,7 +388,7 @@ export default function TrueOrFalse({ navigation, route }) {
       </ScrollView>
 
       {/* Fixed bottom footer with Next button */}
-      <View style={styles.footer}>
+      <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, 16) + (Platform.OS === 'ios' ? 4 : 2) }]}>
         <TouchableOpacity
           style={[styles.nextButton, !hasAnswered && styles.nextButtonDisabled]}
           disabled={!hasAnswered}

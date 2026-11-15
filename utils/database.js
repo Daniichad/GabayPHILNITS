@@ -370,6 +370,8 @@ export const clearUserSession = async () => {
     try {
         await safeDbOp(async (db) => {
             await db.runAsync('UPDATE user_session_cache SET is_logged_in = 0')
+            // Clear all user-specific generic cache to prevent cross-account data leakage
+            await db.runAsync('DELETE FROM generic_cache')
         })
     } catch (e) {
         console.warn("Failed to clear user session:", e?.message || e)

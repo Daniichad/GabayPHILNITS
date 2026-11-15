@@ -821,9 +821,9 @@ export default function Library({ navigation }) {
   const [refreshing, setRefreshing] = useState(false)
   const [error,     setError]       = useState(/** @type {string | null} */ (null))
   const [search,    setSearch]      = useState('')
-  const [activeChip, setActiveChip] = useState(/** @type {string | null} */ (null))
+  const [activeChip, setActiveChip] = useState(/** @type {string} */ ('Technology'))
   const [activeSpeed, setActiveSpeed] = useState('RECOMMENDED')
-  const [videoTopicFilter, setVideoTopicFilter] = useState(/** @type {string | null} */ (null))
+  const [videoTopicFilter, setVideoTopicFilter] = useState(/** @type {string | null} */ ('Technology'))
   const [libraryMode, setLibraryMode] = useState('READING') // 'READING' | 'VIDEOS'
   const [userReviewSpeed, setUserReviewSpeed] = useState('Standard')
   const [userTargetExam, setUserTargetExam] = useState('IP')
@@ -885,11 +885,11 @@ export default function Library({ navigation }) {
       }
 
       // 2. Concurrently fetch all dependencies in parallel
-      // Note: We fetch reading materials metadata (30KB) instantly so the library renders in ~300ms,
-      // and we omit redundant heavy base64 fields so mobile requests never timeout.
+      // Note: We fetch reading materials with a resilient 35s timeout. If public/cafe Wi-Fi drops or delays,
+      // we immediately fall back to metadata-only (no heavy base64) so the screen never gets blocked.
       const [vRes, rRes, uRes, progRes, resolvedTrack] = await Promise.allSettled([
         withTimeout(supabase.from('video_lectures').select('*').eq('is_published', true).order('sort_order', { ascending: true }), 15000),
-        withTimeout(supabase.from('reading_materials').select('id, title, subtitle, author, subject, exam_level, fe_section, thumbnail_url, pdf_url, sort_order, total_pages, review_speed, learning_objective, is_published, created_at').eq('is_published', true).order('subject').order('sort_order'), 20000),
+        withTimeout(supabase.from('reading_materials').select('id, title, subtitle, author, subject, exam_level, fe_section, thumbnail_url, pdf_url, sort_order, total_pages, review_speed, learning_objective, is_published, created_at, chapter').eq('is_published', true).order('subject').order('sort_order'), 35000),
         uemail ? withTimeout(supabase.from('users').select('review_speed').ilike('email', uemail).maybeSingle(), 10000) : Promise.resolve({ data: null }),
         uid ? withTimeout(supabase.from('user_reading_progress').select('*').eq('user_id', uid), 10000) : Promise.resolve({ data: [] }),
         resolveUserTargetExam(uid, userTargetExam)
@@ -922,13 +922,13 @@ export default function Library({ navigation }) {
         if (p?.reading_material_id) progressMap[p.reading_material_id] = p
       })
 
-      // Reading materials: if the comprehensive query timed out, attempt a lightweight fallback immediately
+      // Reading materials: if the comprehensive query timed out on slow/public networks,
+      // load metadata-only without large base64 thumbnails instantly (takes ~300ms)
       let rawMaterials = (rRes.status === 'fulfilled' && Array.isArray(rRes.value?.data)) ? rRes.value.data : []
       if (rawMaterials.length === 0 && (rRes.status === 'rejected' || rRes.value?.error)) {
-        console.warn('Reading materials query issue, retrying lightweight fallback:', rRes.reason || rRes.value?.error)
         try {
           const fallbackRes = await supabase.from('reading_materials')
-            .select('id, title, subtitle, author, subject, exam_level, fe_section, thumbnail_url, pdf_url, sort_order, total_pages, review_speed, learning_objective, is_published, created_at')
+            .select('id, title, subtitle, author, subject, exam_level, fe_section, pdf_url, sort_order, total_pages, review_speed, learning_objective, is_published, created_at, chapter')
             .eq('is_published', true)
             .order('subject')
             .order('sort_order')
@@ -936,7 +936,7 @@ export default function Library({ navigation }) {
             rawMaterials = fallbackRes.data
           }
         } catch (fbErr) {
-          console.warn('Lightweight fallback error:', fbErr)
+          console.warn('Lightweight metadata fallback notice:', fbErr)
         }
       }
 
@@ -1005,6 +1005,26 @@ export default function Library({ navigation }) {
     ? (feSection === 'FE Subject B' ? FE_B_SUBJECTS : FE_A_SUBJECTS)
     : IP_SUBJECTS
 
+  // Track-level available subjects (always show all subjects for current track so buttons never disappear)
+  const allTrackMaterials = materials.filter(m => {
+    const lvl = (m.exam_level || '').toLowerCase().trim()
+    const matchTrack = !lvl || lvl === 'both' || lvl === 'all' ||
+      (isFE ? lvl.includes('fe') : (!lvl.includes('fe') || lvl.includes('ip')))
+
+    let matchSection = true
+    if (isFE) {
+      if (feSection === 'FE Subject B') {
+        matchSection = isItemSubjectB(m) || String(m.fe_section || '').toLowerCase() === 'both'
+      } else {
+        matchSection = !isItemSubjectB(m) || String(m.fe_section || '').toLowerCase() === 'both'
+      }
+    }
+    return matchTrack && matchSection
+  })
+
+  const rawAvailableSubjects = Array.from(new Set(allTrackMaterials.map(m => m.subject).filter(Boolean)))
+  const displayFilterSubjects = rawAvailableSubjects.length > 0 ? rawAvailableSubjects : currentTrackSubjects
+
   // Filter reading materials strictly matching personal info target exam track (IP or FE) and Subject A / B section
   const filtered = materials.filter(m => {
     const lvl = (m.exam_level || '').toLowerCase().trim()
@@ -1031,17 +1051,15 @@ export default function Library({ navigation }) {
     return matchTrack && matchSection && matchChip && matchSearch
   })
 
-  // Dynamic available subjects from materials
-  const availableSubjects = Array.from(new Set(filtered.map(m => m.subject).filter(Boolean)))
-  const displayFilterSubjects = availableSubjects.length > 0 ? availableSubjects : currentTrackSubjects
-
-  // Group reading materials by subject dynamically
+  // Group reading materials by chapter dynamically
   const groupedRaw = {}
   filtered.forEach(item => {
     const sub = item.subject || 'General'
     if (activeChip && activeChip !== sub) return
-    if (!groupedRaw[sub]) groupedRaw[sub] = []
-    groupedRaw[sub].push(item)
+    // Chapter shelf heading (e.g. Basic Theory, Computer Systems, Technical Elements)
+    const shelfCategory = item.chapter || item.subject || 'General'
+    if (!groupedRaw[shelfCategory]) groupedRaw[shelfCategory] = []
+    groupedRaw[shelfCategory].push(item)
   })
 
   // Effective review speed for reading material filtering
@@ -1254,37 +1272,7 @@ export default function Library({ navigation }) {
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={styles.cardFilterScroll}
         >
-          {/* "All" Card */}
-          <TouchableOpacity
-            style={[
-              styles.filterCard,
-              !activeChip && !videoTopicFilter && styles.filterCardActive,
-            ]}
-            activeOpacity={0.8}
-            onPress={() => {
-              setActiveChip(null)
-              setVideoTopicFilter(null)
-            }}
-          >
-            <View style={[
-              styles.filterCardIconWrapper,
-              (!activeChip && !videoTopicFilter) ? styles.filterCardIconWrapperActive : styles.filterCardIconWrapperInactive
-            ]}>
-              <Feather
-                name="layers"
-                size={20}
-                color={(!activeChip && !videoTopicFilter) ? '#ffffff' : '#13294b'}
-              />
-            </View>
-            <Text
-              style={[styles.filterCardText, (!activeChip && !videoTopicFilter) && styles.filterCardTextActive]}
-              numberOfLines={1}
-            >
-              All Topics
-            </Text>
-          </TouchableOpacity>
-
-          {/* Subject Cards based on active view mode */}
+          {/* Subject Cards based on active view mode (No "All Topics", default 1 active) */}
           {displayFilterSubjects.map(sub => {
             const config = SUBJECT_FILTER_CONFIG[sub] || {
               label: sub,
@@ -1292,7 +1280,7 @@ export default function Library({ navigation }) {
               icon: 'book',
               color: '#2563eb',
             }
-            const isSelected = (activeChip === sub) || (videoTopicFilter === sub)
+            const isSelected = (activeChip === sub) || (!activeChip && sub === displayFilterSubjects[0])
 
             return (
               <TouchableOpacity
@@ -1303,9 +1291,8 @@ export default function Library({ navigation }) {
                 ]}
                 activeOpacity={0.8}
                 onPress={() => {
-                  const next = isSelected ? null : sub
-                  setActiveChip(next)
-                  setVideoTopicFilter(next)
+                  setActiveChip(sub)
+                  setVideoTopicFilter(sub)
                 }}
               >
                 <View style={[

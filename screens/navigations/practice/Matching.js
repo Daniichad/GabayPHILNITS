@@ -3,7 +3,7 @@ import {
   View, Text, StyleSheet, TouchableOpacity,
   StatusBar, Platform, ActivityIndicator, ScrollView, Modal
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';;
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../../../supabase';
 import { resolveUserTargetExam } from '../../../utils/targetExam';
@@ -28,7 +28,10 @@ function buildCards(pairs) {
 }
 
 export default function Matching({ navigation, route }) {
+  const insets = useSafeAreaInsets();
   const subject = route?.params?.subject;
+  const majorCategory = route?.params?.majorCategory;
+  const minorCategory = route?.params?.minorCategory;
   const limit = route?.params?.limit ?? 6; // 6 pairs = 12 cards (1 set default)
   const passedTargetExam = route?.params?.targetExam;
   const feSection = route?.params?.feSection; // 'Subject A' | 'Subject B'
@@ -125,6 +128,16 @@ export default function Matching({ navigation, route }) {
       };
 
       const targetDbCategories = getDbCategories(subject);
+      const cacheKey = `matching_${track.toLowerCase()}_${(subject || 'all').toLowerCase()}_${(majorCategory || 'all').toLowerCase()}_${(minorCategory || 'all').toLowerCase()}_${activeSpeed.toLowerCase()}`;
+
+      // Instant cached pairs load first
+      const cachedPairs = await getCache(cacheKey);
+      if (cachedPairs && Array.isArray(cachedPairs) && cachedPairs.length > 0) {
+        const shuffledCached = [...cachedPairs].sort(() => 0.5 - Math.random());
+        setPairs(shuffledCached);
+        setCards(buildCards(shuffledCached));
+        setLoading(false);
+      }
 
       // Base query matching target exam and session
       const buildBaseQuery = () => {
@@ -137,7 +150,11 @@ export default function Matching({ navigation, route }) {
           q = q.eq('fe_section', activeSection);
         }
 
-        if (targetDbCategories.length === 1) {
+        if (minorCategory) {
+          q = q.eq('minor_category', minorCategory);
+        } else if (majorCategory) {
+          q = q.eq('major_category', majorCategory);
+        } else if (targetDbCategories.length === 1) {
           q = q.eq('practice_categories.name', targetDbCategories[0]);
         } else {
           q = q.in('practice_categories.name', targetDbCategories);
@@ -163,14 +180,17 @@ export default function Matching({ navigation, route }) {
         }
       }
 
-      if (loadedPairs.length === 0) {
+      if (loadedPairs.length === 0 && (!cachedPairs || cachedPairs.length === 0)) {
         setError('No matching pairs found for this configuration.');
         return;
       }
 
-      const shuffledPairs = [...loadedPairs].sort(() => 0.5 - Math.random());
-      setPairs(shuffledPairs);
-      setCards(buildCards(shuffledPairs));
+      if (loadedPairs.length > 0) {
+        setCache(cacheKey, loadedPairs, 30 * 60 * 1000).catch(() => {});
+        const shuffledPairs = [...loadedPairs].sort(() => 0.5 - Math.random());
+        setPairs(shuffledPairs);
+        setCards(buildCards(shuffledPairs));
+      }
       setStartTime(Date.now());
     } catch (err) {
       console.error('Matching load error:', err);
@@ -336,7 +356,7 @@ export default function Matching({ navigation, route }) {
         })}
       </ScrollView>
 
-      <View style={styles.footer}>
+      <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, 16) + 6 }]}>
         <Text style={styles.footerText}>Mistakes: {mistakes}</Text>
       </View>
 

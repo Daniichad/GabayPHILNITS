@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { StyleSheet, View, Text, TouchableOpacity, StatusBar } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { calculatePracticePoints, recordPointsEntry } from '../../../utils/pointsEngine';
 
@@ -8,6 +8,7 @@ const NAVY = '#0B2540';
 const ACCENT = '#D9989E';
 
 export default function PracticeResult({ route, navigation }) {
+  const insets = useSafeAreaInsets();
   const { score = 0, total = 10, subject = 'Practice', type = 'Practice' } = route?.params || {};
   const percentage = total > 0 ? (score / total) * 100 : 0;
   const [earnedPoints, setEarnedPoints] = useState(0);
@@ -78,7 +79,7 @@ export default function PracticeResult({ route, navigation }) {
       </View>
 
       {/* Action Buttons */}
-      <View style={styles.footer}>
+      <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, 16) + 14 }]}>
         <TouchableOpacity style={styles.primaryButton} onPress={handleRetake}>
           <Text style={styles.primaryButtonText}>Practice Again</Text>
           <Ionicons name="refresh" size={16} color="#FFFFFF" style={{ marginLeft: 6 }} />

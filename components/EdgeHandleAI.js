@@ -215,13 +215,17 @@ export default function EdgeHandleAI({ side = 'right' }) {
   const [inputText, setInputText] = useState('')
   const [isTyping, setIsTyping] = useState(false)
   const [isKeyboardActive, setIsKeyboardActive] = useState(false)
+  const [keyboardHeight, setKeyboardHeight] = useState(0)
   const chatScrollRef = useRef(null)
 
   useEffect(() => {
     const showSub = Keyboard.addListener(
       Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
-      () => {
+      (e) => {
         setIsKeyboardActive(true)
+        if (e?.endCoordinates?.height) {
+          setKeyboardHeight(e.endCoordinates.height)
+        }
         setTimeout(() => {
           chatScrollRef.current?.scrollToEnd({ animated: true })
         }, 100)
@@ -231,6 +235,7 @@ export default function EdgeHandleAI({ side = 'right' }) {
       Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide',
       () => {
         setIsKeyboardActive(false)
+        setKeyboardHeight(0)
       }
     )
     return () => {
@@ -564,7 +569,9 @@ Guidelines for answers:
               styles.panelContainer,
               {
                 transform: [{ translateX: slideAnim }],
-                paddingBottom: isKeyboardActive ? 8 : Math.max(insets.bottom, 16),
+                paddingBottom: Platform.OS === 'android'
+                  ? (isKeyboardActive ? Math.max(keyboardHeight, 8) : Math.max(insets.bottom, 16))
+                  : (isKeyboardActive ? 8 : Math.max(insets.bottom, 16)),
               },
             ]}
           >

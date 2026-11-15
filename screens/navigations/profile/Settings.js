@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react'
 import {
-  ActivityIndicator, Alert, Animated, KeyboardAvoidingView, Modal, Platform, ScrollView, StatusBar,
+  ActivityIndicator, Alert, Animated, Keyboard, KeyboardAvoidingView, Modal, Platform, ScrollView, StatusBar,
   StyleSheet, Switch, Text, TextInput, TouchableOpacity, View,
 } from 'react-native'
 import { Feather } from '@expo/vector-icons'
@@ -73,6 +73,24 @@ export default function Settings({ navigation }) {
   const [offlineMode, setOfflineMode] = useState(false)
   const [langModalOpen, setLangModalOpen] = useState(false)
   const [pwModalOpen, setPwModalOpen] = useState(false)
+  const [keyboardHeight, setKeyboardHeight] = useState(0)
+
+  useEffect(() => {
+    const showSub = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
+      (e) => {
+        if (e?.endCoordinates?.height) setKeyboardHeight(e.endCoordinates.height)
+      }
+    )
+    const hideSub = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide',
+      () => setKeyboardHeight(0)
+    )
+    return () => {
+      showSub.remove()
+      hideSub.remove()
+    }
+  }, [])
   const [newPassword, setNewPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const [pwLoading, setPwLoading] = useState(false)
@@ -110,7 +128,7 @@ export default function Settings({ navigation }) {
             pinFound = true
             await saveUserCache(user.id, String(data.pin_hash).trim(), true, true)
           }
-        } catch (_) {}
+        } catch (_) { }
 
         if (!pinFound) {
           const cached = await getUserCache(user.id)
@@ -429,7 +447,10 @@ export default function Settings({ navigation }) {
             activeOpacity={1}
             onPress={() => setPwModalOpen(false)}
           />
-          <View style={styles.sheet}>
+          <View style={[
+            styles.sheet,
+            Platform.OS === 'android' && keyboardHeight > 0 && { paddingBottom: Math.max(keyboardHeight, 28) }
+          ]}>
             <View style={styles.sheetHeader}>
               <Text style={styles.sheetTitle}>Change Password</Text>
               <TouchableOpacity onPress={() => setPwModalOpen(false)}>
@@ -575,7 +596,16 @@ export default function Settings({ navigation }) {
               activeOpacity={1}
               onPress={closePinAuthModal}
             />
-            <Animated.View style={[styles.sheet, styles.pinAuthSheet, { paddingBottom: getModalBottomPadding(insets, 24), transform: [{ translateY: pinAuthSlideAnim }] }]}>
+            <Animated.View style={[
+              styles.sheet,
+              styles.pinAuthSheet,
+              {
+                paddingBottom: Platform.OS === 'android' && keyboardHeight > 0
+                  ? Math.max(keyboardHeight, 28)
+                  : getModalBottomPadding(insets, 24),
+                transform: [{ translateY: pinAuthSlideAnim }]
+              }
+            ]}>
               {/* Sheet header */}
               <View style={styles.sheetHeader}>
                 {pinAuthStep === 'verify' ? (

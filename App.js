@@ -46,8 +46,9 @@ import OfflineToast from './components/OfflineToast'
 import NotificationToast from './components/NotificationToast'
 import { supabase } from './utils/supabase'
 import NetInfo from '@react-native-community/netinfo'
-import { initDb, getUserCache, saveUserCache, saveUserSession, getActiveUserSession } from './utils/database'
-import { processSyncQueue, precachePracticeContent, addSyncListener } from './utils/syncManager'
+import { initDb, getUserCache, saveUserCache, saveUserSession, getActiveUserSession, clearUserSession } from './utils/database'
+import { clearCache } from './utils/cache'
+import { processSyncQueue, addSyncListener } from './utils/syncManager'
 import { startRealtimeNotifications, stopRealtimeNotifications } from './utils/notificationManager'
 
 const Stack = createNativeStackNavigator()
@@ -62,7 +63,7 @@ const navTheme = {
 
 const NAV_SCREENS = new Set([
 	'Home', 'Library',
-	'PracticeLibrary', 'Performance', 'Profile', 'AccountInformation', 'Settings', 'HelpCenter', 'Report', 'TermsConditions', 'RateApp', 'AboutApp', 'CseGuide', 'CseSitesNearMe',
+	'PracticeLibrary', 'Performance', 'Profile', 'AccountInformation', 'Settings', 'HelpCenter', 'TermsConditions', 'AboutApp', 'CseGuide', 'CseSitesNearMe',
 ])
 
 const MAIN_TAB_SCREENS = new Set([
@@ -93,19 +94,24 @@ export default function App() {
 					if (error) {
 						const errMsg = error.message || ''
 						if (errMsg.toLowerCase().includes('refresh token') || error.status === 400) {
-							console.warn('Stale/invalid refresh token detected, clearing session:', errMsg)
-							await supabase.auth.signOut().catch(() => {})
+							console.warn('Stale/invalid refresh token detected, purging local session:', errMsg)
+							await clearUserSession().catch(() => { })
+							await clearCache().catch(() => { })
+							await supabase.auth.signOut().catch(() => { })
+							return 'Login'
 						}
 					} else if (data?.session?.user) {
 						activeUser = data.session.user
 						await saveUserSession(data.session.user)
-						precachePracticeContent().catch(() => { })
 					}
 				} catch (netErr) {
 					console.warn('Network issue fetching session, will check local cache:', netErr)
 					const errMsg = netErr?.message || ''
 					if (errMsg.toLowerCase().includes('refresh token')) {
-						await supabase.auth.signOut().catch(() => {})
+						await clearUserSession().catch(() => { })
+						await clearCache().catch(() => { })
+						await supabase.auth.signOut().catch(() => { })
+						return 'Login'
 					}
 				}
 			}
@@ -218,6 +224,13 @@ export default function App() {
 	useEffect(() => {
 		const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
 			if (event === 'SIGNED_OUT') {
+				// Purge all user cache immediately upon logout
+				try {
+					await clearUserSession()
+					await clearCache()
+				} catch (e) {
+					console.warn('Error clearing cache on sign out:', e?.message || e)
+				}
 				if (navigationRef.isReady()) {
 					navigationRef.reset({
 						index: 0,
@@ -227,11 +240,20 @@ export default function App() {
 			} else if (event === 'TOKEN_REFRESHED') {
 				// Token refreshed successfully — nothing to do
 			} else if (event === 'TOKEN_REFRESH_ERROR') {
-				// Refresh token is invalid/expired — clear session ONLY if online!
-				const net = await NetInfo.fetch()
-				if (net.isConnected) {
-					console.warn('Refresh token invalid, signing out...')
+				// Refresh token is invalid/expired — clear session immediately to avoid loops
+				console.warn('Refresh token invalid/expired, signing out and clearing local cache...')
+				try {
+					await clearUserSession()
+					await clearCache()
 					await supabase.auth.signOut()
+				} catch (err) {
+					console.warn('Sign out error on refresh error:', err?.message || err)
+				}
+				if (navigationRef.isReady()) {
+					navigationRef.reset({
+						index: 0,
+						routes: [{ name: 'Login' }],
+					})
 				}
 			}
 		})
@@ -247,7 +269,6 @@ export default function App() {
 			setIsOffline(offline)
 			if (!offline) {
 				processSyncQueue()
-				precachePracticeContent().catch(() => { })
 			}
 		})
 

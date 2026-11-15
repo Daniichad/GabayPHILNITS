@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import {
-  Image, KeyboardAvoidingView, Modal, Platform, ScrollView, StatusBar, StyleSheet,
+  Image, Keyboard, KeyboardAvoidingView, Modal, Platform, ScrollView, StatusBar, StyleSheet,
   Text, TextInput, TouchableOpacity, View, ActivityIndicator
 } from 'react-native'
 import { Feather, FontAwesome, Ionicons } from '@expo/vector-icons'
@@ -16,6 +16,24 @@ export default function RateApp({ navigation }) {
   const [rating, setRating] = useState(0)
   const [comment, setComment] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  const [keyboardHeight, setKeyboardHeight] = useState(0)
+
+  useEffect(() => {
+    const showSub = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
+      (e) => {
+        if (e?.endCoordinates?.height) setKeyboardHeight(e.endCoordinates.height)
+      }
+    )
+    const hideSub = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide',
+      () => setKeyboardHeight(0)
+    )
+    return () => {
+      showSub.remove()
+      hideSub.remove()
+    }
+  }, [])
   
   const [ratings, setRatings] = useState([])
   const [loadingRatings, setLoadingRatings] = useState(true)
@@ -290,7 +308,10 @@ export default function RateApp({ navigation }) {
             activeOpacity={1}
             onPress={() => setRatingModalOpen(false)}
           />
-          <View style={styles.sheet}>
+          <View style={[
+            styles.sheet,
+            Platform.OS === 'android' && keyboardHeight > 0 && { paddingBottom: Math.max(keyboardHeight, 28) }
+          ]}>
             <View style={styles.sheetTop}>
               <Image
                 source={require('../../../assets/loading.png')}

@@ -4,7 +4,7 @@ import {
   StyleSheet, Text, TouchableOpacity, View, BackHandler, Image,
   StatusBar, Platform,
 } from 'react-native'
-import { SafeAreaView } from 'react-native-safe-area-context'
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons'
 import { supabase } from '../../supabase'
 import { setCache } from '../../utils/cache'
@@ -116,6 +116,7 @@ function formatTime(totalSeconds) {
  * @param {{ navigation: any, route?: any }} props
  */
 export default function DiagnosticAssessment({ navigation, route }) {
+  const insets = useSafeAreaInsets()
   const from = route?.params?.from
   const [questions, setQuestions] = React.useState(/** @type {any[]} */ ([]))
   const [loading, setLoading] = React.useState(true)
@@ -1160,7 +1161,7 @@ export default function DiagnosticAssessment({ navigation, route }) {
         </View>
 
         {/* Fixed bottom footer with NEXT button (Mock Exam style) */}
-        <View style={styles.quizFooter}>
+        <View style={[styles.quizFooter, { paddingBottom: Math.max(insets.bottom, 16) + (Platform.OS === 'ios' ? 4 : 8) }]}>
           <TouchableOpacity
             style={[styles.nextButton, !selectedAnswer && styles.nextButtonDisabled]}
             activeOpacity={0.85}

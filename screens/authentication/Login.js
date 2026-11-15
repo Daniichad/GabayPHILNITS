@@ -6,7 +6,6 @@ import * as QueryParams from 'expo-auth-session'
 import { supabase } from '../../supabase'
 import { sendEmailJsOtp } from '../../utils/emailjs'
 import { saveUserCache, saveUserSession } from '../../utils/database'
-import { precachePracticeContent } from '../../utils/syncManager'
 
 WebBrowser.maybeCompleteAuthSession()
 
@@ -88,7 +87,6 @@ export default function Login({ navigation }) {
     await saveUserSession({ id: userId, email: effectiveEmail }, {
       pin_hash: hasPin ? pinData.pin_hash : null,
     })
-    precachePracticeContent().catch(() => { })
 
     if (hasPin) {
       navigation?.replace('PinAuth')

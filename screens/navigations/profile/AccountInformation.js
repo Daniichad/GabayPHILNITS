@@ -1,16 +1,73 @@
 import React, { useState } from 'react'
 import {
   Alert, Image, KeyboardAvoidingView, Modal, Platform, ScrollView, StatusBar,
-  StyleSheet, Text, TextInput, TouchableOpacity, View,
+  StyleSheet, Text, TextInput, TouchableOpacity, View, ActivityIndicator
 } from 'react-native'
-import { Feather } from '@expo/vector-icons'
+import { Feather, Ionicons } from '@expo/vector-icons'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { supabase } from '../../../utils/supabase'
 import { getActiveUserSession, saveUserSession } from '../../../utils/database'
 import { getCache, setCache } from '../../../utils/cache'
 import { setUserTargetExamTrack } from '../../../utils/targetExam'
+import { getModalBottomPadding } from '../../../utils/responsiveLayout'
 
 const NAVY = '#0f2747'
 const ACCENT = '#d85e67'
+
+async function checkDiagnosticForLevel(userId, levelKey) {
+  if (!userId) return null
+  // 1. Check philnits_diagnostic_attempts
+  try {
+    const { data, error } = await supabase
+      .from('philnits_diagnostic_attempts')
+      .select('*')
+      .eq('user_id', userId)
+      .eq('exam_level', levelKey)
+      .order('completed_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+    if (!error && data) return data
+  } catch (_) {}
+
+  // 2. Check diagnostic_assessment_attempts with exam_level column
+  try {
+    const { data, error } = await supabase
+      .from('diagnostic_assessment_attempts')
+      .select('*')
+      .eq('user_id', userId)
+      .eq('exam_level', levelKey)
+      .order('completed_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+    if (!error && data) return data
+  } catch (_) {}
+
+  // 3. Fallback: inspect category_scores in diagnostic_assessment_attempts
+  try {
+    const { data, error } = await supabase
+      .from('diagnostic_assessment_attempts')
+      .select('*')
+      .eq('user_id', userId)
+      .order('completed_at', { ascending: false })
+      .limit(5)
+
+    if (!error && Array.isArray(data)) {
+      for (const att of data) {
+        const cats = Object.keys(att.category_scores || {})
+        if (levelKey === 'FE') {
+          if (cats.some(c => c.toLowerCase().includes('subject') || c.toLowerCase().includes('algorithm') || c.toLowerCase().includes('architecture') || c.toLowerCase().includes('network'))) {
+            return att
+          }
+        } else {
+          if (cats.some(c => c === 'Technology' || c === 'Management' || c === 'Strategy')) {
+            return att
+          }
+        }
+      }
+    }
+  } catch (_) {}
+  return null
+}
 
 function formatToIsoDate(raw) {
   if (!raw) return null
@@ -123,6 +180,7 @@ const COUNTRIES = [
 
 // ── Main Screen ───────────────────────────────────────────────────
 export default function AccountInformation({ route, navigation }) {
+  const insets = useSafeAreaInsets()
   const initialSession = route?.params?.session
   const [user, setUser] = useState(initialSession?.user || null)
   const [fullName, setFullName] = useState('')
@@ -141,6 +199,12 @@ export default function AccountInformation({ route, navigation }) {
   const [alertTitle, setAlertTitle] = useState('')
   const [alertMessage, setAlertMessage] = useState('')
   const [alertType, setAlertType] = useState('error') // 'error' or 'success'
+
+  // Diagnostic switch confirmation modal states
+  const [confirmModalVisible, setConfirmModalVisible] = useState(false)
+  const [pendingExamLevel, setPendingExamLevel] = useState('')
+  const [hasDiagnosticForPending, setHasDiagnosticForPending] = useState(false)
+  const [checkingDiagnostic, setCheckingDiagnostic] = useState(false)
   const [initialData, setInitialData] = useState({
     fullName: '',
     contactNumber: '',
@@ -324,8 +388,35 @@ export default function AccountInformation({ route, navigation }) {
       return
     }
 
+    // If examLevel changed, check diagnostic attempt status for the new track
+    if (examLevel && examLevel !== initialData.examLevel) {
+      setCheckingDiagnostic(true)
+      try {
+        let currentAuthUser = user
+        if (!currentAuthUser?.id) {
+          const { data: { user: aUser } } = await supabase.auth.getUser()
+          currentAuthUser = aUser
+        }
+        const trackKey = (examLevel || '').toLowerCase().includes('fe') ? 'FE' : 'IP'
+        const attempt = currentAuthUser?.id ? await checkDiagnosticForLevel(currentAuthUser.id, trackKey) : null
+        setPendingExamLevel(examLevel)
+        setHasDiagnosticForPending(!!attempt)
+        setConfirmModalVisible(true)
+        return
+      } catch (e) {
+        console.warn('Error checking diagnostic for level change:', e)
+      } finally {
+        setCheckingDiagnostic(false)
+      }
+    }
+
+    await performSave(examLevel)
+  }
+
+  const performSave = async (targetLevelToSave, onSaveComplete) => {
     setSaving(true)
     try {
+      const cleanNum = contactNumber.replace(/\D/g, '')
       // Resolve active user reliably
       let currentAuthUser = user
       if (!currentAuthUser?.id) {
@@ -377,7 +468,7 @@ export default function AccountInformation({ route, navigation }) {
         birthdate: normalizedBirthdate,
         contact_number: fullContactNumber,
         gender: gender || 'Prefer not to say',
-        target_exam_level: examLevel || 'Information Technology Passport (IP)',
+        target_exam_level: targetLevelToSave || 'Information Technology Passport (IP)',
         highest_educational_attainment: education || "Bachelor's Degree",
         updated_at: new Date().toISOString(),
       }
@@ -434,7 +525,7 @@ export default function AccountInformation({ route, navigation }) {
 
       // 5. Update unified target exam cache, SQLite session, and Supabase
       try {
-        const selectedTrack = (examLevel || '').toLowerCase().includes('fe') ? 'FE' : 'IP'
+        const selectedTrack = (targetLevelToSave || '').toLowerCase().includes('fe') ? 'FE' : 'IP'
         await setUserTargetExamTrack(selectedTrack, currentAuthUser)
       } catch (cacheErr) {
         console.warn('Note: Cache sync on examLevel update:', cacheErr)
@@ -447,7 +538,7 @@ export default function AccountInformation({ route, navigation }) {
         countryCode,
         birthdate: normalizedBirthdate,
         gender,
-        examLevel,
+        examLevel: targetLevelToSave,
         education,
       }
       setInitialData(updatedData)
@@ -456,13 +547,32 @@ export default function AccountInformation({ route, navigation }) {
       setCache('home_profile_name', fullName.trim()).catch(() => {})
       setCache(`user_profile_cache_${currentAuthUser.email}`, { fullname: fullName.trim(), email: currentAuthUser.email }, 30 * 60 * 1000).catch(() => {})
 
-      showCustomAlert('Success', 'Personal information updated successfully!', 'success')
+      if (onSaveComplete) {
+        onSaveComplete()
+      } else {
+        showCustomAlert('Success', 'Personal information updated successfully!', 'success')
+      }
     } catch (err) {
-      console.error('Unexpected error in handleUpdate:', err)
+      console.error('Unexpected error in performSave:', err)
       showCustomAlert('Error', 'An unexpected error occurred. Please try again.')
     } finally {
       setSaving(false)
     }
+  }
+
+  const handleConfirmDiagnostic = async () => {
+    setConfirmModalVisible(false)
+    const targetLevel = pendingExamLevel || examLevel
+    const isFE = targetLevel.includes('FE')
+    const trackKey = isFE ? 'fe' : 'ip'
+
+    await performSave(targetLevel, () => {
+      if (hasDiagnosticForPending) {
+        showCustomAlert('Target Exam Updated', `Your target exam is now updated to ${isFE ? 'Fundamental IT Engineer (FE)' : 'Information Technology Passport (IP)'}.`, 'success')
+      } else {
+        navigation?.navigate('DiagnosticAssessment', { examType: trackKey, from: 'AccountInformation' })
+      }
+    })
   }
 
   return (
@@ -691,6 +801,73 @@ export default function AccountInformation({ route, navigation }) {
           />
         </View>
       </ScrollView>
+
+      {/* ── Track Switch & Diagnostic Confirmation Modal ── */}
+      <Modal
+        transparent
+        visible={confirmModalVisible}
+        animationType="fade"
+        onRequestClose={() => setConfirmModalVisible(false)}
+      >
+        <View style={[styles.alertBackdrop, { paddingBottom: getModalBottomPadding(insets, 16) }]}>
+          <View style={styles.confirmCard}>
+            <View style={[
+              styles.confirmIconWrap,
+              { backgroundColor: hasDiagnosticForPending ? '#EFF6FF' : '#FEF3C7' }
+            ]}>
+              <Ionicons
+                name={hasDiagnosticForPending ? 'school' : 'alert-circle'}
+                size={32}
+                color={hasDiagnosticForPending ? '#2563EB' : '#D97706'}
+              />
+            </View>
+
+            <Text style={styles.confirmCardTitle}>
+              {hasDiagnosticForPending ? 'Switch Target Exam?' : 'Diagnostic Exam Required'}
+            </Text>
+
+            <Text style={styles.confirmCardMessage}>
+              {hasDiagnosticForPending
+                ? `Switch your target exam to ${pendingExamLevel.includes('FE') ? 'Fundamental IT Engineer (FE)' : 'Information Technology Passport (IP)'}? Your study plan, focus priorities, and readiness tracking will adapt to this syllabus.`
+                : `You haven't completed the diagnostic assessment for ${pendingExamLevel.includes('FE') ? 'Fundamental IT Engineer (FE)' : 'Information Technology Passport (IP)'} yet. In order to calibrate your adaptive study plan, you must complete the diagnostic assessment for this track first.`}
+            </Text>
+
+            <View style={styles.confirmActionsCol}>
+              <TouchableOpacity
+                style={[
+                  styles.confirmPrimaryBtn,
+                  { backgroundColor: hasDiagnosticForPending ? NAVY : '#D97706' }
+                ]}
+                activeOpacity={0.85}
+                disabled={saving}
+                onPress={handleConfirmDiagnostic}
+              >
+                {saving ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Text style={styles.confirmPrimaryBtnText}>
+                    {hasDiagnosticForPending
+                      ? `Confirm & Switch Track`
+                      : `Take Diagnostic Exam`}
+                  </Text>
+                )}
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.confirmCancelBtn}
+                activeOpacity={0.7}
+                disabled={saving}
+                onPress={() => {
+                  setConfirmModalVisible(false)
+                  setExamLevel(initialData.examLevel)
+                }}
+              >
+                <Text style={styles.confirmCancelBtnText}>Cancel</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </KeyboardAvoidingView>
   )
 }
@@ -703,7 +880,7 @@ const styles = StyleSheet.create({
   scrollContent: {
     paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight + 8 : 54,
     paddingHorizontal: 24,
-    paddingBottom: 120,
+    paddingBottom: 280,
   },
 
   // ── Header ──
@@ -913,5 +1090,85 @@ const styles = StyleSheet.create({
   brandingLogoFull: {
     width: 220,
     height: 60,
+  },
+
+  // ── Track Switch & Diagnostic Modal ──
+  alertBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(15, 30, 53, 0.65)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  confirmCard: {
+    width: '92%',
+    maxWidth: 360,
+    backgroundColor: '#fff',
+    borderRadius: 24,
+    padding: 24,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOpacity: 0.18,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 8,
+  },
+  confirmIconWrap: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 16,
+  },
+  confirmCardTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: NAVY,
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  confirmCardMessage: {
+    color: '#4B5563',
+    fontSize: 14,
+    textAlign: 'center',
+    lineHeight: 21,
+    marginBottom: 22,
+    paddingHorizontal: 4,
+  },
+  confirmActionsCol: {
+    width: '100%',
+    gap: 10,
+  },
+  confirmPrimaryBtn: {
+    borderRadius: 14,
+    paddingVertical: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: '100%',
+    shadowColor: '#000',
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
+  },
+  confirmPrimaryBtnText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '700',
+    letterSpacing: 0.3,
+  },
+  confirmCancelBtn: {
+    borderRadius: 14,
+    paddingVertical: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: '100%',
+    backgroundColor: '#f1f5f9',
+  },
+  confirmCancelBtnText: {
+    color: '#64748b',
+    fontSize: 14,
+    fontWeight: '600',
   },
 })

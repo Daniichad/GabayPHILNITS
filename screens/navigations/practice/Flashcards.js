@@ -84,6 +84,8 @@ export default function Flashcards({ navigation, route }) {
   const rawCardsRef = useRef([]);
 
   const subject    = route?.params?.subject;
+  const majorCategory = route?.params?.majorCategory;
+  const minorCategory = route?.params?.minorCategory;
   const limit      = route?.params?.limit ?? 10;
   const passedTargetExam = route?.params?.targetExam;
   const feSection  = route?.params?.feSection; // 'Subject A' | 'Subject B'
@@ -244,69 +246,71 @@ export default function Flashcards({ navigation, route }) {
 
       const targetDbCategories = getDbCategories(subject);
 
-      const cacheScope = `${activeTrack.toLowerCase()}_${activeSection ? activeSection.replace(/\s+/g, '').toLowerCase() : 'all'}_${activeSpeed.toLowerCase()}_${(subject || 'all').toLowerCase()}`;
+      const cacheScope = `${activeTrack.toLowerCase()}_${activeSection ? activeSection.replace(/\s+/g, '').toLowerCase() : 'all'}_${activeSpeed.toLowerCase()}_${(subject || 'all').toLowerCase()}_${(majorCategory || 'all').toLowerCase()}_${(minorCategory || 'all').toLowerCase()}`;
 
       let loadedCards = [];
-      const net = await NetInfo.fetch();
 
-      // 1. Try remote fetch if online
-      if (net.isConnected) {
-        try {
-          const buildBaseQuery = () => {
-            let q = supabase.from('flashcards')
-              .select('*, flashcard_decks!inner(category_id, exam_level, practice_categories!inner(name, exam_level))')
-              .eq('exam_level', activeTrack);
-
-            if (activeTrack === 'FE' && activeSection) {
-              q = q.eq('fe_section', activeSection);
-            }
-
-            if (deckId) {
-              q = q.eq('deck_id', deckId);
-            } else if (targetDbCategories.length === 1) {
-              q = q.eq('flashcard_decks.practice_categories.name', targetDbCategories[0]);
-            } else {
-              q = q.in('flashcard_decks.practice_categories.name', targetDbCategories);
-            }
-            return q;
-          };
-
-          // Strictly fetch flashcards matching user's selected review speed
-          const normalizedSpeed = (activeSpeed === 'Quick' || activeSpeed === 'Detailed') ? activeSpeed : 'Standard';
-          let speedQ = buildBaseQuery().ilike('review_speed', normalizedSpeed);
-
-          const { data: speedMatched, error: cErr } = await speedQ.limit(limit);
-          if (!cErr && speedMatched) {
-            loadedCards = [...speedMatched];
-          }
-
-          // If the specific speed has zero items for this narrow criteria, only then fetch from base query
-          if (loadedCards.length === 0) {
-            const fallbackQ = buildBaseQuery();
-            const { data: fallbackCards } = await fallbackQ.limit(limit);
-            if (fallbackCards) {
-              loadedCards = [...fallbackCards];
-            }
-          }
-
-          if (loadedCards.length > 0) {
-            cacheQuestionsLocally('flashcard', cacheScope, loadedCards).catch(() => {});
-          }
-        } catch (netErr) {
-          console.warn('Network issue loading flashcards, falling back to SQLite:', netErr);
-        }
-      }
-
-      // 2. Fall back to local SQLite cache
-      if (loadedCards.length === 0) {
+      // 1. Instant local SQLite cache lookup first (instant load)
+      try {
         const localCards = await getLocalQuestions('flashcard', cacheScope, limit);
         if (localCards && localCards.length > 0) {
           loadedCards = localCards;
+          rawCardsRef.current = loadedCards;
+          applyDeckOrder(isShuffle);
+          setLoading(false);
         }
+      } catch (_) {}
+
+      // 2. Fetch fresh cards
+      try {
+        const buildBaseQuery = () => {
+          let q = supabase.from('flashcards')
+            .select('*, flashcard_decks!inner(category_id, exam_level, practice_categories!inner(name, exam_level))')
+            .eq('exam_level', activeTrack);
+
+          if (activeTrack === 'FE' && activeSection) {
+            q = q.eq('fe_section', activeSection);
+          }
+
+          if (deckId) {
+            q = q.eq('deck_id', deckId);
+          } else if (minorCategory) {
+            q = q.eq('minor_category', minorCategory);
+          } else if (majorCategory) {
+            q = q.eq('major_category', majorCategory);
+          } else if (targetDbCategories.length === 1) {
+            q = q.eq('flashcard_decks.practice_categories.name', targetDbCategories[0]);
+          } else {
+            q = q.in('flashcard_decks.practice_categories.name', targetDbCategories);
+          }
+          return q;
+        };
+
+        const normalizedSpeed = (activeSpeed === 'Quick' || activeSpeed === 'Detailed') ? activeSpeed : 'Standard';
+        let speedQ = buildBaseQuery().ilike('review_speed', normalizedSpeed);
+
+        const { data: speedMatched, error: cErr } = await speedQ.limit(limit);
+        let freshCards = [];
+        if (!cErr && speedMatched && speedMatched.length > 0) {
+          freshCards = [...speedMatched];
+        } else {
+          const fallbackQ = buildBaseQuery();
+          const { data: fallbackCards } = await fallbackQ.limit(limit);
+          if (fallbackCards) freshCards = [...fallbackCards];
+        }
+
+        if (freshCards.length > 0) {
+          loadedCards = freshCards;
+          rawCardsRef.current = freshCards;
+          applyDeckOrder(isShuffle);
+          cacheQuestionsLocally('flashcard', cacheScope, freshCards).catch(() => {});
+        }
+      } catch (netErr) {
+        console.warn('Network issue loading flashcards, falling back to cached state:', netErr);
       }
 
       if (loadedCards.length === 0) {
-        setError('No flashcards available offline. Connect to the internet once to download flashcards.');
+        setError('No flashcards available. Connect to the internet once or try another topic.');
         return;
       }
 
