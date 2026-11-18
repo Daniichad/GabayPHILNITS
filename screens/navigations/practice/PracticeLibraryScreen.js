@@ -72,28 +72,59 @@ const FE_SUBJECTS = [
 ];
 
 // ─── Main component ───────────────────────────────────────────
+// Module-level in-memory cache for instant zero-latency tab switching across unmounts
+let _memoryCachedPracticeActivities = null
+let _memoryCachedPracticeExam = null
+let _lastPracticeFetchTime = 0
+
 /**
  * @param {{ navigation: any }} props
  */
 export default function PracticeLibraryScreen({ navigation }) {
   const insets = useSafeAreaInsets();
-  const [recentActivities, setRecentActivities] = useState(/** @type {any[]} */ ([]));
-  const [loading, setLoading] = useState(true);
-  const [userTargetExam, setUserTargetExam] = useState('IP');
+  const [recentActivities, setRecentActivities] = useState(/** @type {any[]} */ (_memoryCachedPracticeActivities || []));
+  const [loading, setLoading] = useState(!_memoryCachedPracticeActivities || _memoryCachedPracticeActivities.length === 0);
+  const [userTargetExam, setUserTargetExam] = useState(_memoryCachedPracticeExam || 'IP');
 
   // Immediately resolve target exam from persistent cache / SQLite session on mount
   useEffect(() => {
     resolveUserTargetExam(null, userTargetExam).then((trk) => {
-      if (trk && trk !== userTargetExam) setUserTargetExam(trk);
+      if (trk && trk !== userTargetExam) {
+        _memoryCachedPracticeExam = trk;
+        setUserTargetExam(trk);
+      }
     });
+  }, []);
+
+  // Hydrate from SQLite if in-memory is empty on initial mount
+  useEffect(() => {
+    if (!_memoryCachedPracticeActivities || _memoryCachedPracticeActivities.length === 0) {
+      supabase.auth.getSession().then(({ data: sessionData }) => {
+        const uid = sessionData?.session?.user?.id;
+        if (!uid) return;
+        const cacheKey = `practice_recent_activities_${uid}`;
+        getCache(cacheKey).then((cached) => {
+          if (cached && Array.isArray(cached) && cached.length > 0) {
+            _memoryCachedPracticeActivities = cached;
+            setRecentActivities(cached);
+            setLoading(false);
+          }
+        }).catch(() => {});
+      });
+    }
   }, []);
 
   useEffect(() => {
     const unsubscribe = navigation.addListener('focus', () => {
-      loadRecentActivity();
+      const now = Date.now();
+      const hasAnyData = (_memoryCachedPracticeActivities && _memoryCachedPracticeActivities.length > 0) || recentActivities.length > 0;
+      if (!hasAnyData || (now - _lastPracticeFetchTime > 180000)) {
+        _lastPracticeFetchTime = now;
+        loadRecentActivity();
+      }
     });
     return unsubscribe;
-  }, [navigation]);
+  }, [navigation, recentActivities.length]);
 
   const loadRecentActivity = async () => {
     try {
@@ -104,14 +135,23 @@ export default function PracticeLibraryScreen({ navigation }) {
         return;
       }
 
-      // 1. Immediately hydrate cached recent activities to render tab with zero loading lag
       const cacheKey = `practice_recent_activities_${uid}`;
-      const cached = await getCache(cacheKey);
-      if (cached && Array.isArray(cached) && cached.length > 0) {
-        setRecentActivities(cached);
+      const hasCachedData = (_memoryCachedPracticeActivities && _memoryCachedPracticeActivities.length > 0) || recentActivities.length > 0;
+
+      // 1. Immediately hydrate cached recent activities to render tab with zero loading lag
+      if (_memoryCachedPracticeActivities && _memoryCachedPracticeActivities.length > 0) {
+        setRecentActivities(_memoryCachedPracticeActivities);
+        if (_memoryCachedPracticeExam) setUserTargetExam(_memoryCachedPracticeExam);
         setLoading(false);
       } else {
-        setLoading(true);
+        const cached = await getCache(cacheKey);
+        if (cached && Array.isArray(cached) && cached.length > 0) {
+          _memoryCachedPracticeActivities = cached;
+          setRecentActivities(cached);
+          setLoading(false);
+        } else if (!hasCachedData) {
+          setLoading(true);
+        }
       }
 
       // Concurrently query target exam track and recent activity across types with timeouts
@@ -212,6 +252,8 @@ export default function PracticeLibraryScreen({ navigation }) {
       // Sort by newest first
       activities.sort((a, b) => b.timestamp - a.timestamp);
       const topRecent = activities.slice(0, 5);
+      _memoryCachedPracticeActivities = topRecent;
+      _memoryCachedPracticeExam = targetTrack;
       setRecentActivities(topRecent);
       setCache(cacheKey, topRecent, 10 * 60 * 1000).catch(() => {});
     } catch (err) {

@@ -206,15 +206,12 @@ export default function App() {
 			setInitialRoute(route)
 			setCurrentRoute(route)
 
-			// Hold for 3 seconds, then fade out
-			Animated.sequence([
-				Animated.delay(3000),
-				Animated.timing(fadeAnim, {
-					toValue: 0,
-					duration: 800,
-					useNativeDriver: true,
-				}),
-			]).start(() => {
+			// Smooth immediate transition once initial route is ready
+			Animated.timing(fadeAnim, {
+				toValue: 0,
+				duration: 350,
+				useNativeDriver: true,
+			}).start(() => {
 				setLoading(false)
 			})
 		}
@@ -348,9 +345,9 @@ export default function App() {
 						<Stack.Screen name="DiagnosticAssessment" component={DiagnosticAssessment} options={{ gestureEnabled: false }} />
 						<Stack.Screen name="StudyPlan" component={StudyPlan} />
 						<Stack.Screen name="Library" component={Library} />
-						<Stack.Screen name="ReadingMaterial" component={ReadingMaterial} />
-						<Stack.Screen name="RecentReads" component={RecentReads} />
-						<Stack.Screen name="VideoLectureDetail" component={VideoLectureDetail} />
+						<Stack.Screen name="ReadingMaterial" component={ReadingMaterial} options={{ animation: 'fade_from_bottom' }} />
+						<Stack.Screen name="RecentReads" component={RecentReads} options={{ animation: 'fade_from_bottom' }} />
+						<Stack.Screen name="VideoLectureDetail" component={VideoLectureDetail} options={{ animation: 'fade_from_bottom' }} />
 						<Stack.Screen name="Home" component={Home} />
 						<Stack.Screen name="PracticeLibrary" component={PracticeLibraryScreen} />
 						<Stack.Screen name="Flashcards" component={Flashcards} />

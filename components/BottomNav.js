@@ -84,7 +84,11 @@ export default function BottomNav({ navigation, activeRoute }) {
 
   const handlePress = (tab, index) => {
     if (index === activeIndex) return
-    navigation?.dispatch(StackActions.replace(tab.route))
+    if (navigation?.navigate) {
+      navigation.navigate(tab.route)
+    } else {
+      navigation?.dispatch(StackActions.replace(tab.route))
+    }
   }
 
   const navHeight = 60 + Math.max(insets.bottom, 8)

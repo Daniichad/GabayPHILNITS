@@ -71,14 +71,18 @@ export default function Home({ session, navigation, route }) {
   const [cseSchedule, setCseSchedule] = useState(null)
   const [cseLoading, setCseLoading] = useState(true)
   const [readiness, setReadiness] = useState(0)
+  const [readinessA, setReadinessA] = useState(0)
+  const [readinessB, setReadinessB] = useState(0)
   const [readinessLoading, setReadinessLoading] = useState(true)
   const [rankings, setRankings] = useState([])
+  const [currentUserRanking, setCurrentUserRanking] = useState(null)
   const [rankingsLoading, setRankingsLoading] = useState(true)
   const [rankingTimeframe, setRankingTimeframe] = useState('all_time')
   const [profileName, setProfileName] = useState(() => firstName || 'Student')
   const [streakDays, setStreakDays] = useState(0)
   const [targetExamType, setTargetExamType] = useState('IP')
   const [subjects, setSubjectProgress] = useState(IP_DEFAULT_SUBJECTS)
+  const lastFocusFetchTimeRef = useRef(0)
 
   // Immediately hydrate all home widgets from local cache on mount with zero network lag
   useEffect(() => {
@@ -86,11 +90,13 @@ export default function Home({ session, navigation, route }) {
     Promise.all([
       getCache('home_streak_days'),
       getCache('home_readiness'),
+      getCache('home_readiness_fe_a'),
+      getCache('home_readiness_fe_b'),
       getCache('home_profile_name'),
       getCache('home_cse_schedule'),
       getCache('home_rankings'),
       getCache('home_subject_progress'),
-    ]).then(([cachedStreak, cachedReadiness, cachedName, cachedCse, cachedRankings, cachedSubjects]) => {
+    ]).then(([cachedStreak, cachedReadiness, cachedReadinessA, cachedReadinessB, cachedName, cachedCse, cachedRankings, cachedSubjects]) => {
       if (!isMounted) return
       if (cachedStreak !== null && cachedStreak !== undefined) {
         setStreakDays(Number(cachedStreak))
@@ -98,6 +104,12 @@ export default function Home({ session, navigation, route }) {
       if (cachedReadiness !== null && cachedReadiness !== undefined) {
         setReadiness(Number(cachedReadiness))
         setReadinessLoading(false)
+      }
+      if (cachedReadinessA !== null && cachedReadinessA !== undefined) {
+        setReadinessA(Number(cachedReadinessA))
+      }
+      if (cachedReadinessB !== null && cachedReadinessB !== undefined) {
+        setReadinessB(Number(cachedReadinessB))
       }
       if (cachedName && cachedName.toLowerCase() !== 'learner') {
         setProfileName(extractFirstName(cachedName))
@@ -382,8 +394,18 @@ export default function Home({ session, navigation, route }) {
 
   const fetchReadiness = useCallback(async () => {
     const cached = await getCache('home_readiness')
+    const cachedA = await getCache('home_readiness_fe_a')
+    const cachedB = await getCache('home_readiness_fe_b')
     if (cached !== null && cached !== undefined) {
       setReadiness(Number(cached))
+    }
+    if (cachedA !== null && cachedA !== undefined) {
+      setReadinessA(Number(cachedA))
+    }
+    if (cachedB !== null && cachedB !== undefined) {
+      setReadinessB(Number(cachedB))
+    }
+    if (cached !== null || cachedA !== null) {
       setReadinessLoading(false)
     }
     try {
@@ -394,6 +416,7 @@ export default function Home({ session, navigation, route }) {
       // Fetch user's registered target exam level to filter readiness strictly to their exam
       const targetTrack = await resolveUserTargetExam(uid, 'IP')
       const isFE = targetTrack === 'FE'
+      setTargetExamType(targetTrack)
 
       // Query mock exam attempts, MCQ, True/False, Matching, and Flashcards concurrently
       const [attRes, mcqRes, tfRes, matchRes, sesRes] = await Promise.allSettled([
@@ -406,20 +429,57 @@ export default function Home({ session, navigation, route }) {
           .limit(20),
         supabase
           .from('multiple_choice_results')
-          .select('is_correct, question_id')
-          .eq('user_id', uid),
+          .select(`
+            is_correct,
+            question_id,
+            multiple_choice_questions (
+              category_id,
+              exam_level,
+              fe_section,
+              practice_categories (name, exam_level, fe_section)
+            )
+          `)
+          .eq('user_id', uid)
+          .order('answered_at', { ascending: false })
+          .limit(200),
         supabase
           .from('true_false_results')
-          .select('is_correct, question_id')
-          .eq('user_id', uid),
+          .select(`
+            is_correct,
+            question_id,
+            true_false_questions (
+              category_id,
+              exam_level,
+              fe_section,
+              practice_categories (name, exam_level, fe_section)
+            )
+          `)
+          .eq('user_id', uid)
+          .order('answered_at', { ascending: false })
+          .limit(200),
         supabase
           .from('matching_results')
-          .select('id, pairs_matched, pairs_total, mistakes')
-          .eq('user_id', uid),
+          .select('id, pairs_matched, pairs_total, mistakes, set_title')
+          .eq('user_id', uid)
+          .order('created_at', { ascending: false })
+          .limit(50),
         supabase
           .from('flashcard_sessions')
-          .select('id, cards_seen, cards_total, completed')
-          .eq('user_id', uid),
+          .select(`
+            id,
+            cards_seen,
+            cards_total,
+            completed,
+            flashcard_decks (
+              exam_level,
+              fe_section,
+              title,
+              practice_categories (name, exam_level, fe_section)
+            )
+          `)
+          .eq('user_id', uid)
+          .order('started_at', { ascending: false })
+          .limit(50),
       ])
 
       const attempts = attRes.status === 'fulfilled' ? (attRes.value.data ?? []) : []
@@ -428,66 +488,131 @@ export default function Home({ session, navigation, route }) {
       const matchList = matchRes.status === 'fulfilled' ? (matchRes.value.data ?? []) : []
       const sesList = sesRes.status === 'fulfilled' ? (sesRes.value.data ?? []) : []
 
-      // 1. Filter mock attempts matching target track
-      const activeAttempts = attempts.filter(a => {
-        const lk = (a.mock_exam_configs?.level_key || '').toLowerCase()
-        const title = (a.mock_exam_configs?.title || '').toLowerCase()
-        if (targetTrack === 'FE') {
-          return lk.includes('fe') || title.includes('fundamental') || title.includes('fe')
-        } else {
-          return lk.includes('ip') || title.includes('passport') || title.includes('ip')
+      // Helper to compute readiness score given subsets of attempts and practice
+      const calcScore = (mockList, mList, tList, matList, sList) => {
+        const mocksTaken = mockList.length
+        let mockScore = 0
+        if (mocksTaken > 0) {
+          const recentMocks = mockList.slice(0, 3)
+          const avgRecent = recentMocks.reduce((sum, a) => {
+            const p = a.total_questions > 0 ? (a.correct_count / a.total_questions) * 100 : 0
+            return sum + p
+          }, 0) / recentMocks.length
+          const mockConfidence = Math.min(1, mocksTaken / 3)
+          mockScore = (avgRecent / 100) * mockConfidence
         }
-      })
 
-      const mocksTaken = activeAttempts.length
-      let mockScore = 0
-      if (mocksTaken > 0) {
-        const recentMocks = activeAttempts.slice(0, 3)
-        const avgRecent = recentMocks.reduce((sum, a) => {
-          const p = a.total_questions > 0 ? (a.correct_count / a.total_questions) * 100 : 0
-          return sum + p
-        }, 0) / recentMocks.length
-        const mockConfidence = Math.min(1, mocksTaken / 3)
-        mockScore = (avgRecent / 100) * mockConfidence
+        const mcqAttempts = mList.length
+        const mcqCorrect = mList.filter(r => r.is_correct).length
+        const mcqAccuracy = mcqAttempts > 0 ? (mcqCorrect / mcqAttempts) : 0
+        const mcqConfidence = Math.min(1, mcqAttempts / 100)
+        const mcqScore = mcqAccuracy * mcqConfidence
+
+        const matchAttempts = matList.reduce((sum, m) => sum + (m.pairs_matched || m.pairs_total || 0), 0)
+        const matchCorrect = matList.reduce((sum, m) => sum + (m.pairs_matched || 0), 0)
+        const matchMistakes = matList.reduce((sum, m) => sum + (m.mistakes || 0), 0)
+        const matchTrials = matchCorrect + matchMistakes
+        const matchAccuracy = matchTrials > 0 ? (matchCorrect / matchTrials) : (matchAttempts > 0 ? 1 : 0)
+        const matchConfidence = Math.min(1, matchAttempts / 40)
+        const matchScore = matchAccuracy * matchConfidence
+
+        const tfAttempts = tList.length
+        const tfCorrect = tList.filter(r => r.is_correct).length
+        const tfAccuracy = tfAttempts > 0 ? (tfCorrect / tfAttempts) : 0
+        const tfConfidence = Math.min(1, tfAttempts / 60)
+        const tfScore = tfAccuracy * tfConfidence
+
+        const fcAttempts = sList.reduce((sum, s) => sum + (s.cards_seen || (s.completed ? (s.cards_total || 10) : 0)), 0)
+        const fcAccuracy = fcAttempts > 0 ? 1.0 : 0
+        const fcConfidence = Math.min(1, fcAttempts / 80)
+        const fcScore = fcAccuracy * fcConfidence
+
+        const practiceScore = (
+          0.35 * mcqScore +
+          0.20 * matchScore +
+          0.20 * tfScore +
+          0.25 * fcScore
+        )
+
+        return Math.round((0.40 * practiceScore + 0.60 * mockScore) * 100)
       }
 
-      // 2. Practice Scores: MCQ (0.35, target 100), Match (0.20, target 40), TF (0.20, target 60), Flashcards (0.25, target 80)
-      const mcqAttempts = mcqList.length
-      const mcqCorrect = mcqList.filter(r => r.is_correct).length
-      const mcqAccuracy = mcqAttempts > 0 ? (mcqCorrect / mcqAttempts) : 0
-      const mcqConfidence = Math.min(1, mcqAttempts / 100)
-      const mcqScore = mcqAccuracy * mcqConfidence
+      if (isFE) {
+        // --- FE Subject A ---
+        const attemptsA = attempts.filter(a => {
+          const lk = (a.mock_exam_configs?.level_key || '').toLowerCase()
+          const title = (a.mock_exam_configs?.title || '').toLowerCase()
+          return (lk.includes('fe_a') || lk.includes('fe a') || lk === 'fe' || title.includes('subject a')) && !lk.includes('fe_b') && !lk.includes('ip')
+        })
+        const mcqA = mcqList.filter(r => {
+          const q = r.multiple_choice_questions
+          const sec = q?.fe_section || q?.practice_categories?.fe_section
+          return sec !== 'Subject B' && !String(sec || '').toLowerCase().includes('afternoon')
+        })
+        const tfA = tfList.filter(r => {
+          const q = r.true_false_questions
+          const sec = q?.fe_section || q?.practice_categories?.fe_section
+          return sec !== 'Subject B' && !String(sec || '').toLowerCase().includes('afternoon')
+        })
+        const matchA = matchList.filter(m => {
+          const title = m.set_title || ''
+          return !title.includes('Subject B') && !title.includes('Data Structures & Algorithms')
+        })
+        const sesA = sesList.filter(s => {
+          const d = s.flashcard_decks
+          const sec = d?.fe_section || d?.practice_categories?.fe_section
+          const title = d?.title || ''
+          return sec !== 'Subject B' && !title.includes('Subject B') && !title.includes('Algorithms, Data Structures')
+        })
+        const scoreA = calcScore(attemptsA, mcqA, tfA, matchA, sesA)
 
-      const matchAttempts = matchList.reduce((sum, m) => sum + (m.pairs_matched || m.pairs_total || 0), 0)
-      const matchCorrect = matchList.reduce((sum, m) => sum + (m.pairs_matched || 0), 0)
-      const matchMistakes = matchList.reduce((sum, m) => sum + (m.mistakes || 0), 0)
-      const matchTrials = matchCorrect + matchMistakes
-      const matchAccuracy = matchTrials > 0 ? (matchCorrect / matchTrials) : (matchAttempts > 0 ? 1 : 0)
-      const matchConfidence = Math.min(1, matchAttempts / 40)
-      const matchScore = matchAccuracy * matchConfidence
+        // --- FE Subject B ---
+        const attemptsB = attempts.filter(a => {
+          const lk = (a.mock_exam_configs?.level_key || '').toLowerCase()
+          const title = (a.mock_exam_configs?.title || '').toLowerCase()
+          return (lk.includes('fe_b') || lk.includes('fe b') || title.includes('subject b')) && !lk.includes('ip')
+        })
+        const mcqB = mcqList.filter(r => {
+          const q = r.multiple_choice_questions
+          const sec = q?.fe_section || q?.practice_categories?.fe_section
+          return sec !== 'Subject A' && !String(sec || '').toLowerCase().includes('morning')
+        })
+        const tfB = tfList.filter(r => {
+          const q = r.true_false_questions
+          const sec = q?.fe_section || q?.practice_categories?.fe_section
+          return sec !== 'Subject A' && !String(sec || '').toLowerCase().includes('morning')
+        })
+        const matchB = matchList.filter(m => {
+          const title = m.set_title || ''
+          return !title.includes('Subject A') && !title.includes('Memory Hierarchy') && !title.includes('Pipelining') && !title.includes('Databases & Normalization')
+        })
+        const sesB = sesList.filter(s => {
+          const d = s.flashcard_decks
+          const sec = d?.fe_section || d?.practice_categories?.fe_section
+          const title = d?.title || ''
+          return sec !== 'Subject A' && !title.includes('Subject A') && !title.includes('Architecture Review') && !title.includes('Databases')
+        })
+        const scoreB = calcScore(attemptsB, mcqB, tfB, matchB, sesB)
 
-      const tfAttempts = tfList.length
-      const tfCorrect = tfList.filter(r => r.is_correct).length
-      const tfAccuracy = tfAttempts > 0 ? (tfCorrect / tfAttempts) : 0
-      const tfConfidence = Math.min(1, tfAttempts / 60)
-      const tfScore = tfAccuracy * tfConfidence
-
-      const fcAttempts = sesList.reduce((sum, s) => sum + (s.cards_seen || (s.completed ? (s.cards_total || 10) : 0)), 0)
-      const fcAccuracy = fcAttempts > 0 ? 1.0 : 0
-      const fcConfidence = Math.min(1, fcAttempts / 80)
-      const fcScore = fcAccuracy * fcConfidence
-
-      const practiceScore = (
-        0.35 * mcqScore +
-        0.20 * matchScore +
-        0.20 * tfScore +
-        0.25 * fcScore
-      )
-
-      // Combined Exam Readiness matching Performance.js (40% practice + 60% mock)
-      const score = Math.round((0.40 * practiceScore + 0.60 * mockScore) * 100)
-      setReadiness(score)
-      await setCache('home_readiness', score)
+        setReadinessA(scoreA)
+        setReadinessB(scoreB)
+        setReadiness(Math.round((scoreA + scoreB) / 2))
+        await Promise.all([
+          setCache('home_readiness_fe_a', scoreA),
+          setCache('home_readiness_fe_b', scoreB),
+          setCache('home_readiness', Math.round((scoreA + scoreB) / 2)),
+        ])
+      } else {
+        // --- IP Standard ---
+        const activeAttempts = attempts.filter(a => {
+          const lk = (a.mock_exam_configs?.level_key || '').toLowerCase()
+          const title = (a.mock_exam_configs?.title || '').toLowerCase()
+          return (lk.includes('ip') || title.includes('passport')) && !lk.includes('fe')
+        })
+        const score = calcScore(activeAttempts, mcqList, tfList, matchList, sesList)
+        setReadiness(score)
+        await setCache('home_readiness', score)
+      }
     } catch (err) {
       console.warn('Error fetching readiness:', err)
       setReadiness(0)
@@ -499,15 +624,25 @@ export default function Home({ session, navigation, route }) {
   const fetchRankings = useCallback(async (selectedTimeframe = rankingTimeframe) => {
     const cacheKey = `home_rankings_${selectedTimeframe}`
     const cached = (await getCache(cacheKey)) || (await getCache('home_rankings'))
-    if (cached && Array.isArray(cached) && cached.length > 0) {
-      const sanitized = cached.map(r => ({
-        ...r,
-        name: (!r.name || r.name.toLowerCase() === 'learner')
-          ? (r.isCurrentUser ? (extractFirstName(profileName) || 'You') : 'Student')
-          : extractFirstName(r.name)
-      }))
-      setRankings(sanitized)
-      setRankingsLoading(false)
+    if (cached) {
+      const cachedList = Array.isArray(cached) ? cached : (cached.topRankings || [])
+      const cachedUser = !Array.isArray(cached) ? cached.currentUserRanking : null
+      if (cachedList.length > 0) {
+        const sanitized = cachedList.map(r => ({
+          ...r,
+          name: (!r.name || r.name.toLowerCase() === 'learner')
+            ? (r.isCurrentUser ? (extractFirstName(profileName) || 'You') : 'Student')
+            : extractFirstName(r.name)
+        }))
+        setRankings(sanitized)
+        if (cachedUser) {
+          setCurrentUserRanking({
+            ...cachedUser,
+            name: extractFirstName(profileName) || 'You',
+          })
+        }
+        setRankingsLoading(false)
+      }
     }
 
     try {
@@ -675,8 +810,21 @@ export default function Home({ session, navigation, route }) {
       finalized.sort((a, b) => b.score - a.score)
       const topRankings = finalized.slice(0, 5)
 
+      // Find current user's rank across the full leaderboard
+      let userRankInfo = null
+      if (currentUserId) {
+        const userIndex = finalized.findIndex(item => item.isCurrentUser)
+        if (userIndex >= 5) {
+          userRankInfo = {
+            ...finalized[userIndex],
+            rank: userIndex + 1,
+          }
+        }
+      }
+
       setRankings(topRankings)
-      await setCache(cacheKey, topRankings)
+      setCurrentUserRanking(userRankInfo)
+      await setCache(cacheKey, { topRankings, currentUserRanking: userRankInfo })
     } catch (err) {
       console.warn('Error fetching rankings:', err)
     } finally {
@@ -841,7 +989,7 @@ export default function Home({ session, navigation, route }) {
       setTargetExamType(activeTrack)
       const targetDefaultSubjects = isFE ? FE_DEFAULT_SUBJECTS : IP_DEFAULT_SUBJECTS
 
-      // 4. Fetch MCQ + TF results strictly isolated to user's target exam
+      // 4. Fetch MCQ + TF results strictly isolated to user's target exam (bounded to most recent 200 items)
       const { data: mcqPerformance } = await supabase
         .from('multiple_choice_results')
         .select(`
@@ -857,6 +1005,8 @@ export default function Home({ session, navigation, route }) {
           )
         `)
         .eq('user_id', uid)
+        .order('answered_at', { ascending: false })
+        .limit(200)
 
       const { data: tfPerformance } = await supabase
         .from('true_false_results')
@@ -873,6 +1023,8 @@ export default function Home({ session, navigation, route }) {
           )
         `)
         .eq('user_id', uid)
+        .order('answered_at', { ascending: false })
+        .limit(200)
 
       const performanceMap = {}
       targetDefaultSubjects.forEach(s => {
@@ -976,12 +1128,16 @@ export default function Home({ session, navigation, route }) {
         }
       }).catch(() => {})
 
-      // Silently refresh in the background
-      fetchQuote()
-      fetchRankings()
-      fetchReadiness()
-      fetchHomeData()
-      fetchNotifications()
+      // Silently refresh in background only if more than 3 minutes have passed since last fetch
+      const now = Date.now()
+      if (now - lastFocusFetchTimeRef.current > 180000) {
+        lastFocusFetchTimeRef.current = now
+        fetchQuote()
+        fetchRankings()
+        fetchReadiness()
+        fetchHomeData()
+        fetchNotifications()
+      }
     }, [fetchQuote, fetchRankings, fetchReadiness, fetchHomeData, fetchNotifications])
   )
 
@@ -1140,14 +1296,35 @@ export default function Home({ session, navigation, route }) {
 
         {/* ── Metrics ── */}
         <View style={styles.metricsRow}>
-          <View style={styles.metricCard}>
-            {readinessLoading ? (
-              <ActivityIndicator size="small" color={NAVY} />
-            ) : (
-              <Text style={styles.metricValue}>{readiness}%</Text>
-            )}
-            <Text style={styles.metricLabel}>Exam Readiness</Text>
-          </View>
+          {targetExamType === 'FE' ? (
+            <View style={styles.metricCard}>
+              {readinessLoading ? (
+                <ActivityIndicator size="small" color={NAVY} />
+              ) : (
+                <View style={styles.dualReadinessRow}>
+                  <View style={styles.dualReadinessCol}>
+                    <Text style={styles.dualReadinessValue}>{readinessA}%</Text>
+                    <Text style={styles.dualReadinessSubLabel}>Subject A</Text>
+                  </View>
+                  <View style={styles.dualReadinessDivider} />
+                  <View style={styles.dualReadinessCol}>
+                    <Text style={styles.dualReadinessValue}>{readinessB}%</Text>
+                    <Text style={styles.dualReadinessSubLabel}>Subject B</Text>
+                  </View>
+                </View>
+              )}
+              <Text style={styles.metricLabel}>FE Readiness</Text>
+            </View>
+          ) : (
+            <View style={styles.metricCard}>
+              {readinessLoading ? (
+                <ActivityIndicator size="small" color={NAVY} />
+              ) : (
+                <Text style={styles.metricValue}>{readiness}%</Text>
+              )}
+              <Text style={styles.metricLabel}>Exam Readiness</Text>
+            </View>
+          )}
           <View style={styles.metricCard}>
             {cseLoading ? (
               <ActivityIndicator size="small" color={NAVY} />
@@ -1260,6 +1437,28 @@ export default function Home({ session, navigation, route }) {
                 </View>
               )
             })
+          )}
+
+          {/* Current User Row below Top 5 if user is ranked 6th or lower */}
+          {!rankingsLoading && currentUserRanking && (
+            <View style={styles.outsideTopFiveContainer}>
+              <View style={styles.outsideTopFiveDivider}>
+                <View style={styles.dividerLine} />
+                <Text style={styles.dividerDots}>•••</Text>
+                <View style={styles.dividerLine} />
+              </View>
+              <View style={[styles.rankingRow, styles.currentUserRankingRow, styles.pinnedUserRow]}>
+                <View style={styles.rankLeft}>
+                  <Text style={[styles.rankIndex, styles.currentUserRankIndex]}>
+                    {currentUserRanking.rank}
+                  </Text>
+                  <Text style={[styles.rankName, styles.currentUserRankText]} numberOfLines={1}>
+                    {extractFirstName(currentUserRanking.name)} (You)
+                  </Text>
+                </View>
+                <Text style={styles.rankScore}>{currentUserRanking.score} pts</Text>
+              </View>
+            </View>
           )}
         </View>
 
@@ -1538,6 +1737,36 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: NAVY,
   },
+  dualReadinessRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: '100%',
+    paddingVertical: 2,
+  },
+  dualReadinessCol: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  dualReadinessValue: {
+    fontSize: 22,
+    fontWeight: '800',
+    color: NAVY,
+  },
+  dualReadinessSubLabel: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#64748b',
+    marginTop: 2,
+    textTransform: 'uppercase',
+    letterSpacing: 0.3,
+  },
+  dualReadinessDivider: {
+    width: 1,
+    height: 32,
+    backgroundColor: '#e2e8f0',
+    marginHorizontal: 4,
+  },
   metricUnit: {
     fontSize: 13,
     fontWeight: '600',
@@ -1683,6 +1912,35 @@ const styles = StyleSheet.create({
   },
   currentUserRankText: {
     color: NAVY,
+    fontWeight: '800',
+  },
+  outsideTopFiveContainer: {
+    marginTop: 4,
+  },
+  outsideTopFiveDivider: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginVertical: 8,
+    gap: 8,
+  },
+  dividerLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: '#e2e8f0',
+  },
+  dividerDots: {
+    fontSize: 10,
+    color: '#94a3b8',
+    letterSpacing: 2,
+  },
+  pinnedUserRow: {
+    borderWidth: 1,
+    borderColor: '#bfdbfe',
+    backgroundColor: '#eff6ff',
+    paddingVertical: 10,
+  },
+  currentUserRankIndex: {
+    color: '#2563eb',
     fontWeight: '800',
   },
   rankLeft: {

@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react'
 import {
   Image, ScrollView, StyleSheet, Text, TouchableOpacity,
-  View, ActivityIndicator, TextInput, Platform, Linking, StatusBar, RefreshControl } from 'react-native';
+  View, ActivityIndicator, TextInput, Platform, Linking, StatusBar, RefreshControl
+} from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Feather, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons'
 import { supabase } from '../../../supabase'
@@ -590,32 +591,37 @@ const SUBJECT_FILTER_CONFIG = {
  */
 function DefaultBookCover({ item }) {
   const theme = SUBJECT_THEMES[item.subject] || { bg: '#0b192c', accent: '#38bdf8', icon: 'book', border: '#1e3a8a' }
-  const displaySpeed = item.review_speed || 'Standard'
 
   return (
     <View style={[styles.defaultCoverRoot, { backgroundColor: theme.bg }]}>
-      <View style={[styles.defaultCoverFrame, { borderColor: `${theme.accent}45` }]}>
+      {/* Subtle background crest watermark */}
+      <View style={styles.defaultCoverWatermark}>
+        <Feather name={theme.icon || 'book-open'} size={72} color={theme.accent} style={{ opacity: 0.08 }} />
+      </View>
+
+      <View style={[styles.defaultCoverFrame, { borderColor: `${theme.accent}55` }]}>
+        {/* Top Header: Domain Crest & Tag */}
         <View style={styles.defaultCoverHeaderRow}>
-          <Text style={[styles.defaultCoverCrestText, { color: theme.accent }]}>{item.subject || 'READING'}</Text>
-          <View style={[styles.defaultCoverCrestBadge, { backgroundColor: `${theme.accent}20` }]}>
-            <Feather name={theme.icon} size={11} color={theme.accent} />
+          <Text style={[styles.defaultCoverCrestText, { color: theme.accent }]}>
+            {String(item.subject || 'PHILNITS').toUpperCase()}
+          </Text>
+          <View style={[styles.defaultCoverCrestBadge, { backgroundColor: `${theme.accent}25` }]}>
+            <Feather name={theme.icon || 'book'} size={11} color={theme.accent} />
           </View>
         </View>
 
+        {/* Center: Title clearly visible, prominent, and centered */}
         <View style={styles.defaultCoverTitleBlock}>
+          <View style={[styles.defaultCoverDivider, { backgroundColor: theme.accent }]} />
           <Text style={styles.defaultCoverTitleText} numberOfLines={4}>
             {item.title}
           </Text>
+          <View style={[styles.defaultCoverDivider, { backgroundColor: theme.accent }]} />
         </View>
 
+        {/* Bottom Footer: Track / Label */}
         <View style={styles.defaultCoverFooterRow}>
-          {displaySpeed ? (
-            <View style={[styles.defaultCoverEditionTag, { backgroundColor: `${theme.accent}22` }]}>
-              <Text style={[styles.defaultCoverEditionText, { color: theme.accent }]}>
-                {displaySpeed === 'Quick' ? 'Quick' : displaySpeed === 'Detailed' ? 'Detailed' : 'Standard'}
-              </Text>
-            </View>
-          ) : null}
+          <Text style={[styles.defaultCoverEditionText, { color: `${theme.accent}99` }]}>GABAY PHILNITS</Text>
         </View>
       </View>
     </View>
@@ -625,15 +631,16 @@ function DefaultBookCover({ item }) {
 // ─── Material Book Cover Card ────────────────────────────────
 /**
  * Full image book cover component.
- * Adheres to user rule: "make the ui of reading materials be like book cover
- * dont use text because it is full image book cover".
+ * Automatically displays clean fallback cover with front-and-center title
+ * whenever the cover image is missing or fails to load.
  *
  * @param {{ item: any, onPress: any }} props
  */
 function MaterialCard({ item, onPress }) {
+  const [imageError, setImageError] = useState(false)
   const coverUrl = item.cover_image_url || item.cover_url || item.thumbnail_url || item.image_url
   const progress = item.progress || 0
-  const displaySpeed = item.review_speed || 'Standard'
+  const hasValidImage = !!coverUrl && !imageError
 
   return (
     <TouchableOpacity
@@ -642,11 +649,12 @@ function MaterialCard({ item, onPress }) {
       onPress={onPress}
     >
       <View style={styles.bookWrapper}>
-        {coverUrl ? (
+        {hasValidImage ? (
           <Image
             source={{ uri: coverUrl }}
             style={styles.bookImage}
             resizeMode="cover"
+            onError={() => setImageError(true)}
           />
         ) : (
           <DefaultBookCover item={item} />
@@ -658,25 +666,6 @@ function MaterialCard({ item, onPress }) {
 
         {/* Page ridge effect on right outer edge */}
         <View style={styles.bookPageEdge} />
-
-        {/* Floating speed badge on top corner */}
-        {displaySpeed && coverUrl ? (
-          <View style={[
-            styles.bookSpeedBadge,
-            String(displaySpeed).toLowerCase() === 'quick' ? styles.speedBadgeQuick :
-            String(displaySpeed).toLowerCase() === 'detailed' ? styles.speedBadgeDetailed :
-            styles.speedBadgeStandard
-          ]}>
-            <Text style={[
-              styles.bookSpeedBadgeText,
-              String(displaySpeed).toLowerCase() === 'quick' ? styles.speedBadgeTextQuick :
-              String(displaySpeed).toLowerCase() === 'detailed' ? styles.speedBadgeTextDetailed :
-              styles.speedBadgeTextStandard
-            ]}>
-              {displaySpeed === 'Quick' ? 'Quick' : displaySpeed === 'Detailed' ? 'Detailed' : 'Standard'}
-            </Text>
-          </View>
-        ) : null}
 
         {/* Reading progress line at bottom of book */}
         {progress > 0 && (
@@ -726,19 +715,6 @@ function LibrarySkeleton({ libraryMode, isFE }) {
               <SkeletonItem width={76} height={20} borderRadius={10} />
             </View>
             <SkeletonItem width={20} height={20} borderRadius={10} />
-          </View>
-
-          {/* Review Speed Pace Bar Skeleton */}
-          <View style={styles.skeletonPaceContainer}>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-              <SkeletonItem width={130} height={14} borderRadius={4} />
-              <SkeletonItem width={85} height={18} borderRadius={9} />
-            </View>
-            <View style={{ flexDirection: 'row', gap: 8 }}>
-              {[105, 80, 90, 85].map((w, idx) => (
-                <SkeletonItem key={idx} width={w} height={30} borderRadius={15} />
-              ))}
-            </View>
           </View>
 
           {/* Book Shelves Skeletons */}
@@ -810,23 +786,28 @@ function LibrarySkeleton({ libraryMode, isFE }) {
 }
 
 // ─── Main component ──────────────────────────────────────────
+// Module-level in-memory cache for instant zero-latency tab switching across unmounts
+let _memoryCachedMaterials = null
+let _memoryCachedVideos = null
+let _memoryCachedTargetExam = null
+let _lastLibraryFetchTime = 0
+
 /**
  * @param {{ navigation: any }} props
  */
 export default function Library({ navigation }) {
   const insets = useSafeAreaInsets()
-  const [materials, setMaterials]   = useState(/** @type {any[]} */ ([]))
-  const [videos,    setVideos]      = useState(/** @type {any[]} */ ([]))
-  const [loading,   setLoading]     = useState(true)
+  const [materials, setMaterials] = useState(/** @type {any[]} */(_memoryCachedMaterials || []))
+  const [videos, setVideos] = useState(/** @type {any[]} */(_memoryCachedVideos || []))
+  const [loading, setLoading] = useState(!_memoryCachedMaterials || _memoryCachedMaterials.length === 0)
   const [refreshing, setRefreshing] = useState(false)
-  const [error,     setError]       = useState(/** @type {string | null} */ (null))
-  const [search,    setSearch]      = useState('')
-  const [activeChip, setActiveChip] = useState(/** @type {string} */ ('Technology'))
-  const [activeSpeed, setActiveSpeed] = useState('RECOMMENDED')
-  const [videoTopicFilter, setVideoTopicFilter] = useState(/** @type {string | null} */ ('Technology'))
+  const [error, setError] = useState(/** @type {string | null} */(null))
+  const [search, setSearch] = useState('')
+  const [activeChip, setActiveChip] = useState(/** @type {string | null} */(null))
+  const [videoTopicFilter, setVideoTopicFilter] = useState(/** @type {string | null} */(null))
+  const [materialsLoading, setMaterialsLoading] = useState(false)
   const [libraryMode, setLibraryMode] = useState('READING') // 'READING' | 'VIDEOS'
-  const [userReviewSpeed, setUserReviewSpeed] = useState('Standard')
-  const [userTargetExam, setUserTargetExam] = useState('IP')
+  const [userTargetExam, setUserTargetExam] = useState(_memoryCachedTargetExam || 'IP')
   const [feSection, setFeSection] = useState('FE Subject A')
 
   const isFE = (userTargetExam || '').toLowerCase().includes('fe')
@@ -834,21 +815,59 @@ export default function Library({ navigation }) {
   // Immediately resolve target exam from persistent cache / SQLite session on mount
   useEffect(() => {
     resolveUserTargetExam(null, userTargetExam).then((trk) => {
-      if (trk && trk !== userTargetExam) setUserTargetExam(trk)
+      if (trk && trk !== userTargetExam) {
+        _memoryCachedTargetExam = trk
+        setUserTargetExam(trk)
+      }
     })
+  }, [])
+
+  // If in-memory is empty on fresh start, immediately hydrate from SQLite persistent cache
+  useEffect(() => {
+    if (!_memoryCachedMaterials || _memoryCachedMaterials.length === 0) {
+      Promise.all([
+        getCache('library_target_exam'),
+        getCache('user_target_exam'),
+        getCache('library_materials'),
+        getCache('library_videos')
+      ]).then(([cachedTrack, userTrack, cachedMaterials, cachedVideos]) => {
+        const trk = cachedTrack || userTrack
+        if (trk) {
+          _memoryCachedTargetExam = trk
+          setUserTargetExam(trk)
+        }
+        if (Array.isArray(cachedMaterials) && cachedMaterials.length > 0) {
+          _memoryCachedMaterials = cachedMaterials
+          setMaterials(cachedMaterials)
+          if (Array.isArray(cachedVideos) && cachedVideos.length > 0) {
+            _memoryCachedVideos = cachedVideos
+            setVideos(cachedVideos)
+          }
+          setLoading(false)
+        }
+      }).catch(() => {})
+    }
   }, [])
 
   useEffect(() => {
     const unsubscribe = navigation.addListener('focus', () => {
-      // Reopening Library will instantly show cached books/videos with zero loading screen,
-      // then silently revalidate in the background
-      loadMaterials(false)
+      const now = Date.now()
+      // Only trigger network revalidation if more than 3 minutes passed AND we already mounted
+      const hasAnyData = (_memoryCachedMaterials && _memoryCachedMaterials.length > 0) || materials.length > 0
+      if (!hasAnyData || (now - _lastLibraryFetchTime > 180000)) {
+        _lastLibraryFetchTime = now
+        loadMaterials(false)
+      }
     })
     return unsubscribe
-  }, [navigation])
+  }, [navigation, materials.length])
 
   const onRefresh = async () => {
     setRefreshing(true)
+    _memoryCachedMaterials = null
+    _memoryCachedVideos = null
+    _memoryCachedTargetExam = null
+    _lastLibraryFetchTime = 0
     await clearCache('library_materials')
     await clearCache('library_videos')
     await clearCache('library_target_exam')
@@ -864,33 +883,46 @@ export default function Library({ navigation }) {
       const uid = session?.user?.id
       const uemail = session?.user?.email
 
+      const hasCachedData = (_memoryCachedMaterials && _memoryCachedMaterials.length > 0) || materials.length > 0
+
       // 1. Instant Cache Check for zero perceived latency
       if (!forceRefresh) {
-        const cachedTrack = await getCache('library_target_exam') || await getCache('user_target_exam')
-        const cachedMaterials = await getCache('library_materials')
-        const cachedVideos = await getCache('library_videos')
-        const cachedSpeed = await getCache('user_review_speed')
-        if (cachedTrack) setUserTargetExam(cachedTrack)
-        if (cachedSpeed) setUserReviewSpeed(cachedSpeed)
-        if (Array.isArray(cachedMaterials) && cachedMaterials.length > 0 && Array.isArray(cachedVideos) && cachedVideos.length > 0) {
-          setMaterials(cachedMaterials)
-          setVideos(cachedVideos)
+        if (_memoryCachedMaterials && _memoryCachedMaterials.length > 0) {
+          setMaterials(_memoryCachedMaterials)
+          if (_memoryCachedVideos && _memoryCachedVideos.length > 0) setVideos(_memoryCachedVideos)
+          if (_memoryCachedTargetExam) setUserTargetExam(_memoryCachedTargetExam)
           setLoading(false)
-          // Continue background refresh if needed without blocking
         } else {
-          setLoading(true)
+          // Read from SQLite cache
+          const cachedTrack = await getCache('library_target_exam') || await getCache('user_target_exam')
+          const cachedMaterials = await getCache('library_materials')
+          const cachedVideos = await getCache('library_videos')
+          if (cachedTrack) {
+            _memoryCachedTargetExam = cachedTrack
+            setUserTargetExam(cachedTrack)
+          }
+          if (Array.isArray(cachedMaterials) && cachedMaterials.length > 0) {
+            _memoryCachedMaterials = cachedMaterials
+            setMaterials(cachedMaterials)
+            if (Array.isArray(cachedVideos) && cachedVideos.length > 0) {
+              _memoryCachedVideos = cachedVideos
+              setVideos(cachedVideos)
+            }
+            setLoading(false)
+          } else if (!hasCachedData) {
+            setLoading(true)
+          }
         }
       } else {
         setLoading(true)
       }
 
       // 2. Concurrently fetch all dependencies in parallel
-      // Note: We fetch reading materials with a resilient 35s timeout. If public/cafe Wi-Fi drops or delays,
-      // we immediately fall back to metadata-only (no heavy base64) so the screen never gets blocked.
-      const [vRes, rRes, uRes, progRes, resolvedTrack] = await Promise.allSettled([
+      // Note: We deliberately exclude the bulky thumbnail_url column (which contains 50KB+ base64 strings)
+      // to keep the payload under 30KB and load the shelf in < 400ms. DefaultBookCover renders native vector art.
+      const [vRes, rRes, progRes, resolvedTrack] = await Promise.allSettled([
         withTimeout(supabase.from('video_lectures').select('*').eq('is_published', true).order('sort_order', { ascending: true }), 15000),
-        withTimeout(supabase.from('reading_materials').select('id, title, subtitle, author, subject, exam_level, fe_section, thumbnail_url, pdf_url, sort_order, total_pages, review_speed, learning_objective, is_published, created_at, chapter').eq('is_published', true).order('subject').order('sort_order'), 35000),
-        uemail ? withTimeout(supabase.from('users').select('review_speed').ilike('email', uemail).maybeSingle(), 10000) : Promise.resolve({ data: null }),
+        withTimeout(supabase.from('reading_materials').select('id, title, subtitle, author, subject, exam_level, fe_section, pdf_url, sort_order, total_pages, learning_objective, is_published, created_at, chapter').eq('is_published', true).order('subject').order('sort_order'), 15000),
         uid ? withTimeout(supabase.from('user_reading_progress').select('*').eq('user_id', uid), 10000) : Promise.resolve({ data: [] }),
         resolveUserTargetExam(uid, userTargetExam)
       ])
@@ -908,13 +940,6 @@ export default function Library({ navigation }) {
       }
       setVideos(finalVideos)
 
-      // Review speed
-      let currentSpeed = 'Standard'
-      if (uRes.status === 'fulfilled' && uRes.value?.data?.review_speed) {
-        currentSpeed = String(uRes.value.data.review_speed).trim()
-      }
-      setUserReviewSpeed(currentSpeed)
-
       // Reading progress
       const progressList = (progRes.status === 'fulfilled' && Array.isArray(progRes.value?.data)) ? progRes.value.data : []
       const progressMap = {}
@@ -928,7 +953,7 @@ export default function Library({ navigation }) {
       if (rawMaterials.length === 0 && (rRes.status === 'rejected' || rRes.value?.error)) {
         try {
           const fallbackRes = await supabase.from('reading_materials')
-            .select('id, title, subtitle, author, subject, exam_level, fe_section, pdf_url, sort_order, total_pages, review_speed, learning_objective, is_published, created_at, chapter')
+            .select('id, title, subtitle, author, subject, exam_level, fe_section, pdf_url, sort_order, total_pages, learning_objective, is_published, created_at, chapter')
             .eq('is_published', true)
             .order('subject')
             .order('sort_order')
@@ -955,13 +980,16 @@ export default function Library({ navigation }) {
       })
 
       if (materialsWithProgress.length > 0) {
+        _memoryCachedMaterials = materialsWithProgress
+        _memoryCachedVideos = finalVideos
+        _memoryCachedTargetExam = targetTrack
         setMaterials(materialsWithProgress)
-        setCache('library_target_exam', targetTrack).catch(() => {})
-        setCache('library_materials', materialsWithProgress).catch(() => {})
-        setCache('library_videos', finalVideos).catch(() => {})
-        setCache('user_review_speed', currentSpeed).catch(() => {})
+        setCache('library_target_exam', targetTrack).catch(() => { })
+        setCache('library_materials', materialsWithProgress).catch(() => { })
+        setCache('library_videos', finalVideos).catch(() => { })
       } else if (rawMaterials.length === 0 && rRes.status === 'fulfilled') {
         // Query succeeded but returned 0 items from remote
+        _memoryCachedMaterials = []
         setMaterials([])
       }
     } catch (e) {
@@ -1025,6 +1053,9 @@ export default function Library({ navigation }) {
   const rawAvailableSubjects = Array.from(new Set(allTrackMaterials.map(m => m.subject).filter(Boolean)))
   const displayFilterSubjects = rawAvailableSubjects.length > 0 ? rawAvailableSubjects : currentTrackSubjects
 
+  // 1st filter is always the active filter by default
+  const effectiveActiveChip = activeChip || displayFilterSubjects[0] || 'Technology'
+
   // Filter reading materials strictly matching personal info target exam track (IP or FE) and Subject A / B section
   const filtered = materials.filter(m => {
     const lvl = (m.exam_level || '').toLowerCase().trim()
@@ -1040,7 +1071,7 @@ export default function Library({ navigation }) {
       }
     }
 
-    const matchChip = !activeChip || String(m.subject || '').trim().toLowerCase() === String(activeChip).trim().toLowerCase()
+    const matchChip = String(m.subject || '').trim().toLowerCase() === String(effectiveActiveChip).trim().toLowerCase()
     const matchSearch = !search || (
       (m.title && m.title.toLowerCase().includes(search.toLowerCase())) ||
       (m.subtitle && m.subtitle.toLowerCase().includes(search.toLowerCase())) ||
@@ -1055,53 +1086,18 @@ export default function Library({ navigation }) {
   const groupedRaw = {}
   filtered.forEach(item => {
     const sub = item.subject || 'General'
-    if (activeChip && activeChip !== sub) return
+    if (effectiveActiveChip && effectiveActiveChip !== sub) return
     // Chapter shelf heading (e.g. Basic Theory, Computer Systems, Technical Elements)
     const shelfCategory = item.chapter || item.subject || 'General'
     if (!groupedRaw[shelfCategory]) groupedRaw[shelfCategory] = []
     groupedRaw[shelfCategory].push(item)
   })
 
-  // Effective review speed for reading material filtering
-  const effectiveSpeed = activeSpeed === 'RECOMMENDED'
-    ? (userReviewSpeed || 'Standard')
-    : (activeSpeed === 'ALL' ? null : activeSpeed)
-
   /** @type {Record<string, any[]>} */
-  const grouped = {}
-
-  if (activeSpeed === 'ALL') {
-    Object.keys(groupedRaw).forEach(sub => {
-      grouped[sub] = groupedRaw[sub]
-    })
-  } else if (activeSpeed === 'RECOMMENDED') {
-    // "For You" mode: prioritize materials matching user's pace, with fallback to primary subject book
-    const targetPaceLower = (userReviewSpeed || 'Standard').toLowerCase()
-    Object.keys(groupedRaw).forEach(sub => {
-      const items = groupedRaw[sub]
-      const matching = items.filter(m => String(m.review_speed || 'Standard').toLowerCase() === targetPaceLower)
-      if (matching.length > 0) {
-        grouped[sub] = matching
-      } else {
-        // Fallback: provide 1 item so the subject shelf is not empty in recommended overview
-        grouped[sub] = items.slice(0, 1)
-      }
-    })
-  } else {
-    // Strict pace filters ('Quick' | 'Standard' | 'Detailed'):
-    // Show ONLY items that strictly match the selected review speed!
-    const targetPaceLower = String(activeSpeed).toLowerCase()
-    Object.keys(groupedRaw).forEach(sub => {
-      const items = groupedRaw[sub]
-      const matching = items.filter(m => String(m.review_speed || 'Standard').toLowerCase() === targetPaceLower)
-      if (matching.length > 0) {
-        grouped[sub] = matching
-      }
-    })
-  }
+  const grouped = groupedRaw
 
   // Active topic for videos (top activeChip takes precedence, otherwise local videoTopicFilter)
-  const activeVideoTopic = activeChip || videoTopicFilter
+  const activeVideoTopic = effectiveActiveChip || videoTopicFilter
 
   // Filter video lectures strictly matching personal info target exam track (IP or FE) and Subject A / B section
   const trackVideos = videos.filter(v => {
@@ -1140,7 +1136,7 @@ export default function Library({ navigation }) {
     const vids = filteredVideos.filter(v => v.subject === sub)
     if (vids.length > 0) acc[sub] = vids
     return acc
-  }, /** @type {Record<string, any[]>} */ ({}))
+  }, /** @type {Record<string, any[]>} */({}))
 
   return (
     <View style={styles.screen}>
@@ -1231,344 +1227,271 @@ export default function Library({ navigation }) {
               )}
             </View>
 
-        {/* FE Subject A / Subject B Segmented Switcher */}
-        {isFE && (
-          <View style={styles.feTrackBar}>
-            <View style={styles.feTrackSegment}>
-              <TouchableOpacity
-                style={[styles.feTrackBtn, feSection === 'FE Subject A' && styles.feTrackBtnActive]}
-                onPress={() => {
-                  setFeSection('FE Subject A')
-                  setActiveChip(null)
-                  setVideoTopicFilter(null)
-                }}
-                activeOpacity={0.7}
-              >
-                <Text style={[styles.feTrackBtnText, feSection === 'FE Subject A' && styles.feTrackBtnTextActive]}>
-                  Subject A (Morning)
-                </Text>
-              </TouchableOpacity>
+            {/* FE Subject A / Subject B Segmented Switcher */}
+            {isFE && (
+              <View style={styles.feTrackBar}>
+                <View style={styles.feTrackSegment}>
+                  <TouchableOpacity
+                    style={[styles.feTrackBtn, feSection === 'FE Subject A' && styles.feTrackBtnActive]}
+                    onPress={() => {
+                      setFeSection('FE Subject A')
+                      setActiveChip(null)
+                      setVideoTopicFilter(null)
+                    }}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={[styles.feTrackBtnText, feSection === 'FE Subject A' && styles.feTrackBtnTextActive]}>
+                      Subject A (Morning)
+                    </Text>
+                  </TouchableOpacity>
 
-              <TouchableOpacity
-                style={[styles.feTrackBtn, feSection === 'FE Subject B' && styles.feTrackBtnActive]}
-                onPress={() => {
-                  setFeSection('FE Subject B')
-                  setActiveChip(null)
-                  setVideoTopicFilter(null)
-                }}
-                activeOpacity={0.7}
-              >
-                <Text style={[styles.feTrackBtnText, feSection === 'FE Subject B' && styles.feTrackBtnTextActive]}>
-                  Subject B (Afternoon)
-                </Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        )}
-
-        {/* Small Card Filter with Logo & Text */}
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.cardFilterScroll}
-        >
-          {/* Subject Cards based on active view mode (No "All Topics", default 1 active) */}
-          {displayFilterSubjects.map(sub => {
-            const config = SUBJECT_FILTER_CONFIG[sub] || {
-              label: sub,
-              shortLabel: sub,
-              icon: 'book',
-              color: '#2563eb',
-            }
-            const isSelected = (activeChip === sub) || (!activeChip && sub === displayFilterSubjects[0])
-
-            return (
-              <TouchableOpacity
-                key={sub}
-                style={[
-                  styles.filterCard,
-                  isSelected && styles.filterCardActive,
-                ]}
-                activeOpacity={0.8}
-                onPress={() => {
-                  setActiveChip(sub)
-                  setVideoTopicFilter(sub)
-                }}
-              >
-                <View style={[
-                  styles.filterCardIconWrapper,
-                  isSelected
-                    ? styles.filterCardIconWrapperActive
-                    : { backgroundColor: `${config.color}15` }
-                ]}>
-                  <Feather
-                    name={config.icon}
-                    size={20}
-                    color={isSelected ? '#ffffff' : config.color}
-                  />
-                </View>
-                <Text
-                  style={[styles.filterCardText, isSelected && styles.filterCardTextActive]}
-                  numberOfLines={1}
-                >
-                  {config.shortLabel || sub}
-                </Text>
-              </TouchableOpacity>
-            )
-          })}
-        </ScrollView>
-
-        {/* ── Reading Materials Section (Only in READING Mode) ── */}
-        {libraryMode === 'READING' && (
-          <>
-            <View style={styles.sectionHeaderRow}>
-              <View style={styles.sectionTitleRow}>
-                <Feather name="book-open" size={20} color={NAVY} />
-                <Text style={styles.sectionHeaderText}>Reading Materials</Text>
-                <View style={styles.examTrackBadge}>
-                  <Text style={styles.examTrackBadgeText}>
-                    {isFE ? (feSection === 'FE Subject B' ? 'FE Subject B' : 'FE Subject A') : 'PhilNITS IP'}
-                  </Text>
+                  <TouchableOpacity
+                    style={[styles.feTrackBtn, feSection === 'FE Subject B' && styles.feTrackBtnActive]}
+                    onPress={() => {
+                      setFeSection('FE Subject B')
+                      setActiveChip(null)
+                      setVideoTopicFilter(null)
+                    }}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={[styles.feTrackBtnText, feSection === 'FE Subject B' && styles.feTrackBtnTextActive]}>
+                      Subject B (Afternoon)
+                    </Text>
+                  </TouchableOpacity>
                 </View>
               </View>
-              <TouchableOpacity onPress={() => loadMaterials(true)}>
-                <Feather name="refresh-cw" size={16} color="#64748b" />
-              </TouchableOpacity>
-            </View>
-
-        {/* Review Speed Pace Filter Bar */}
-        <View style={styles.paceContainer}>
-          <View style={styles.paceHeader}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-              <Feather name="zap" size={14} color="#d97706" />
-              <Text style={styles.paceTitle}>Target Review Pace:</Text>
-            </View>
-            <View style={[
-              styles.paceActiveBadge,
-              effectiveSpeed === 'Quick' ? styles.speedBadgeQuick :
-              effectiveSpeed === 'Detailed' ? styles.speedBadgeDetailed :
-              styles.speedBadgeStandard
-            ]}>
-              <Text style={[
-                styles.paceActiveBadgeText,
-                effectiveSpeed === 'Quick' ? styles.speedBadgeTextQuick :
-                effectiveSpeed === 'Detailed' ? styles.speedBadgeTextDetailed :
-                styles.speedBadgeTextStandard
-              ]}>
-                {effectiveSpeed ? `${effectiveSpeed} Pace` : 'All Paces'}
-              </Text>
-            </View>
-          </View>
-
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.paceScroll}>
-            <TouchableOpacity
-              style={[styles.paceChip, activeSpeed === 'RECOMMENDED' && styles.paceChipActive]}
-              onPress={() => setActiveSpeed('RECOMMENDED')}
-            >
-              <Feather name="star" size={12} color={activeSpeed === 'RECOMMENDED' ? '#fff' : '#d97706'} />
-              <Text style={[styles.paceChipText, activeSpeed === 'RECOMMENDED' && styles.paceChipTextActive]}>
-                For You ({userReviewSpeed})
-              </Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[styles.paceChip, activeSpeed === 'Quick' && styles.paceChipActive]}
-              onPress={() => setActiveSpeed(activeSpeed === 'Quick' ? 'RECOMMENDED' : 'Quick')}
-            >
-              <Text style={[styles.paceChipText, activeSpeed === 'Quick' && styles.paceChipTextActive]}>
-                Quick
-              </Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[styles.paceChip, activeSpeed === 'Standard' && styles.paceChipActive]}
-              onPress={() => setActiveSpeed(activeSpeed === 'Standard' ? 'RECOMMENDED' : 'Standard')}
-            >
-              <Text style={[styles.paceChipText, activeSpeed === 'Standard' && styles.paceChipTextActive]}>
-                Standard
-              </Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[styles.paceChip, activeSpeed === 'Detailed' && styles.paceChipActive]}
-              onPress={() => setActiveSpeed(activeSpeed === 'Detailed' ? 'RECOMMENDED' : 'Detailed')}
-            >
-              <Text style={[styles.paceChipText, activeSpeed === 'Detailed' && styles.paceChipTextActive]}>
-                Detailed
-              </Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[styles.paceChip, activeSpeed === 'ALL' && styles.paceChipActive]}
-              onPress={() => setActiveSpeed('ALL')}
-            >
-              <Text style={[styles.paceChipText, activeSpeed === 'ALL' && styles.paceChipTextActive]}>
-                All Speeds
-              </Text>
-            </TouchableOpacity>
-          </ScrollView>
-        </View>
-
-        {/* Error */}
-        {error && (
-          <View style={styles.centered}>
-            <Feather name="alert-circle" size={40} color="#94a3b8" />
-            <Text style={styles.emptyText}>{error}</Text>
-            <TouchableOpacity style={styles.retryBtn} onPress={() => loadMaterials(true)}>
-              <Text style={styles.retryText}>Retry</Text>
-            </TouchableOpacity>
-          </View>
-        )}
-
-        {/* Content grouped by subject */}
-        {!error && Object.keys(grouped).length === 0 && (
-          <View style={styles.centered}>
-            <Feather name="filter" size={40} color="#94a3b8" />
-            <Text style={styles.emptyText}>
-              {activeSpeed === 'ALL'
-                ? 'No reading materials found.'
-                : `No ${activeSpeed} pace reading materials found for ${isFE ? feSection : 'PhilNITS IP'}.`}
-            </Text>
-            {activeSpeed !== 'ALL' && (
-              <TouchableOpacity
-                style={styles.retryBtn}
-                onPress={() => setActiveSpeed('ALL')}
-              >
-                <Text style={styles.retryText}>Show All Speeds</Text>
-              </TouchableOpacity>
             )}
-          </View>
-        )}
 
-        {!error && Object.entries(grouped).map(([subject, items]) => (
-          <View key={subject} style={styles.subjectSection}>
-            <View style={styles.categoryRow}>
-              <Text style={styles.categoryTitle}>{subject}</Text>
-              <Text style={styles.categoryCount}>{items.length} {items.length === 1 ? 'book' : 'books'}</Text>
-            </View>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.horizontalBookCards}>
-              {items.map(item => {
-                const itemEffectiveSpeed = item.review_speed || 'Standard'
+            {/* Small Card Filter with Logo & Text */}
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.cardFilterScroll}
+            >
+              {/* Subject Cards based on active view mode (No "All Topics", default 1 active) */}
+              {displayFilterSubjects.map(sub => {
+                const config = SUBJECT_FILTER_CONFIG[sub] || {
+                  label: sub,
+                  shortLabel: sub,
+                  icon: 'book',
+                  color: '#2563eb',
+                }
+                const isSelected = (activeChip === sub) || (!activeChip && sub === displayFilterSubjects[0])
 
                 return (
-                  <MaterialCard
-                    key={item.id}
-                    item={item}
-                    onPress={() => navigation?.navigate('ReadingMaterial', {
-                      materialId: item.id,
-                      title: item.title,
-                      subject: item.subject,
-                      reviewSpeed: itemEffectiveSpeed,
-                      learningObjective: item.learning_objective,
-                      pdfUrl: item.pdf_url,
-                      coverImageUrl: item.cover_image_url || item.cover_url || item.thumbnail_url,
-                      totalPages: item.total_pages || 1,
-                    })}
-                  />
+                  <TouchableOpacity
+                    key={sub}
+                    style={[
+                      styles.filterCard,
+                      isSelected && styles.filterCardActive,
+                    ]}
+                    activeOpacity={0.8}
+                    onPress={() => {
+                      if (activeChip === sub) return
+                      setMaterialsLoading(true)
+                      setActiveChip(sub)
+                      setVideoTopicFilter(sub)
+                      setTimeout(() => {
+                        setMaterialsLoading(false)
+                      }, 250)
+                    }}
+                  >
+                    <View style={[
+                      styles.filterCardIconWrapper,
+                      isSelected
+                        ? styles.filterCardIconWrapperActive
+                        : { backgroundColor: `${config.color}15` }
+                    ]}>
+                      <Feather
+                        name={config.icon}
+                        size={20}
+                        color={isSelected ? '#ffffff' : config.color}
+                      />
+                    </View>
+                    <Text
+                      style={[styles.filterCardText, isSelected && styles.filterCardTextActive]}
+                      numberOfLines={1}
+                    >
+                      {config.shortLabel || sub}
+                    </Text>
+                  </TouchableOpacity>
                 )
               })}
             </ScrollView>
-          </View>
-        ))}
-          </>
-        )}
 
-        {/* ── Video Lectures Section (Only in VIDEOS Mode) ── */}
-        {libraryMode === 'VIDEOS' && (
-          <View style={{ marginTop: 6 }}>
-            <View style={styles.sectionHeaderRow}>
-              <View style={styles.sectionTitleRow}>
-                <Ionicons name="videocam" size={20} color="#dc2626" />
-                <Text style={styles.sectionHeaderText}>Video Lectures</Text>
-                <View style={styles.examTrackBadge}>
-                  <Text style={styles.examTrackBadgeText}>
-                    {isFE ? (feSection === 'FE Subject B' ? 'FE Subject B' : 'FE Subject A') : 'PhilNITS IP'}
-                  </Text>
-                </View>
-              </View>
-              <Text style={styles.categoryCount}>
-                {filteredVideos.length} {filteredVideos.length === 1 ? 'lecture' : 'lectures'}
-              </Text>
-            </View>
-
-            {/* Video topic filter pills (when top chip is not restricting) */}
-            {!activeChip && (
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.videoTopicScroll}>
-                <TouchableOpacity
-                  style={[styles.videoTopicChip, !videoTopicFilter && styles.videoTopicChipActive]}
-                  onPress={() => setVideoTopicFilter(null)}
-                >
-                  <Text style={[styles.videoTopicChipText, !videoTopicFilter && styles.videoTopicChipTextActive]}>
-                    All Topics
-                  </Text>
-                </TouchableOpacity>
-                {currentTrackSubjects.map(sub => (
-                  <TouchableOpacity
-                    key={sub}
-                    style={[styles.videoTopicChip, videoTopicFilter === sub && styles.videoTopicChipActive]}
-                    onPress={() => setVideoTopicFilter(videoTopicFilter === sub ? null : sub)}
-                  >
-                    <Text style={[styles.videoTopicChipText, videoTopicFilter === sub && styles.videoTopicChipTextActive]}>
-                      {sub}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </ScrollView>
-            )}
-
-            {filteredVideos.length === 0 ? (
-              <View style={[styles.centered, { paddingVertical: 24 }]}>
-                <Ionicons name="film-outline" size={32} color="#94a3b8" />
-                <Text style={styles.emptyText}>No video lectures found for this topic.</Text>
-              </View>
-            ) : (
-              Object.entries(groupedVideos).map(([subTitle, vids]) => (
-                <View key={subTitle} style={{ marginBottom: 18 }}>
-                  <View style={styles.categoryRow}>
-                    <Text style={styles.categoryTitle}>{subTitle}</Text>
-                    <Text style={styles.categoryCount}>{vids.length} videos</Text>
+            {/* ── Reading Materials Section (Only in READING Mode) ── */}
+            {libraryMode === 'READING' && (
+              <>
+                <View style={styles.sectionHeaderRow}>
+                  <View style={styles.sectionTitleRow}>
+                    <Feather name="book-open" size={20} color={NAVY} />
+                    <Text style={styles.sectionHeaderText}>Reading Materials</Text>
+                    <View style={styles.examTrackBadge}>
+                      <Text style={styles.examTrackBadgeText}>
+                        {isFE ? (feSection === 'FE Subject B' ? 'FE Subject B' : 'FE Subject A') : 'PhilNITS IP'}
+                      </Text>
+                    </View>
                   </View>
-                  <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.horizontalCards}>
-                    {vids.map(video => {
-                      const durationMins = video.duration_minutes || 15
-                      const yId = video.youtube_id || (video.url?.match(/v=([a-zA-Z0-9_-]{11})/)?.[1]) || 'FZGugFqdr60'
-                      const thumb = video.thumbnail_url || `https://i.ytimg.com/vi/${yId}/hqdefault.jpg`
-                      return (
-                        <TouchableOpacity
-                          key={video.id || video.url}
-                          style={styles.videoCard}
-                          activeOpacity={0.85}
-                          onPress={() => navigation?.navigate('VideoLectureDetail', { video, hideNav: true })}
-                        >
-                          <View style={styles.videoThumbnailWrapper}>
-                            <Image source={{ uri: thumb }} style={styles.videoThumbnail} />
-                            <View style={styles.videoPlayOverlay}>
-                              <View style={styles.playIconCircle}>
-                                <Ionicons name="play" size={16} color="#ffffff" style={{ marginLeft: 2 }} />
-                              </View>
-                            </View>
-                            <View style={styles.videoDurationBadge}>
-                              <Feather name="clock" size={10} color="#ffffff" style={{ marginRight: 3 }} />
-                              <Text style={styles.videoDurationBadgeText}>{durationMins}m</Text>
-                            </View>
-                          </View>
-                          <View style={styles.videoBody}>
-                            <Text style={styles.videoSubjectTag} numberOfLines={1}>{video.subject}</Text>
-                            <Text style={styles.videoTitle} numberOfLines={2}>{video.title}</Text>
-                            <View style={styles.videoAuthorRow}>
-                              <Feather name="video" size={11} color="#64748b" style={{ marginRight: 4 }} />
-                              <Text style={styles.videoAuthorText} numberOfLines={1}>{video.author || 'Educational Resource'}</Text>
-                            </View>
-                          </View>
-                        </TouchableOpacity>
-                      )
-                    })}
-                  </ScrollView>
+                  <TouchableOpacity onPress={() => loadMaterials(true)}>
+                    <Feather name="refresh-cw" size={16} color="#64748b" />
+                  </TouchableOpacity>
                 </View>
-              ))
+
+                {/* Error */}
+                {error && (
+                  <View style={styles.centered}>
+                    <Feather name="alert-circle" size={40} color="#94a3b8" />
+                    <Text style={styles.emptyText}>{error}</Text>
+                    <TouchableOpacity style={styles.retryBtn} onPress={() => loadMaterials(true)}>
+                      <Text style={styles.retryText}>Retry</Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
+
+                {/* Dedicated Inside Reading Materials Loader */}
+                {materialsLoading ? (
+                  <View style={styles.materialsLoaderBox}>
+                    <ActivityIndicator size="small" color={NAVY} />
+                    <Text style={styles.materialsLoaderText}>Loading {effectiveActiveChip} reading materials...</Text>
+                  </View>
+                ) : (
+                  <>
+                    {/* Content grouped by subject */}
+                    {!error && Object.keys(grouped).length === 0 && (
+                      <View style={styles.centered}>
+                        <Feather name="filter" size={40} color="#94a3b8" />
+                        <Text style={styles.emptyText}>
+                          No reading materials found for {effectiveActiveChip}.
+                        </Text>
+                      </View>
+                    )}
+
+                    {!error && Object.entries(grouped).map(([subject, items]) => (
+                      <View key={subject} style={styles.subjectSection}>
+                        <View style={styles.categoryRow}>
+                          <Text style={styles.categoryTitle}>{subject}</Text>
+                          <Text style={styles.categoryCount}>{items.length} {items.length === 1 ? 'book' : 'books'}</Text>
+                        </View>
+                        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.horizontalBookCards}>
+                          {items.map(item => (
+                            <MaterialCard
+                              key={item.id}
+                              item={item}
+                              onPress={() => navigation?.navigate('ReadingMaterial', {
+                                materialId: item.id,
+                                title: item.title,
+                                subject: item.subject,
+                                learningObjective: item.learning_objective,
+                                pdfUrl: item.pdf_url,
+                                coverImageUrl: item.cover_image_url || item.cover_url || item.thumbnail_url,
+                                totalPages: item.total_pages || 1,
+                              })}
+                            />
+                          ))}
+                        </ScrollView>
+                      </View>
+                    ))}
+                  </>
+                )}
+              </>
             )}
-          </View>
-        )}
+
+            {/* ── Video Lectures Section (Only in VIDEOS Mode) ── */}
+            {libraryMode === 'VIDEOS' && (
+              <View style={{ marginTop: 6 }}>
+                <View style={styles.sectionHeaderRow}>
+                  <View style={styles.sectionTitleRow}>
+                    <Ionicons name="videocam" size={20} color="#dc2626" />
+                    <Text style={styles.sectionHeaderText}>Video Lectures</Text>
+                    <View style={styles.examTrackBadge}>
+                      <Text style={styles.examTrackBadgeText}>
+                        {isFE ? (feSection === 'FE Subject B' ? 'FE Subject B' : 'FE Subject A') : 'PhilNITS IP'}
+                      </Text>
+                    </View>
+                  </View>
+                  <Text style={styles.categoryCount}>
+                    {filteredVideos.length} {filteredVideos.length === 1 ? 'lecture' : 'lectures'}
+                  </Text>
+                </View>
+
+                {/* Video topic filter pills (when top chip is not restricting) */}
+                {!activeChip && (
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.videoTopicScroll}>
+                    <TouchableOpacity
+                      style={[styles.videoTopicChip, !videoTopicFilter && styles.videoTopicChipActive]}
+                      onPress={() => setVideoTopicFilter(null)}
+                    >
+                      <Text style={[styles.videoTopicChipText, !videoTopicFilter && styles.videoTopicChipTextActive]}>
+                        All Topics
+                      </Text>
+                    </TouchableOpacity>
+                    {currentTrackSubjects.map(sub => (
+                      <TouchableOpacity
+                        key={sub}
+                        style={[styles.videoTopicChip, videoTopicFilter === sub && styles.videoTopicChipActive]}
+                        onPress={() => setVideoTopicFilter(videoTopicFilter === sub ? null : sub)}
+                      >
+                        <Text style={[styles.videoTopicChipText, videoTopicFilter === sub && styles.videoTopicChipTextActive]}>
+                          {sub}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </ScrollView>
+                )}
+
+                {filteredVideos.length === 0 ? (
+                  <View style={[styles.centered, { paddingVertical: 24 }]}>
+                    <Ionicons name="film-outline" size={32} color="#94a3b8" />
+                    <Text style={styles.emptyText}>No video lectures found for this topic.</Text>
+                  </View>
+                ) : (
+                  Object.entries(groupedVideos).map(([subTitle, vids]) => (
+                    <View key={subTitle} style={{ marginBottom: 18 }}>
+                      <View style={styles.categoryRow}>
+                        <Text style={styles.categoryTitle}>{subTitle}</Text>
+                        <Text style={styles.categoryCount}>{vids.length} videos</Text>
+                      </View>
+                      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.horizontalCards}>
+                        {vids.map(video => {
+                          const durationMins = video.duration_minutes || 15
+                          const yId = video.youtube_id || (video.url?.match(/v=([a-zA-Z0-9_-]{11})/)?.[1]) || 'FZGugFqdr60'
+                          const thumb = video.thumbnail_url || `https://i.ytimg.com/vi/${yId}/hqdefault.jpg`
+                          return (
+                            <TouchableOpacity
+                              key={video.id || video.url}
+                              style={styles.videoCard}
+                              activeOpacity={0.85}
+                              onPress={() => navigation?.navigate('VideoLectureDetail', { video, hideNav: true })}
+                            >
+                              <View style={styles.videoThumbnailWrapper}>
+                                <Image source={{ uri: thumb }} style={styles.videoThumbnail} />
+                                <View style={styles.videoPlayOverlay}>
+                                  <View style={styles.playIconCircle}>
+                                    <Ionicons name="play" size={16} color="#ffffff" style={{ marginLeft: 2 }} />
+                                  </View>
+                                </View>
+                                <View style={styles.videoDurationBadge}>
+                                  <Feather name="clock" size={10} color="#ffffff" style={{ marginRight: 3 }} />
+                                  <Text style={styles.videoDurationBadgeText}>{durationMins}m</Text>
+                                </View>
+                              </View>
+                              <View style={styles.videoBody}>
+                                <Text style={styles.videoSubjectTag} numberOfLines={1}>{video.subject}</Text>
+                                <Text style={styles.videoTitle} numberOfLines={2}>{video.title}</Text>
+                                <View style={styles.videoAuthorRow}>
+                                  <Feather name="video" size={11} color="#64748b" style={{ marginRight: 4 }} />
+                                  <Text style={styles.videoAuthorText} numberOfLines={1}>{video.author || 'Educational Resource'}</Text>
+                                </View>
+                              </View>
+                            </TouchableOpacity>
+                          )
+                        })}
+                      </ScrollView>
+                    </View>
+                  ))
+                )}
+              </View>
+            )}
           </>
         )}
 
@@ -1639,13 +1562,13 @@ const styles = StyleSheet.create({
   },
 
   // Top (legacy)
-  topBar:       { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 },
-  title:        { fontSize: 28, fontWeight: '800', color: NAVY },
-  rightSpacer:  { width: 28 },
+  topBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 },
+  title: { fontSize: 28, fontWeight: '800', color: NAVY },
+  rightSpacer: { width: 28 },
 
   // Search
-  searchBar:    { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: '#eef1f5', borderRadius: 12, paddingHorizontal: 16, paddingVertical: 12, marginBottom: 14 },
-  searchInput:  { flex: 1, fontSize: 14, color: NAVY },
+  searchBar: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: '#eef1f5', borderRadius: 12, paddingHorizontal: 16, paddingVertical: 12, marginBottom: 14 },
+  searchInput: { flex: 1, fontSize: 14, color: NAVY },
 
   // Small Card Filter with Logo & Text
   cardFilterScroll: { gap: 10, paddingBottom: 16 },
@@ -1700,30 +1623,30 @@ const styles = StyleSheet.create({
   },
 
   // Chips (legacy fallback)
-  chipScroll:    { gap: 8, paddingBottom: 14 },
-  chip:          { borderWidth: 1.2, borderColor: '#4d72c7', borderRadius: 18, paddingHorizontal: 14, paddingVertical: 8, backgroundColor: '#fff' },
-  chipActive:    { backgroundColor: NAVY, borderColor: NAVY },
-  chipText:      { color: NAVY, fontSize: 12, fontWeight: '600' },
-  chipTextActive:{ color: '#fff' },
+  chipScroll: { gap: 8, paddingBottom: 14 },
+  chip: { borderWidth: 1.2, borderColor: '#4d72c7', borderRadius: 18, paddingHorizontal: 14, paddingVertical: 8, backgroundColor: '#fff' },
+  chipActive: { backgroundColor: NAVY, borderColor: NAVY },
+  chipText: { color: NAVY, fontSize: 12, fontWeight: '600' },
+  chipTextActive: { color: '#fff' },
 
   // Section header
   sectionHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 },
-  sectionTitleRow:  { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  sectionHeaderText:{ fontSize: 17, fontWeight: '700', color: NAVY },
+  sectionTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  sectionHeaderText: { fontSize: 17, fontWeight: '700', color: NAVY },
 
   // Loading / empty
-  centered:    { alignItems: 'center', justifyContent: 'center', paddingVertical: 40 },
+  centered: { alignItems: 'center', justifyContent: 'center', paddingVertical: 40 },
   loadingText: { marginTop: 10, fontSize: 14, color: '#94a3b8', fontWeight: '600' },
-  emptyText:   { marginTop: 10, fontSize: 14, color: '#94a3b8', textAlign: 'center' },
-  retryBtn:    { marginTop: 14, paddingHorizontal: 22, paddingVertical: 10, backgroundColor: NAVY, borderRadius: 20 },
-  retryText:   { color: '#fff', fontWeight: '700', fontSize: 13 },
+  emptyText: { marginTop: 10, fontSize: 14, color: '#94a3b8', textAlign: 'center' },
+  retryBtn: { marginTop: 14, paddingHorizontal: 22, paddingVertical: 10, backgroundColor: NAVY, borderRadius: 20 },
+  retryText: { color: '#fff', fontWeight: '700', fontSize: 13 },
 
   // Subject groups
   subjectSection: { marginBottom: 20 },
-  categoryRow:    { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
-  categoryTitle:  { fontSize: 15, fontWeight: '700', color: NAVY },
-  categoryCount:  { fontSize: 12, color: '#64748b' },
-  horizontalCards:{ gap: 12, paddingBottom: 6 },
+  categoryRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
+  categoryTitle: { fontSize: 15, fontWeight: '700', color: NAVY },
+  categoryCount: { fontSize: 12, color: '#64748b' },
+  horizontalCards: { gap: 12, paddingBottom: 6 },
   horizontalBookCards: { gap: 14, paddingBottom: 10 },
 
   // ── Book Cover Cards (Full Image Cover) ──
@@ -1805,50 +1728,68 @@ const styles = StyleSheet.create({
   defaultCoverRoot: {
     width: '100%',
     height: '100%',
-    padding: 9,
+    padding: 8,
     justifyContent: 'space-between',
+    position: 'relative',
+    overflow: 'hidden',
+  },
+  defaultCoverWatermark: {
+    position: 'absolute',
+    top: '30%',
+    left: '18%',
+    alignItems: 'center',
+    justifyContent: 'center',
+    pointerEvents: 'none',
   },
   defaultCoverFrame: {
     flex: 1,
-    borderWidth: 1,
-    borderRadius: 4,
-    padding: 8,
+    borderWidth: 1.5,
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 10,
     justifyContent: 'space-between',
+    alignItems: 'center',
   },
   defaultCoverHeaderRow: {
+    width: '100%',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
   },
   defaultCoverCrestText: {
-    fontSize: 8,
+    fontSize: 8.5,
     fontWeight: '900',
     letterSpacing: 1.2,
   },
   defaultCoverCrestBadge: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
     alignItems: 'center',
     justifyContent: 'center',
   },
   defaultCoverTitleBlock: {
+    width: '100%',
     alignItems: 'center',
-    paddingHorizontal: 2,
+    justifyContent: 'center',
+    paddingHorizontal: 4,
+    marginVertical: 'auto',
   },
   defaultCoverTitleText: {
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: '800',
     color: '#ffffff',
     textAlign: 'center',
-    lineHeight: 16,
-    marginBottom: 6,
+    lineHeight: 18,
+    textTransform: 'capitalize',
+    letterSpacing: 0.2,
   },
   defaultCoverDivider: {
-    width: 24,
+    width: 28,
     height: 2,
     borderRadius: 1,
-    marginBottom: 6,
+    marginVertical: 8,
+    opacity: 0.7,
   },
   defaultCoverSubjectText: {
     fontSize: 9,
@@ -1858,39 +1799,41 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
   },
   defaultCoverFooterRow: {
+    width: '100%',
     alignItems: 'center',
     justifyContent: 'center',
   },
   defaultCoverEditionTag: {
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
   },
   defaultCoverEditionText: {
-    fontSize: 8,
+    fontSize: 8.5,
     fontWeight: '800',
+    letterSpacing: 0.8,
   },
 
   // Legacy cards fallback
-  materialCard:            { width: 160, borderRadius: 12, backgroundColor: '#fff', borderWidth: 1, borderColor: '#e5e7eb', overflow: 'hidden', elevation: 1, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.06, shadowRadius: 3 },
-  materialImagePlaceholder:{ height: 80, backgroundColor: '#dbe8fb', alignItems: 'center', justifyContent: 'center', position: 'relative' },
-  materialBody:            { padding: 10 },
-  materialTitle:           { fontSize: 13, fontWeight: '700', color: NAVY, marginBottom: 3 },
-  materialSubtitle:        { fontSize: 11, color: '#374151', minHeight: 28, marginBottom: 8 },
-  progressRow:             { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  progressTrack:           { flex: 1, height: 5, borderRadius: 999, backgroundColor: '#e5e7eb', overflow: 'hidden' },
-  progressFill:            { height: '100%', borderRadius: 999, backgroundColor: NAVY },
-  progressText:            { fontSize: 10, color: '#6b7280', fontWeight: '600' },
-  speedBadge:              { position: 'absolute', top: 6, right: 6, paddingHorizontal: 7, paddingVertical: 2.5, borderRadius: 8 },
-  speedBadgeQuick:         { backgroundColor: '#fef3c7' },
-  speedBadgeDetailed:      { backgroundColor: '#f1f5f9' },
-  speedBadgeStandard:      { backgroundColor: '#eff6ff' },
-  speedBadgeText:          { fontSize: 9, fontWeight: '800' },
-  speedBadgeTextQuick:     { color: '#d97706' },
-  speedBadgeTextDetailed:  { color: '#0f2747' },
-  speedBadgeTextStandard:  { color: '#2563eb' },
-  headerSpeedBadge:        { marginLeft: 8, paddingHorizontal: 8, paddingVertical: 2.5, borderRadius: 12 },
-  headerSpeedBadgeText:    { fontSize: 11, fontWeight: '800' },
+  materialCard: { width: 160, borderRadius: 12, backgroundColor: '#fff', borderWidth: 1, borderColor: '#e5e7eb', overflow: 'hidden', elevation: 1, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.06, shadowRadius: 3 },
+  materialImagePlaceholder: { height: 80, backgroundColor: '#dbe8fb', alignItems: 'center', justifyContent: 'center', position: 'relative' },
+  materialBody: { padding: 10 },
+  materialTitle: { fontSize: 13, fontWeight: '700', color: NAVY, marginBottom: 3 },
+  materialSubtitle: { fontSize: 11, color: '#374151', minHeight: 28, marginBottom: 8 },
+  progressRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  progressTrack: { flex: 1, height: 5, borderRadius: 999, backgroundColor: '#e5e7eb', overflow: 'hidden' },
+  progressFill: { height: '100%', borderRadius: 999, backgroundColor: NAVY },
+  progressText: { fontSize: 10, color: '#6b7280', fontWeight: '600' },
+  speedBadge: { position: 'absolute', top: 6, right: 6, paddingHorizontal: 7, paddingVertical: 2.5, borderRadius: 8 },
+  speedBadgeQuick: { backgroundColor: '#fef3c7' },
+  speedBadgeDetailed: { backgroundColor: '#f1f5f9' },
+  speedBadgeStandard: { backgroundColor: '#eff6ff' },
+  speedBadgeText: { fontSize: 9, fontWeight: '800' },
+  speedBadgeTextQuick: { color: '#d97706' },
+  speedBadgeTextDetailed: { color: '#0f2747' },
+  speedBadgeTextStandard: { color: '#2563eb' },
+  headerSpeedBadge: { marginLeft: 8, paddingHorizontal: 8, paddingVertical: 2.5, borderRadius: 12 },
+  headerSpeedBadgeText: { fontSize: 11, fontWeight: '800' },
 
   // Review Pace selector bar
   paceContainer: {
@@ -2087,6 +2030,17 @@ const styles = StyleSheet.create({
   videoBody: {
     padding: 10,
   },
+  materialsLoaderBox: {
+    paddingVertical: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+  },
+  materialsLoaderText: {
+    fontSize: 13,
+    color: '#64748b',
+    fontWeight: '600',
+  },
   videoSubjectTag: {
     fontSize: 10,
     fontWeight: '700',
@@ -2116,9 +2070,9 @@ const styles = StyleSheet.create({
   },
 
   // Bottom nav
-  bottomNav:    { position: 'absolute', left: 0, right: 0, bottom: 0, height: 74, backgroundColor: '#fff', borderTopWidth: 1, borderTopColor: '#d8e0f0', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-around', paddingBottom: 8 },
-  navIconWrap:  { width: 42, height: 42, alignItems: 'center', justifyContent: 'center', borderRadius: 21 },
-  navIconActive:{ backgroundColor: 'rgba(15, 39, 71, 0.08)' },
+  bottomNav: { position: 'absolute', left: 0, right: 0, bottom: 0, height: 74, backgroundColor: '#fff', borderTopWidth: 1, borderTopColor: '#d8e0f0', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-around', paddingBottom: 8 },
+  navIconWrap: { width: 42, height: 42, alignItems: 'center', justifyContent: 'center', borderRadius: 21 },
+  navIconActive: { backgroundColor: 'rgba(15, 39, 71, 0.08)' },
 
   // ── Skeleton Styles ──
   skeletonContainer: {

@@ -200,7 +200,6 @@ export default function ReadingMaterial({ navigation, route }) {
 
         if (!matErr && matData) {
           setMaterialMeta(matData)
-          if (matData.review_speed) setReviewSpeed(matData.review_speed)
           const targetPdf = matData.pdf_url || matData.file_url || matData.url || incomingPdfUrl
           if (targetPdf) setPdfUrl(targetPdf)
         }

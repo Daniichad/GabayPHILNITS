@@ -18,6 +18,7 @@ import {
 } from '../../../utils/database';
 import { resolveUserTargetExam } from '../../../utils/targetExam';
 import { getCache, setCache } from '../../../utils/cache';
+import { balancePracticeDistribution } from '../../../utils/practiceDistribution';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 const CARD_WIDTH = Math.min(SCREEN_WIDTH - 44, 400);
@@ -89,7 +90,6 @@ export default function Flashcards({ navigation, route }) {
   const limit      = route?.params?.limit ?? 10;
   const passedTargetExam = route?.params?.targetExam;
   const feSection  = route?.params?.feSection; // 'Subject A' | 'Subject B'
-  const passedReviewSpeed = route?.params?.reviewSpeed; // 'Quick' | 'Standard' | 'Detailed'
 
   const flipAnim = useRef(new Animated.Value(0)).current;
 
@@ -186,23 +186,6 @@ export default function Flashcards({ navigation, route }) {
       // Resolve user's target exam (IP or FE)
       const activeTrack = await resolveUserTargetExam(uid, passedTargetExam || 'IP');
 
-      // Resolve user's review speed ('Quick' | 'Standard' | 'Detailed')
-      let activeSpeed = passedReviewSpeed;
-      if (!activeSpeed) {
-        const cachedSpeed = await getCache('user_review_speed');
-        if (cachedSpeed) activeSpeed = cachedSpeed;
-        else if (uemail) {
-          try {
-            const { data: uData } = await supabase.from('users').select('review_speed').ilike('email', uemail).maybeSingle();
-            if (uData?.review_speed) {
-              activeSpeed = String(uData.review_speed).trim();
-              setCache('user_review_speed', activeSpeed).catch(() => {});
-            }
-          } catch (_) {}
-        }
-      }
-      if (!activeSpeed) activeSpeed = 'Standard';
-
       const IP_SUBJECTS = ['Technology', 'Management', 'Strategy'];
       const FE_MORNING_SUBJECTS = ['Technology', 'Management', 'Strategy'];
       const FE_AFTERNOON_SUBJECTS = [
@@ -246,16 +229,17 @@ export default function Flashcards({ navigation, route }) {
 
       const targetDbCategories = getDbCategories(subject);
 
-      const cacheScope = `${activeTrack.toLowerCase()}_${activeSection ? activeSection.replace(/\s+/g, '').toLowerCase() : 'all'}_${activeSpeed.toLowerCase()}_${(subject || 'all').toLowerCase()}_${(majorCategory || 'all').toLowerCase()}_${(minorCategory || 'all').toLowerCase()}`;
+      const cacheScope = `${activeTrack.toLowerCase()}_${activeSection ? activeSection.replace(/\s+/g, '').toLowerCase() : 'all'}_${(subject || 'all').toLowerCase()}_${(majorCategory || 'all').toLowerCase()}_${(minorCategory || 'all').toLowerCase()}`;
 
       let loadedCards = [];
 
       // 1. Instant local SQLite cache lookup first (instant load)
       try {
-        const localCards = await getLocalQuestions('flashcard', cacheScope, limit);
+        const localCards = await getLocalQuestions('flashcard', cacheScope, 100);
         if (localCards && localCards.length > 0) {
-          loadedCards = localCards;
-          rawCardsRef.current = loadedCards;
+          const balancedLocal = balancePracticeDistribution(localCards, limit, subject, majorCategory, minorCategory);
+          loadedCards = balancedLocal;
+          rawCardsRef.current = balancedFresh || balancedLocal;
           applyDeckOrder(isShuffle);
           setLoading(false);
         }
@@ -286,22 +270,17 @@ export default function Flashcards({ navigation, route }) {
           return q;
         };
 
-        const normalizedSpeed = (activeSpeed === 'Quick' || activeSpeed === 'Detailed') ? activeSpeed : 'Standard';
-        let speedQ = buildBaseQuery().ilike('review_speed', normalizedSpeed);
-
-        const { data: speedMatched, error: cErr } = await speedQ.limit(limit);
+        // Fetch up to 100 cards to allow even alternating round-robin distribution
+        const { data: freshItems, error: cErr } = await buildBaseQuery().limit(100);
         let freshCards = [];
-        if (!cErr && speedMatched && speedMatched.length > 0) {
-          freshCards = [...speedMatched];
-        } else {
-          const fallbackQ = buildBaseQuery();
-          const { data: fallbackCards } = await fallbackQ.limit(limit);
-          if (fallbackCards) freshCards = [...fallbackCards];
+        if (!cErr && freshItems && freshItems.length > 0) {
+          freshCards = [...freshItems];
         }
 
         if (freshCards.length > 0) {
-          loadedCards = freshCards;
-          rawCardsRef.current = freshCards;
+          const balancedFresh = balancePracticeDistribution(freshCards, limit, subject, majorCategory, minorCategory);
+          loadedCards = balancedFresh;
+          rawCardsRef.current = balancedFresh;
           applyDeckOrder(isShuffle);
           cacheQuestionsLocally('flashcard', cacheScope, freshCards).catch(() => {});
         }
@@ -338,7 +317,7 @@ export default function Flashcards({ navigation, route }) {
           cards_total: initialCards.length,
           cards_seen: 0,
           completed: false,
-          created_at: new Date().toISOString(),
+          started_at: new Date().toISOString(),
         };
         const activeDeckId = deckId || initialCards[0]?.deck_id;
         if (activeDeckId) {

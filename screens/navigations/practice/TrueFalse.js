@@ -16,6 +16,7 @@ import {
   enqueueSync,
 } from '../../../utils/database';
 import { resolveUserTargetExam } from '../../../utils/targetExam';
+import { balancePracticeDistribution } from '../../../utils/practiceDistribution';
 
 const NAVY = '#0B2540';
 
@@ -27,7 +28,6 @@ export default function TrueOrFalse({ navigation, route }) {
   const limit = route?.params?.limit ?? 10;
   const passedTargetExam = route?.params?.targetExam;
   const feSection = route?.params?.feSection; // 'Subject A' | 'Subject B'
-  const passedReviewSpeed = route?.params?.reviewSpeed; // 'Quick' | 'Standard' | 'Detailed'
 
   const [questions, setQuestions] = useState([]);
   const [index, setIndex] = useState(0);
@@ -66,23 +66,6 @@ export default function TrueOrFalse({ navigation, route }) {
 
       // Resolve user's target exam (IP or FE)
       const activeTrack = await resolveUserTargetExam(uid, passedTargetExam || 'IP');
-
-      // Resolve user's review speed ('Quick' | 'Standard' | 'Detailed')
-      let activeSpeed = passedReviewSpeed;
-      if (!activeSpeed) {
-        const cachedSpeed = await getCache('user_review_speed');
-        if (cachedSpeed) activeSpeed = cachedSpeed;
-        else if (uemail) {
-          try {
-            const { data: uData } = await supabase.from('users').select('review_speed').ilike('email', uemail).maybeSingle();
-            if (uData?.review_speed) {
-              activeSpeed = String(uData.review_speed).trim();
-              setCache('user_review_speed', activeSpeed).catch(() => {});
-            }
-          } catch (_) {}
-        }
-      }
-      if (!activeSpeed) activeSpeed = 'Standard';
 
       const IP_SUBJECTS = ['Technology', 'Management', 'Strategy'];
       const FE_MORNING_SUBJECTS = ['Technology', 'Management', 'Strategy'];
@@ -128,16 +111,17 @@ export default function TrueOrFalse({ navigation, route }) {
 
       const targetDbCategories = getDbCategories(subject);
 
-      const cacheScope = `${activeTrack.toLowerCase()}_${activeSection ? activeSection.replace(/\s+/g, '').toLowerCase() : 'all'}_${activeSpeed.toLowerCase()}_${(subject || 'all').toLowerCase()}_${(majorCategory || 'all').toLowerCase()}_${(minorCategory || 'all').toLowerCase()}`;
+      const cacheScope = `${activeTrack.toLowerCase()}_${activeSection ? activeSection.replace(/\s+/g, '').toLowerCase() : 'all'}_${(subject || 'all').toLowerCase()}_${(majorCategory || 'all').toLowerCase()}_${(minorCategory || 'all').toLowerCase()}`;
 
       let loadedQuestions = [];
 
       // 1. Instant local SQLite cache lookup first (renders in under 50ms)
       try {
-        const localQs = await getLocalQuestions('tf', cacheScope, limit);
+        const localQs = await getLocalQuestions('tf', cacheScope, 100);
         if (localQs && localQs.length > 0) {
-          loadedQuestions = localQs;
-          setQuestions([...loadedQuestions].sort(() => 0.5 - Math.random()));
+          const balancedLocal = balancePracticeDistribution(localQs, limit, subject, majorCategory, minorCategory);
+          loadedQuestions = balancedLocal;
+          setQuestions(balancedLocal);
           setLoading(false);
         }
       } catch (_) {}
@@ -166,22 +150,16 @@ export default function TrueOrFalse({ navigation, route }) {
           return q;
         };
 
-        const normalizedSpeed = (activeSpeed === 'Quick' || activeSpeed === 'Detailed') ? activeSpeed : 'Standard';
-        let speedQ = buildBaseQuery().ilike('review_speed', normalizedSpeed);
-
-        const { data: speedMatched, error: qErr } = await speedQ.limit(limit);
+        const { data: freshItems, error: qErr } = await buildBaseQuery().limit(100);
         let freshQuestions = [];
-        if (!qErr && speedMatched && speedMatched.length > 0) {
-          freshQuestions = [...speedMatched];
-        } else {
-          const fallbackQ = buildBaseQuery();
-          const { data: fallbackItems } = await fallbackQ.limit(limit);
-          if (fallbackItems) freshQuestions = [...fallbackItems];
+        if (!qErr && freshItems && freshItems.length > 0) {
+          freshQuestions = [...freshItems];
         }
 
         if (freshQuestions.length > 0) {
-          loadedQuestions = freshQuestions;
-          setQuestions([...freshQuestions].sort(() => 0.5 - Math.random()));
+          const balancedFresh = balancePracticeDistribution(freshQuestions, limit, subject, majorCategory, minorCategory);
+          loadedQuestions = balancedFresh;
+          setQuestions(balancedFresh);
           cacheQuestionsLocally('tf', cacheScope, freshQuestions).catch(() => {});
         }
       } catch (netErr) {

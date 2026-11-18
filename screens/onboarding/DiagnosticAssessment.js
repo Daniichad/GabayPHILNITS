@@ -719,16 +719,7 @@ export default function DiagnosticAssessment({ navigation, route }) {
       console.warn('Study plan cache warning:', cErr)
     }
 
-    // 5. Automatically update user's review_speed preference in `users` table
-    if (userEmail) {
-      const formattedSpeed = summary.calculatedSpeed.charAt(0).toUpperCase() + summary.calculatedSpeed.slice(1).toLowerCase()
-      await supabase
-        .from('users')
-        .update({ review_speed: formattedSpeed })
-        .eq('email', userEmail)
-    }
-
-    // 6. Update local user cache so offline / initial routing recognizes diagnostic is completed
+    // 5. Update local user cache so offline / initial routing recognizes diagnostic is completed
     try {
       await saveUserCache(userId, null, true, true)
     } catch (cacheErr) {

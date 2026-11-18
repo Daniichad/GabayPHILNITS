@@ -8,6 +8,9 @@ import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../../../supabase';
 import { resolveUserTargetExam } from '../../../utils/targetExam';
 import { getCache, setCache } from '../../../utils/cache';
+import { enqueueSync } from '../../../utils/database';
+import NetInfo from '@react-native-community/netinfo';
+import { balancePracticeDistribution } from '../../../utils/practiceDistribution';
 
 const NAVY = '#0B2540';
 const MATCH_DELAY = 450;
@@ -35,7 +38,6 @@ export default function Matching({ navigation, route }) {
   const limit = route?.params?.limit ?? 6; // 6 pairs = 12 cards (1 set default)
   const passedTargetExam = route?.params?.targetExam;
   const feSection = route?.params?.feSection; // 'Subject A' | 'Subject B'
-  const passedReviewSpeed = route?.params?.reviewSpeed; // 'Quick' | 'Standard' | 'Detailed'
 
   const [pairs, setPairs] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -68,23 +70,6 @@ export default function Matching({ navigation, route }) {
       // Resolve user's target exam (IP or FE)
       const track = await resolveUserTargetExam(uid, passedTargetExam || 'IP');
       setActiveTrack(track);
-
-      // Resolve user's review speed ('Quick' | 'Standard' | 'Detailed')
-      let activeSpeed = passedReviewSpeed;
-      if (!activeSpeed) {
-        const cachedSpeed = await getCache('user_review_speed');
-        if (cachedSpeed) activeSpeed = cachedSpeed;
-        else if (uemail) {
-          try {
-            const { data: uData } = await supabase.from('users').select('review_speed').ilike('email', uemail).maybeSingle();
-            if (uData?.review_speed) {
-              activeSpeed = String(uData.review_speed).trim();
-              setCache('user_review_speed', activeSpeed).catch(() => { });
-            }
-          } catch (_) { }
-        }
-      }
-      if (!activeSpeed) activeSpeed = 'Standard';
 
       const IP_SUBJECTS = ['Technology', 'Management', 'Strategy'];
       const FE_MORNING_SUBJECTS = ['Technology', 'Management', 'Strategy'];
@@ -128,7 +113,7 @@ export default function Matching({ navigation, route }) {
       };
 
       const targetDbCategories = getDbCategories(subject);
-      const cacheKey = `matching_${track.toLowerCase()}_${(subject || 'all').toLowerCase()}_${(majorCategory || 'all').toLowerCase()}_${(minorCategory || 'all').toLowerCase()}_${activeSpeed.toLowerCase()}`;
+      const cacheKey = `matching_${track.toLowerCase()}_${(subject || 'all').toLowerCase()}_${(majorCategory || 'all').toLowerCase()}_${(minorCategory || 'all').toLowerCase()}`;
 
       // Instant cached pairs load first
       const cachedPairs = await getCache(cacheKey);
@@ -162,22 +147,15 @@ export default function Matching({ navigation, route }) {
         return q;
       };
 
-      // Strictly fetch pairs matching user's selected review speed
-      const normalizedSpeed = (activeSpeed === 'Quick' || activeSpeed === 'Detailed') ? activeSpeed : 'Standard';
-      let speedQ = buildBaseQuery().ilike('review_speed', normalizedSpeed);
-
-      const { data: speedMatched, error: qErr } = await speedQ.limit(limit);
+      // Fetch up to 60 pairs to enable alternating round-robin distribution
+      const { data: rawData, error: qErr } = await buildBaseQuery().limit(60);
       if (qErr) throw qErr;
 
-      let loadedPairs = speedMatched ? [...speedMatched] : [];
+      let rawPairs = rawData ? [...rawData] : [];
 
-      // If the specific speed has zero items for this narrow criteria, only then fetch from base query
-      if (loadedPairs.length === 0) {
-        const fallbackQ = buildBaseQuery();
-        const { data: fallbackPairs } = await fallbackQ.limit(limit);
-        if (fallbackPairs) {
-          loadedPairs = [...fallbackPairs];
-        }
+      let loadedPairs = [];
+      if (rawPairs.length > 0) {
+        loadedPairs = balancePracticeDistribution(rawPairs, limit, subject, majorCategory, minorCategory);
       }
 
       if (loadedPairs.length === 0 && (!cachedPairs || cachedPairs.length === 0)) {
@@ -206,7 +184,7 @@ export default function Matching({ navigation, route }) {
     const rawSetTitle = pairs[0]?.set_title || subject || 'Matching';
     const taggedTitle = rawSetTitle.includes(`[${activeTrack}]`) ? rawSetTitle : `${rawSetTitle} [${activeTrack}]`;
 
-    await supabase.from('matching_results').insert({
+    const payload = {
       user_id: userId,
       set_title: taggedTitle,
       pairs_total: pairs.length,
@@ -215,7 +193,18 @@ export default function Matching({ navigation, route }) {
       completed: allMatched === pairs.length,
       duration_seconds: duration,
       exam_level: activeTrack,
-    });
+    };
+
+    try {
+      const net = await NetInfo.fetch();
+      if (net.isConnected) {
+        const { error } = await supabase.from('matching_results').insert(payload);
+        if (!error) return;
+      }
+    } catch (_) {}
+
+    // Offline resilient fallback
+    await enqueueSync('matching_results', 'INSERT', payload);
   };
 
   // ------------------------------------------------------------

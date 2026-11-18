@@ -37,6 +37,17 @@ const FE_B_SUBJECTS = [
   'Ensuring Information Security',
 ]
 
+const FE_ALL_SUBJECTS = [
+  'Technology',
+  'Management',
+  'Strategy',
+  'General Aspects of Programming',
+  'Fundamental Elements for Programming Processes',
+  'Data Structures and Algorithms',
+  'Application of Programming to Various Fields',
+  'Ensuring Information Security',
+]
+
 const SUBJECT_COLORS = {
   'Technology': '#2563eb',
   'Management': '#d97706',
@@ -717,6 +728,29 @@ function normalizeCategory(cat, level) {
     ) return 'General Aspects of Programming'
 
     return 'General Aspects of Programming'
+  } else if (level === 'FE All') {
+    // Check Subject B first (more specific topics: programming, recursion, Big-O, etc.)
+    const bCat = normalizeCategory(rawCategory, 'FE Subject B')
+    if (
+      bCat &&
+      bCat !== 'General Aspects of Programming'
+    ) {
+      return bCat
+    }
+
+    // Check if explicitly Subject B
+    if (
+      c.includes('Algorithms & Programming') ||
+      c.includes('General Aspects') ||
+      c.includes('Subject B') ||
+      c.includes('Data Structure') ||
+      c.includes('Programming')
+    ) {
+      return bCat || 'General Aspects of Programming'
+    }
+
+    // Otherwise categorize under Subject A (Technology, Management, Strategy)
+    return normalizeCategory(rawCategory, 'FE Subject A')
   }
   return null
 }
@@ -744,6 +778,13 @@ function computePerformanceData(level, rawData) {
     examDuration = '1h 40m'
     passBenchmark = 60
     trackKey = 'fe_b'
+  } else if (level === 'FE All') {
+    allowedSubjects = FE_ALL_SUBJECTS
+    targetItems = 80 // 60 Subject A + 20 Subject B
+    minPassItems = 48
+    examDuration = '3h 10m'
+    passBenchmark = 60
+    trackKey = 'fe_all'
   }
 
   const { att = [], mcq = [], tf = [], ses = [], match = [] } = rawData
@@ -772,6 +813,9 @@ function computePerformanceData(level, rawData) {
     }
     if (level === 'FE Subject B') {
       return (lk.includes('fe_b') || lk.includes('fe b') || title.includes('subject b')) && !lk.includes('ip')
+    }
+    if (level === 'FE All') {
+      return (lk.includes('fe') || title.includes('fundamental') || title.includes('subject a') || title.includes('subject b')) && !lk.includes('ip')
     }
     return false
   })
@@ -1067,27 +1111,32 @@ function computePerformanceData(level, rawData) {
 
   // 8. Quiz & Exam Breakdown Summary
   const summary = [
-    ...activeAttempts.slice(0, 3).map((a) => ({
-      label: a.mock_exam_configs?.title ?? `${level} Mock Exam`,
+    ...activeAttempts.slice(0, 3).map((a, i) => ({
+      key: `mock-att-${a.id || i}-${a.completed_at || i}`,
+      label: `${a.mock_exam_configs?.title ?? `${level} Mock Exam`} (Attempt #${i + 1})`,
       pct: pct(a.correct_count, a.total_questions),
       sub: `${a.correct_count}/${a.total_questions} items (${pct(a.correct_count, a.total_questions)}%)`,
     })),
     ...(mcqAttempts > 0 ? [{
+      key: 'mcq-summary',
       label: `Multiple Choice (${level})`,
       pct: pct(mcqCorrect, mcqAttempts),
       sub: `${mcqAttempts}/100 target attempts • ${Math.round(mcqConfidence * 100)}% confidence`,
     }] : []),
     ...(tfAttempts > 0 ? [{
+      key: 'tf-summary',
       label: `True or False (${level})`,
       pct: pct(tfCorrect, tfAttempts),
       sub: `${tfAttempts}/60 target attempts • ${Math.round(tfConfidence * 100)}% confidence`,
     }] : []),
     ...(matchAttempts > 0 ? [{
+      key: 'match-summary',
       label: 'Matching Pairs',
       pct: Math.round(matchAccuracy * 100),
       sub: `${matchAttempts}/40 target pairs • ${Math.round(matchConfidence * 100)}% confidence`,
     }] : []),
     ...(fcAttempts > 0 ? [{
+      key: 'fc-summary',
       label: 'Flashcards Reviewed',
       pct: Math.min(Math.round((fcAttempts / 80) * 100), 100),
       sub: `${fcAttempts}/80 target cards • ${Math.round(fcConfidence * 100)}% confidence`,
@@ -1170,7 +1219,8 @@ function computePerformanceData(level, rawData) {
 
   // 11. Mock readiness history (most recent first)
   const mockReadiness = activeAttempts.slice(0, 5).map((a, i) => ({
-    label: a.mock_exam_configs?.title || `${level} Mock Exam #${i + 1}`,
+    key: `mock-readiness-${a.id || i}-${a.completed_at || i}`,
+    label: a.mock_exam_configs?.title ? `${a.mock_exam_configs.title} (Attempt #${i + 1})` : `${level} Mock Exam #${i + 1}`,
     pct: pct(a.correct_count, a.total_questions),
     correct: a.correct_count,
     total: a.total_questions,
@@ -1270,6 +1320,7 @@ export default function Performance({ navigation }) {
   const [data, setData] = useState(null)
   const [selectedPace, setSelectedPace] = useState(null)
   const [paceSavedNotice, setPaceSavedNotice] = useState(false)
+  const lastPerfFetchRef = useRef(0)
 
   // Immediately resolve user target exam from persistent cache & SQLite session on mount
   useEffect(() => {
@@ -1295,10 +1346,15 @@ export default function Performance({ navigation }) {
 
   useEffect(() => {
     const unsubscribe = navigation.addListener('focus', () => {
-      fetchAll()
+      const now = Date.now()
+      // Only refetch over network if more than 3 minutes elapsed since last query
+      if (now - lastPerfFetchRef.current > 180000 || !rawDataRef.current.uid) {
+        lastPerfFetchRef.current = now
+        fetchAll()
+      }
     })
     return unsubscribe
-  }, [navigation])
+  }, [navigation, examLevel])
 
   // ── Resilient Parallel Data fetching ─────────────────────────────
   const fetchAll = async () => {
@@ -1321,7 +1377,6 @@ export default function Performance({ navigation }) {
 
       // Parallelize all queries concurrently with timeouts so no single request blocks
       const [
-        uRes,
         pRes,
         attRes,
         mcqRes,
@@ -1329,9 +1384,6 @@ export default function Performance({ navigation }) {
         sesRes,
         matchRes
       ] = await Promise.allSettled([
-        userEmail
-          ? withTimeout(supabase.from('users').select('review_speed').ilike('email', userEmail).maybeSingle(), 8000)
-          : Promise.resolve({ data: null }),
         resolveUserTargetExam(uid, userTargetExam),
         withTimeout(supabase.from('mock_exam_attempts').select('id, score, total_questions, correct_count, duration_seconds, completed_at, config_id, mock_exam_configs(title, level_key)').eq('user_id', uid).eq('status', 'completed').order('completed_at', { ascending: false }).limit(20), 8000),
         withTimeout(supabase.from('multiple_choice_results').select(`
@@ -1343,12 +1395,10 @@ export default function Performance({ navigation }) {
             exam_level,
             fe_section,
             practice_categories (
-              name,
-              exam_level,
-              fe_section
+              name
             )
           )
-        `).eq('user_id', uid), 8000),
+        `).eq('user_id', uid).order('answered_at', { ascending: false }).limit(200), 8000),
         withTimeout(supabase.from('true_false_results').select(`
           is_correct,
           answered_at,
@@ -1358,12 +1408,10 @@ export default function Performance({ navigation }) {
             exam_level,
             fe_section,
             practice_categories (
-              name,
-              exam_level,
-              fe_section
+              name
             )
           )
-        `).eq('user_id', uid), 8000),
+        `).eq('user_id', uid).order('answered_at', { ascending: false }).limit(200), 8000),
         withTimeout(supabase.from('flashcard_sessions').select(`
           cards_total,
           cards_seen,
@@ -1375,24 +1423,18 @@ export default function Performance({ navigation }) {
           flashcard_decks (
             exam_level,
             fe_section,
+            title,
             practice_categories (
-              name,
-              exam_level,
-              fe_section
+              name
             )
           )
-        `).eq('user_id', uid), 8000),
-        withTimeout(supabase.from('matching_results').select('set_title, pairs_total, pairs_matched, mistakes, completed, duration_seconds').eq('user_id', uid), 8000)
+        `).eq('user_id', uid).order('started_at', { ascending: false }).limit(60), 8000),
+        withTimeout(supabase.from('matching_results').select('set_title, pairs_total, pairs_matched, mistakes, completed, duration_seconds').eq('user_id', uid).order('created_at', { ascending: false }).limit(50), 8000)
       ])
 
-      // 0. Extract review speed
-      let userReviewSpeed = null
-      if (uRes.status === 'fulfilled' && uRes.value?.data?.review_speed) {
-        const s = String(uRes.value.data.review_speed).trim().toLowerCase()
-        if (s.startsWith('det')) userReviewSpeed = 'Detailed'
-        else if (s.startsWith('qui')) userReviewSpeed = 'Quick'
-        else if (s.startsWith('stan')) userReviewSpeed = 'Standard'
-      }
+      // 0. Extract user review pace from local cache
+      const cachedPace = await getCache('prescriptive_recommended_pace')
+      let userReviewSpeed = cachedPace || 'Standard'
 
       // 1. Extract target exam level strictly via unified resolver
       const targetType = (pRes.status === 'fulfilled' && pRes.value) ? pRes.value : userTargetExam
@@ -1432,14 +1474,12 @@ export default function Performance({ navigation }) {
         setCache('home_streak_days', computed.streak).catch(() => {})
       }
 
-      // Automatically cache calibrated adaptive pace if review speed is not set yet
+      // Automatically sync calibrated adaptive pace to cache so Library reflects prescriptive pace
       if (computed?.recommendedPace) {
         const calibratedPace = computed.recommendedPace
-        if (!userReviewSpeed) {
-          setCache('user_review_speed', calibratedPace).catch(() => {})
-          if (rawDataRef.current) {
-            rawDataRef.current.userReviewSpeed = calibratedPace
-          }
+        setCache('prescriptive_recommended_pace', calibratedPace).catch(() => {})
+        if (rawDataRef.current) {
+          rawDataRef.current.userReviewSpeed = calibratedPace
         }
       }
     } catch (err) {
@@ -1468,18 +1508,9 @@ export default function Performance({ navigation }) {
       setData(updated)
     }
 
-    // Persist to local cache and database in background
+    // Persist to local cache in background
     try {
-      await setCache('user_review_speed', paceKey)
-      const email = rawDataRef.current?.email
-      if (email) {
-        withTimeout(
-          supabase.from('users').update({ review_speed: paceKey }).ilike('email', email),
-          5000
-        ).catch((err) => {
-          console.warn('Review speed update background sync notice:', err?.message || err)
-        })
-      }
+      await setCache('prescriptive_recommended_pace', paceKey)
     } catch (err) {
       console.warn('Background pace update notice:', err)
     }
@@ -1693,8 +1724,8 @@ export default function Performance({ navigation }) {
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Quiz & Exam Summary</Text>
           <View style={styles.sectionCard}>
-            {data.summary.map((s) => (
-              <View key={s.label} style={styles.summaryRow}>
+            {data.summary.map((s, idx) => (
+              <View key={s.key || `sum-${idx}-${s.label}`} style={styles.summaryRow}>
                 <View style={{ flex: 1, paddingRight: 8 }}>
                   <Text style={styles.summaryLabel}>{s.label}</Text>
                   {s.sub ? <Text style={styles.summarySub}>{s.sub}</Text> : null}
@@ -1869,8 +1900,8 @@ export default function Performance({ navigation }) {
         <Text style={styles.sectionTitle}>Mock Exam Attempts ({data.level})</Text>
         <View style={styles.sectionCard}>
           {data.mockReadiness.length > 0 ? (
-            data.mockReadiness.map((m) => (
-              <View key={m.label} style={styles.summaryRow}>
+            data.mockReadiness.map((m, idx) => (
+              <View key={m.key || `mock-${idx}-${m.label}`} style={styles.summaryRow}>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.summaryLabel}>{m.label}</Text>
                   <Text style={styles.summarySub}>

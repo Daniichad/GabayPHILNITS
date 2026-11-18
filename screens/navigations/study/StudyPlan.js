@@ -309,13 +309,18 @@ export default function StudyPlan({ navigation }) {
   const [alertTitle, setAlertTitle] = useState('')
   const [alertMessage, setAlertMessage] = useState('')
   const [alertType, setAlertType] = useState('error')
+  const lastStudyPlanFetchRef = useRef(0)
 
   useEffect(() => {
     navigation?.setParams?.({ hideNav: true })
     loadStudyPlanData()
 
     const unsubscribe = navigation?.addListener?.('focus', () => {
-      loadStudyPlanData()
+      const now = Date.now()
+      if (now - lastStudyPlanFetchRef.current > 180000 || !rawQuizDataRef.current.attempt) {
+        lastStudyPlanFetchRef.current = now
+        loadStudyPlanData()
+      }
     })
     return unsubscribe
   }, [navigation])
@@ -326,8 +331,14 @@ export default function StudyPlan({ navigation }) {
 
       // 0. Instant Cache Check for instant responsiveness
       const cachedSpeed = await getCache('user_review_speed')
+      const cachedFocus = await getCache('study_plan_focus_list')
       if (cachedSpeed && !preserveExistingSpeed) {
         setReviewSpeed(cachedSpeed)
+      }
+      if (cachedFocus && Array.isArray(cachedFocus) && cachedFocus.length > 0) {
+        setFocusList(cachedFocus)
+        setPrimaryFocus(cachedFocus[0] || null)
+        setLoading(false)
       }
 
       const { data: { user } } = await supabase.auth.getUser()
@@ -337,24 +348,15 @@ export default function StudyPlan({ navigation }) {
       }
 
       // Parallelize user preferences, personal info, and quiz results concurrently
-      const [uRes, pRes, mcqRes, tfRes] = await Promise.allSettled([
-        user.email ? withTimeout(supabase.from('users').select('review_speed').eq('email', user.email).maybeSingle(), 8000) : Promise.resolve({ data: null }),
+      const [pRes, mcqRes, tfRes] = await Promise.allSettled([
         withTimeout(supabase.from('personal_info').select('target_exam_level').eq('user_id', user.id).maybeSingle(), 8000),
         withTimeout(supabase.from('multiple_choice_results').select('is_correct, multiple_choice_questions(practice_categories(name))').eq('user_id', user.id).limit(200), 8000),
         withTimeout(supabase.from('true_false_results').select('is_correct, true_false_questions(practice_categories(name))').eq('user_id', user.id).limit(200), 8000)
       ])
 
-      // 1. User review speed
-      if (!preserveExistingSpeed) {
-        const userData = (uRes.status === 'fulfilled' && uRes.value?.data) ? uRes.value.data : null
-        if (userData?.review_speed && typeof userData.review_speed === 'string') {
-          let speed = userData.review_speed.charAt(0).toUpperCase() + userData.review_speed.slice(1).toLowerCase()
-          if (speed === 'Slow') speed = 'Detailed'
-          if (speed === 'Normal') speed = 'Standard'
-          if (speed === 'Fast') speed = 'Quick'
-          setReviewSpeed(speed)
-          setCache('user_review_speed', speed).catch(() => {})
-        }
+      // 1. User review speed from local cache
+      if (!preserveExistingSpeed && cachedSpeed) {
+        setReviewSpeed(cachedSpeed)
       }
 
       // 2. Target exam level
@@ -391,6 +393,7 @@ export default function StudyPlan({ navigation }) {
 
       setFocusList(formattedList)
       setPrimaryFocus(formattedList[0] || null)
+      setCache('study_plan_focus_list', formattedList).catch(() => {})
 
     } catch (err) {
       console.warn('Error loading study plan data:', err)
@@ -511,22 +514,6 @@ export default function StudyPlan({ navigation }) {
 
     // 2. Cache immediately
     await setCache('user_review_speed', newSpeed).catch(() => {})
-
-    // 3. Persist asynchronously in background
-    setSavingSpeed(true)
-    try {
-      const { data: { user } } = await supabase.auth.getUser()
-      if (user?.email) {
-        await supabase
-          .from('users')
-          .update({ review_speed: newSpeed })
-          .eq('email', user.email)
-      }
-    } catch (e) {
-      console.warn('Error updating review speed:', e)
-    } finally {
-      setSavingSpeed(false)
-    }
   }
 
   const handleSaveAndStart = async () => {
@@ -540,14 +527,6 @@ export default function StudyPlan({ navigation }) {
       }
 
       const user = userData.user
-      const userEmail = user.email
-
-      if (userEmail) {
-        await supabase
-          .from('users')
-          .update({ review_speed: reviewSpeed })
-          .eq('email', userEmail)
-      }
 
       // Persist target exam level
       const { data: existingInfo } = await supabase

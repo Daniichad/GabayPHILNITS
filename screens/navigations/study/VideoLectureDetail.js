@@ -58,24 +58,19 @@ export default function VideoLectureDetail({ navigation, route }) {
 
       {/* Top Navigation Bar */}
       <View style={[styles.topBar, { paddingTop: insets.top + 8 }]}>
-        <TouchableOpacity 
-          style={styles.backButton} 
-          activeOpacity={0.7} 
+        <TouchableOpacity
+          style={styles.backButton}
+          activeOpacity={0.7}
           onPress={() => navigation?.goBack()}
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
         >
           <Ionicons name="chevron-back" size={26} color={NAVY} />
         </TouchableOpacity>
         <Text style={styles.headerTitle} numberOfLines={1}>Video Lecture</Text>
-        <TouchableOpacity 
-          style={styles.externalHeaderBtn} 
-          activeOpacity={0.7}
-          onPress={handleOpenOriginalVideo}
-        >
-          <Feather name="external-link" size={20} color={NAVY} />
-        </TouchableOpacity>
+        <View style={styles.headerPlaceholder} />
       </View>
 
-      <ScrollView 
+      <ScrollView
         contentContainerStyle={[styles.scrollContent, { paddingBottom: Math.max(insets.bottom, 16) + 32 }]}
         showsVerticalScrollIndicator={false}
       >
@@ -134,7 +129,7 @@ export default function VideoLectureDetail({ navigation, route }) {
                 <Text style={styles.authorSubtitle}>Content Creator / Author</Text>
                 <Text style={styles.authorName}>{authorName}</Text>
               </View>
-              <TouchableOpacity 
+              <TouchableOpacity
                 style={styles.visitChannelBtn}
                 activeOpacity={0.8}
                 onPress={handleOpenAuthorLink}
@@ -152,7 +147,7 @@ export default function VideoLectureDetail({ navigation, route }) {
               <View style={{ flex: 1 }}>
                 <Text style={styles.disclaimerTitle}>Author Reference & Copyright Notice</Text>
                 <Text style={styles.disclaimerText}>
-                  This video lecture was authored and published by <Text style={{ fontWeight: '700' }}>{authorName}</Text>. 
+                  This video lecture was authored and published by <Text style={{ fontWeight: '700' }}>{authorName}</Text>.
                   Gabay PhilNITS embeds this content for educational reference under YouTube's Terms of Service and Fair Use. All intellectual property and rights belong entirely to the creator.
                 </Text>
               </View>
@@ -160,7 +155,7 @@ export default function VideoLectureDetail({ navigation, route }) {
           </View>
 
           {/* Watch directly on YouTube Action Button */}
-          <TouchableOpacity 
+          <TouchableOpacity
             style={styles.watchOnYoutubeBtn}
             activeOpacity={0.85}
             onPress={handleOpenOriginalVideo}
@@ -194,6 +189,10 @@ const styles = StyleSheet.create({
   },
   backButton: {
     padding: 4,
+    width: 36,
+    height: 36,
+    justifyContent: 'center',
+    alignItems: 'flex-start',
   },
   headerTitle: {
     fontSize: 17,
@@ -201,10 +200,10 @@ const styles = StyleSheet.create({
     color: NAVY,
     flex: 1,
     textAlign: 'center',
-    marginHorizontal: 12,
   },
-  externalHeaderBtn: {
-    padding: 6,
+  headerPlaceholder: {
+    width: 36,
+    height: 36,
   },
   scrollContent: {
     paddingBottom: 40,

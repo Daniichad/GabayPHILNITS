@@ -71,6 +71,42 @@ const IP_HIERARCHY = {
   },
 }
 
+const FE_SUBJECT_A_HIERARCHY = {
+  Technology: {
+    'Basic Theory': ['Basic Theory', 'Algorithms and Programming'],
+    'Computer System': ['Computer Components', 'Hardware', 'Software', 'System Components'],
+    'Development Technology': ['Software Development Management Technology', 'System Development Technology'],
+    'Technical Elements': ['Database', 'Information Media', 'Network', 'Security', 'User Interface'],
+  },
+  Management: {
+    'Project Management': ['Project Management'],
+    'Service Management': ['Service Management', 'System Audit'],
+  },
+  Strategy: {
+    'Business Strategy': ['Business Industry', 'Business Strategy Management', 'Technology Strategy Management'],
+    'Companies and Legal Affairs': ['Corporate Activities', 'Legal Affairs'],
+    'System Strategy': ['System Planning', 'System Strategy'],
+  },
+}
+
+const FE_SUBJECT_B_HIERARCHY = {
+  'General Aspects of Programming': {
+    'FE SubjectB Area1': ['FE SubjectB Area1'],
+  },
+  'Fundamental Elements for Programming Processes': {
+    'FE SubjectB Area2': ['FE SubjectB Area2'],
+  },
+  'Data Structures and Algorithms': {
+    'FE SubjectB Area3': ['FE SubjectB Area3'],
+  },
+  'Application of Programming to Various Fields': {
+    'FE SubjectB Area4': ['FE SubjectB Area4'],
+  },
+  'Ensuring Information Security': {
+    'FE SubjectB Area5': ['FE SubjectB Area5'],
+  },
+}
+
 const FE_MORNING_SUBJECTS = [
   'All',
   'Technology',
@@ -99,7 +135,6 @@ export default function PracticeOverview({ navigation, route }) {
   const routeSubject = route?.params?.subject
   const routeMajorCategory = route?.params?.majorCategory
   const routeMinorCategory = route?.params?.minorCategory
-  const routeReviewSpeed = route?.params?.reviewSpeed
 
   const [userTargetExam, setUserTargetExam] = useState(routeTargetExam || null)
   const [loading, setLoading] = useState(true)
@@ -109,8 +144,6 @@ export default function PracticeOverview({ navigation, route }) {
   const [selectedMinorCategory, setSelectedMinorCategory] = useState(routeMinorCategory || 'All')
   const [selectedLimit, setSelectedLimit] = useState(10)
   const [selectedSets, setSelectedSets] = useState(1)
-  const [userReviewSpeed, setUserReviewSpeed] = useState('Standard')
-  const [selectedSpeed, setSelectedSpeed] = useState(routeReviewSpeed || 'Standard')
 
   const [subjectPickerOpen, setSubjectPickerOpen] = useState(false)
   const [majorPickerOpen, setMajorPickerOpen] = useState(false)
@@ -220,53 +253,54 @@ export default function PracticeOverview({ navigation, route }) {
     ? (feSection === 'Subject B' ? FE_AFTERNOON_SUBJECTS : FE_MORNING_SUBJECTS)
     : IP_SUBJECTS
 
+  // Active syllabus hierarchy mapping depending on track & FE session
+  const activeHierarchy = isFE
+    ? (feSection === 'Subject B' ? FE_SUBJECT_B_HIERARCHY : FE_SUBJECT_A_HIERARCHY)
+    : IP_HIERARCHY
+
   // Calculate available Major Categories based on selected Subject Area
   const availableMajorCategories = ['All']
-  if (isIP) {
-    if (selectedSubject && selectedSubject !== 'All' && IP_HIERARCHY[selectedSubject]) {
-      availableMajorCategories.push(...Object.keys(IP_HIERARCHY[selectedSubject]))
-    } else {
-      // If "All", show all unique major categories across all subjects
-      Object.keys(IP_HIERARCHY).forEach(sub => {
-        Object.keys(IP_HIERARCHY[sub]).forEach(m => {
-          if (!availableMajorCategories.includes(m)) availableMajorCategories.push(m)
-        })
+  if (selectedSubject && selectedSubject !== 'All' && activeHierarchy[selectedSubject]) {
+    availableMajorCategories.push(...Object.keys(activeHierarchy[selectedSubject]))
+  } else {
+    // If "All", show all unique major categories across all subjects
+    Object.keys(activeHierarchy).forEach(sub => {
+      Object.keys(activeHierarchy[sub]).forEach(m => {
+        if (!availableMajorCategories.includes(m)) availableMajorCategories.push(m)
       })
-    }
+    })
   }
 
   // Calculate available Minor Categories based on selected Subject and Major
   const availableMinorCategories = ['All']
-  if (isIP) {
-    if (selectedSubject !== 'All' && IP_HIERARCHY[selectedSubject]) {
-      if (selectedMajorCategory !== 'All' && IP_HIERARCHY[selectedSubject][selectedMajorCategory]) {
-        availableMinorCategories.push(...IP_HIERARCHY[selectedSubject][selectedMajorCategory])
-      } else {
-        Object.values(IP_HIERARCHY[selectedSubject]).forEach(topicList => {
+  if (selectedSubject !== 'All' && activeHierarchy[selectedSubject]) {
+    if (selectedMajorCategory !== 'All' && activeHierarchy[selectedSubject][selectedMajorCategory]) {
+      availableMinorCategories.push(...activeHierarchy[selectedSubject][selectedMajorCategory])
+    } else {
+      Object.values(activeHierarchy[selectedSubject]).forEach(topicList => {
+        topicList.forEach(t => {
+          if (!availableMinorCategories.includes(t)) availableMinorCategories.push(t)
+        })
+      })
+    }
+  } else {
+    // All subjects
+    if (selectedMajorCategory !== 'All') {
+      Object.keys(activeHierarchy).forEach(sub => {
+        if (activeHierarchy[sub][selectedMajorCategory]) {
+          activeHierarchy[sub][selectedMajorCategory].forEach(t => {
+            if (!availableMinorCategories.includes(t)) availableMinorCategories.push(t)
+          })
+        }
+      })
+    } else {
+      Object.keys(activeHierarchy).forEach(sub => {
+        Object.values(activeHierarchy[sub]).forEach(topicList => {
           topicList.forEach(t => {
             if (!availableMinorCategories.includes(t)) availableMinorCategories.push(t)
           })
         })
-      }
-    } else {
-      // All subjects
-      if (selectedMajorCategory !== 'All') {
-        Object.keys(IP_HIERARCHY).forEach(sub => {
-          if (IP_HIERARCHY[sub][selectedMajorCategory]) {
-            IP_HIERARCHY[sub][selectedMajorCategory].forEach(t => {
-              if (!availableMinorCategories.includes(t)) availableMinorCategories.push(t)
-            })
-          }
-        })
-      } else {
-        Object.keys(IP_HIERARCHY).forEach(sub => {
-          Object.values(IP_HIERARCHY[sub]).forEach(topicList => {
-            topicList.forEach(t => {
-              if (!availableMinorCategories.includes(t)) availableMinorCategories.push(t)
-            })
-          })
-        })
-      }
+      })
     }
   }
 
@@ -275,16 +309,9 @@ export default function PracticeOverview({ navigation, route }) {
     const initOverview = async () => {
       try {
         // 1. Instant cache read: unlocks UI immediately with zero spinner wait
-        const [cachedSpeed, cachedTrack] = await Promise.all([
-          getCache('user_review_speed'),
-          getCache('user_target_exam')
-        ])
+        const cachedTrack = await getCache('user_target_exam')
 
         if (isMounted) {
-          if (cachedSpeed) {
-            setUserReviewSpeed(cachedSpeed)
-            if (!routeReviewSpeed) setSelectedSpeed(cachedSpeed)
-          }
           if (cachedTrack) {
             setUserTargetExam(cachedTrack)
           }
@@ -298,21 +325,10 @@ export default function PracticeOverview({ navigation, route }) {
         const { data: { session } } = await supabase.auth.getSession()
         const currentUser = session?.user
 
-        const [track, uRes] = await Promise.all([
-          resolveUserTargetExam(currentUser?.id, routeTargetExam || cachedTrack || userTargetExam || 'IP'),
-          currentUser?.email
-            ? supabase.from('users').select('review_speed').ilike('email', currentUser.email).maybeSingle()
-            : Promise.resolve({ data: null })
-        ])
+        const track = await resolveUserTargetExam(currentUser?.id, routeTargetExam || cachedTrack || userTargetExam || 'IP')
 
         if (isMounted) {
           setUserTargetExam(track)
-          if (uRes?.data?.review_speed) {
-            const rawSpeed = String(uRes.data.review_speed).trim()
-            setUserReviewSpeed(rawSpeed)
-            if (!routeReviewSpeed) setSelectedSpeed(rawSpeed)
-            setCache('user_review_speed', rawSpeed).catch(() => { })
-          }
           const validSubs = track === 'FE'
             ? (feSection === 'Subject B' ? FE_AFTERNOON_SUBJECTS : FE_MORNING_SUBJECTS)
             : IP_SUBJECTS
@@ -334,9 +350,6 @@ export default function PracticeOverview({ navigation, route }) {
   }, [navigation, feSection])
 
   const handleStart = () => {
-    const activePace = selectedSpeed || userReviewSpeed || 'Standard'
-    setCache('user_review_speed', activePace).catch(() => { })
-
     navigation.replace(typeId, {
       subject: selectedSubject === 'All' ? null : selectedSubject,
       majorCategory: selectedMajorCategory === 'All' ? null : selectedMajorCategory,
@@ -345,7 +358,6 @@ export default function PracticeOverview({ navigation, route }) {
       sets: selectedSets,
       targetExam: userTargetExam || 'IP',
       feSection: userTargetExam === 'FE' ? feSection : null,
-      reviewSpeed: activePace,
     })
   }
 
@@ -398,6 +410,8 @@ export default function PracticeOverview({ navigation, route }) {
                     onPress={() => {
                       setFeSection('Subject A')
                       setSelectedSubject('All')
+                      setSelectedMajorCategory('All')
+                      setSelectedMinorCategory('All')
                     }}
                     activeOpacity={0.7}
                   >
@@ -411,6 +425,8 @@ export default function PracticeOverview({ navigation, route }) {
                     onPress={() => {
                       setFeSection('Subject B')
                       setSelectedSubject('All')
+                      setSelectedMajorCategory('All')
+                      setSelectedMinorCategory('All')
                     }}
                     activeOpacity={0.7}
                   >
@@ -421,39 +437,6 @@ export default function PracticeOverview({ navigation, route }) {
                 </View>
               </View>
             )}
-
-            {/* Review Pace / Speed Selection */}
-            <View style={styles.flatSection}>
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                <Text style={styles.sectionHeader}>Review Pace</Text>
-                {userReviewSpeed && (
-                  <Text style={{ fontSize: 11.5, fontWeight: '700', color: '#10b981' }}>
-                    Profile Pace: {userReviewSpeed}
-                  </Text>
-                )}
-              </View>
-              <View style={styles.feTrackSegment}>
-                {[
-                  { id: 'Quick', label: 'Quick' },
-                  { id: 'Standard', label: 'Standard' },
-                  { id: 'Detailed', label: 'Detailed' },
-                ].map((pace) => {
-                  const isActive = selectedSpeed === pace.id
-                  return (
-                    <TouchableOpacity
-                      key={pace.id}
-                      style={[styles.feTrackBtn, isActive && styles.feTrackBtnActive]}
-                      onPress={() => setSelectedSpeed(pace.id)}
-                      activeOpacity={0.7}
-                    >
-                      <Text style={[styles.feTrackBtnText, isActive && styles.feTrackBtnTextActive]}>
-                        {pace.label}
-                      </Text>
-                    </TouchableOpacity>
-                  )
-                })}
-              </View>
-            </View>
 
             {/* Subject Area Dropdown selection card */}
             <View style={styles.flatSection}>

@@ -34,6 +34,11 @@
       "expo-web-browser",
       "expo-sqlite",
       "expo-status-bar"
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "b5909ad9-e928-4b90-aeeb-af2966fb4339"
+      }
+    }
   }
 }
