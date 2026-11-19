@@ -50,6 +50,9 @@ import { initDb, getUserCache, saveUserCache, saveUserSession, getActiveUserSess
 import { clearCache } from './utils/cache'
 import { processSyncQueue, addSyncListener } from './utils/syncManager'
 import { startRealtimeNotifications, stopRealtimeNotifications } from './utils/notificationManager'
+import { initPerformanceLogger } from './utils/perfLogger'
+
+initPerformanceLogger()
 
 const Stack = createNativeStackNavigator()
 
@@ -322,11 +325,17 @@ export default function App() {
 					theme={navTheme}
 					onReady={() => {
 						const name = navigationRef.getCurrentRoute()?.name
-						if (name) setCurrentRoute(name)
+						if (name) {
+							setCurrentRoute(name)
+							console.log(`\x1b[35m[SCREEN ACTIVE]\x1b[0m 📱 Route: "${name}"`)
+						}
 					}}
 					onStateChange={() => {
 						const name = navigationRef.getCurrentRoute()?.name
-						if (name) setCurrentRoute(name)
+						if (name && name !== currentRoute) {
+							console.log(`\x1b[35m[NAV TRANSITION]\x1b[0m 🧭 "${currentRoute || 'Init'}" ➔ "${name}"`)
+							setCurrentRoute(name)
+						}
 					}}
 				>
 					<Stack.Navigator

@@ -6,7 +6,8 @@
     "start": "node --max-old-space-size=4096 ./node_modules/expo/bin/cli start --lan",
     "android": "node --max-old-space-size=4096 ./node_modules/expo/bin/cli start --android --lan",
     "ios": "node --max-old-space-size=4096 ./node_modules/expo/bin/cli start --ios --lan",
-    "web": "node --max-old-space-size=4096 ./node_modules/expo/bin/cli start --web"
+    "web": "node --max-old-space-size=4096 ./node_modules/expo/bin/cli start --web",
+    "postinstall": "node ./scripts/patch-pressability.js"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.2",

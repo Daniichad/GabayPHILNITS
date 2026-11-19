@@ -1309,15 +1309,18 @@ function computePerformanceData(level, rawData) {
   }
 }
 
+// Module-level in-memory cache for instant zero-latency tab switching across unmounts
+let _memoryCachedPerfData = null
+
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 export default function Performance({ navigation }) {
   const [tab, setTab] = useState(0)
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(!_memoryCachedPerfData)
   const [error, setError] = useState(null)
   const [userTargetExam, setUserTargetExam] = useState('IP')
   const insets = useSafeAreaInsets()
   const [examLevel, setExamLevel] = useState('IP')
-  const [data, setData] = useState(null)
+  const [data, setData] = useState(_memoryCachedPerfData)
   const [selectedPace, setSelectedPace] = useState(null)
   const [paceSavedNotice, setPaceSavedNotice] = useState(false)
   const lastPerfFetchRef = useRef(0)
@@ -1465,6 +1468,7 @@ export default function Performance({ navigation }) {
 
       // Compute metrics tailored to user's exam track
       const computed = computePerformanceData(currentLevel, rawDataRef.current)
+      _memoryCachedPerfData = computed
       setData(computed)
 
       // Cache computed metrics for instant background rehydration

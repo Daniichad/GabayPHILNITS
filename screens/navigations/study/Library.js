@@ -785,12 +785,157 @@ function LibrarySkeleton({ libraryMode, isFE }) {
   )
 }
 
+// Fallback reading materials when offline or while remote library is syncing
+const DEFAULT_READING_MATERIALS = [
+  {
+    id: '11111111-1111-4111-8111-111111111111',
+    title: 'Basic Information Theory and Computer Systems',
+    subtitle: 'Data Representation, CPU Architecture, and Hardware Fundamentals',
+    subject: 'Technology',
+    exam_level: 'IP',
+    review_speed: 'Standard',
+    total_pages: 24,
+    author: 'PhilNITS / IPA Japan',
+    learning_objective: "Master radix conversion, two's complement, logic gates, and CPU pipelining fundamentals.",
+    description: 'Comprehensive foundation module covering discrete mathematics, bitwise logic, and computer organization required for the IT Passport Examination.',
+    sort_order: 1,
+    is_published: true,
+    pdf_url: 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf',
+    cover_image_url: 'https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=600&q=80',
+    progress: 0,
+  },
+  {
+    id: '22222222-2222-4222-8222-222222222222',
+    title: 'Operating Systems and System Software',
+    subtitle: 'Memory Management, Task Scheduling, and File Systems',
+    subject: 'Technology',
+    exam_level: 'IP',
+    review_speed: 'Quick',
+    total_pages: 16,
+    author: 'PhilNITS / IPA Japan',
+    learning_objective: 'Understand multi-programming, virtual memory paging, process states, and spooling.',
+    description: 'Essential software engineering guide focusing on real-time task dispatching, page fault frequency, and file organization.',
+    sort_order: 2,
+    is_published: true,
+    pdf_url: 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf',
+    cover_image_url: 'https://images.unsplash.com/photo-1629654297299-c8506221ca97?auto=format&fit=crop&w=600&q=80',
+    progress: 0,
+  },
+  {
+    id: '33333333-3333-4333-8333-333333333333',
+    title: 'Corporate and Legal Affairs',
+    subtitle: 'Corporate Governance, Intellectual Property, and Labor Law',
+    subject: 'Management',
+    exam_level: 'IP',
+    review_speed: 'Standard',
+    total_pages: 28,
+    author: 'PhilNITS / IPA Japan',
+    learning_objective: 'Navigate copyright law, patent requirements, NDA contracts, and labor management statutes.',
+    description: 'Business and IT governance manual covering legal compliance, ethics, and corporate structures for IT Passport candidates.',
+    sort_order: 3,
+    is_published: true,
+    pdf_url: 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf',
+    cover_image_url: 'https://images.unsplash.com/photo-1450133064473-71024230f91b?auto=format&fit=crop&w=600&q=80',
+    progress: 0,
+  },
+  {
+    id: '44444444-4444-4444-8444-444444444444',
+    title: 'Business Strategy and IT Planning',
+    subtitle: 'SWOT, PPM, Business Models, and Marketing Mix',
+    subject: 'Strategy',
+    exam_level: 'IP',
+    review_speed: 'Standard',
+    total_pages: 20,
+    author: 'PhilNITS / IPA Japan',
+    learning_objective: 'Analyze business portfolios, market penetration models, and digital transformation roadmaps.',
+    description: 'Strategic decision-making techniques, balanced scorecards, and SWOT matrix implementations.',
+    sort_order: 4,
+    is_published: true,
+    pdf_url: 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf',
+    cover_image_url: 'https://images.unsplash.com/photo-1460925895917-afdab827c52f?auto=format&fit=crop&w=600&q=80',
+    progress: 0,
+  },
+  {
+    id: '55555555-5555-4555-8555-555555555555',
+    title: 'Data Structures and Advanced Algorithms',
+    subtitle: 'Trees, Graphs, Sorting, Complexity Analysis, and Big-O',
+    subject: 'Technology',
+    exam_level: 'FE',
+    fe_section: 'FE Subject B',
+    review_speed: 'Detailed',
+    total_pages: 36,
+    author: 'PhilNITS / IPA Japan',
+    learning_objective: 'Design efficient binary search trees, graph traversals, and dynamic programming algorithms.',
+    description: 'Core algorithmic engineering module tailored for the Fundamental Information Technology Engineer (FE) examination.',
+    sort_order: 1,
+    is_published: true,
+    pdf_url: 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf',
+    cover_image_url: 'https://images.unsplash.com/photo-1555066931-4365d14bab8c?auto=format&fit=crop&w=600&q=80',
+    progress: 0,
+  },
+  {
+    id: '66666666-6666-4666-8666-666666666666',
+    title: 'Computer Architecture and Assembly Pipelining',
+    subtitle: 'Superscalar, Cache Coherence, and Addressing Modes',
+    subject: 'Technology',
+    exam_level: 'FE',
+    fe_section: 'FE Subject A',
+    review_speed: 'Standard',
+    total_pages: 30,
+    author: 'PhilNITS / IPA Japan',
+    learning_objective: 'Analyze memory hierarchies, cache miss penalties, CISC vs RISC, and instruction hazards.',
+    description: 'In-depth exploration of microprocessor architectures, register structures, and low-level hardware control.',
+    sort_order: 2,
+    is_published: true,
+    pdf_url: 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf',
+    cover_image_url: 'https://images.unsplash.com/photo-1526374965328-7f61d4dc18c5?auto=format&fit=crop&w=600&q=80',
+    progress: 0,
+  },
+  {
+    id: '77777777-7777-4777-8777-777777777777',
+    title: 'Project and Service Management',
+    subtitle: 'Earned Value Management, Critical Path, and SLA Controls',
+    subject: 'Management',
+    exam_level: 'FE',
+    fe_section: 'FE Subject A',
+    review_speed: 'Standard',
+    total_pages: 22,
+    author: 'PhilNITS / IPA Japan',
+    learning_objective: 'Calculate EVM metrics, network diagram critical paths, and IT service delivery SLA frameworks.',
+    description: 'Standard project management body of knowledge (PMBOK) and ITIL v4 concepts evaluated in the FE examination.',
+    sort_order: 3,
+    is_published: true,
+    pdf_url: 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf',
+    cover_image_url: 'https://images.unsplash.com/photo-1552664730-d307ca884978?auto=format&fit=crop&w=600&q=80',
+    progress: 0,
+  },
+  {
+    id: '88888888-8888-4888-8888-888888888888',
+    title: 'Enterprise Strategy and System Architecture',
+    subtitle: 'TOGAF, Information Systems Strategy, and SCM/ERP',
+    subject: 'Strategy',
+    exam_level: 'FE',
+    fe_section: 'FE Subject A',
+    review_speed: 'Quick',
+    total_pages: 18,
+    author: 'PhilNITS / IPA Japan',
+    learning_objective: 'Formulate enterprise IT blueprints, assess ROI on enterprise software, and plan supply chain systems.',
+    description: 'Executive business and systems engineering strategy handbook designed for FE aspirants.',
+    sort_order: 4,
+    is_published: true,
+    pdf_url: 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf',
+    cover_image_url: 'https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?auto=format&fit=crop&w=600&q=80',
+    progress: 0,
+  },
+]
+
 // ─── Main component ──────────────────────────────────────────
 // Module-level in-memory cache for instant zero-latency tab switching across unmounts
 let _memoryCachedMaterials = null
 let _memoryCachedVideos = null
 let _memoryCachedTargetExam = null
 let _lastLibraryFetchTime = 0
+let _libraryLoadedOnce = false
 
 /**
  * @param {{ navigation: any }} props
@@ -799,7 +944,7 @@ export default function Library({ navigation }) {
   const insets = useSafeAreaInsets()
   const [materials, setMaterials] = useState(/** @type {any[]} */(_memoryCachedMaterials || []))
   const [videos, setVideos] = useState(/** @type {any[]} */(_memoryCachedVideos || []))
-  const [loading, setLoading] = useState(!_memoryCachedMaterials || _memoryCachedMaterials.length === 0)
+  const [loading, setLoading] = useState(!_libraryLoadedOnce && (!_memoryCachedMaterials || _memoryCachedMaterials.length === 0))
   const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState(/** @type {string | null} */(null))
   const [search, setSearch] = useState('')
@@ -843,6 +988,7 @@ export default function Library({ navigation }) {
             _memoryCachedVideos = cachedVideos
             setVideos(cachedVideos)
           }
+          _libraryLoadedOnce = true
           setLoading(false)
         }
       }).catch(() => {})
@@ -853,7 +999,7 @@ export default function Library({ navigation }) {
     const unsubscribe = navigation.addListener('focus', () => {
       const now = Date.now()
       // Only trigger network revalidation if more than 3 minutes passed AND we already mounted
-      const hasAnyData = (_memoryCachedMaterials && _memoryCachedMaterials.length > 0) || materials.length > 0
+      const hasAnyData = _libraryLoadedOnce || (_memoryCachedMaterials && _memoryCachedMaterials.length > 0) || materials.length > 0
       if (!hasAnyData || (now - _lastLibraryFetchTime > 180000)) {
         _lastLibraryFetchTime = now
         loadMaterials(false)
@@ -868,6 +1014,7 @@ export default function Library({ navigation }) {
     _memoryCachedVideos = null
     _memoryCachedTargetExam = null
     _lastLibraryFetchTime = 0
+    _libraryLoadedOnce = false
     await clearCache('library_materials')
     await clearCache('library_videos')
     await clearCache('library_target_exam')
@@ -892,6 +1039,9 @@ export default function Library({ navigation }) {
           if (_memoryCachedVideos && _memoryCachedVideos.length > 0) setVideos(_memoryCachedVideos)
           if (_memoryCachedTargetExam) setUserTargetExam(_memoryCachedTargetExam)
           setLoading(false)
+        } else if (_libraryLoadedOnce) {
+          // Already loaded previously during session; keep showing current data with 0 loading skeleton
+          setLoading(false)
         } else {
           // Read from SQLite cache
           const cachedTrack = await getCache('library_target_exam') || await getCache('user_target_exam')
@@ -909,7 +1059,7 @@ export default function Library({ navigation }) {
               setVideos(cachedVideos)
             }
             setLoading(false)
-          } else if (!hasCachedData) {
+          } else if (!hasCachedData && !_libraryLoadedOnce) {
             setLoading(true)
           }
         }
@@ -987,15 +1137,32 @@ export default function Library({ navigation }) {
         setCache('library_target_exam', targetTrack).catch(() => { })
         setCache('library_materials', materialsWithProgress).catch(() => { })
         setCache('library_videos', finalVideos).catch(() => { })
-      } else if (rawMaterials.length === 0 && rRes.status === 'fulfilled') {
-        // Query succeeded but returned 0 items from remote
-        _memoryCachedMaterials = []
-        setMaterials([])
+      } else if (rawMaterials.length === 0) {
+        // If remote table has no rows or is still being populated, supply default sample materials
+        const fallbackWithProgress = DEFAULT_READING_MATERIALS.map(item => {
+          const prog = progressMap[item.id]
+          if (prog) {
+            if (prog.is_completed) return { ...item, progress: 100 }
+            if (prog.current_chapter_number && item.total_pages > 0) {
+              const computed = Math.round(((prog.current_chapter_number - 1) / item.total_pages) * 100)
+              return { ...item, progress: Math.min(Math.max(computed, 0), 100) }
+            }
+          }
+          return { ...item, progress: 0 }
+        })
+        _memoryCachedMaterials = fallbackWithProgress
+        _memoryCachedVideos = finalVideos
+        _memoryCachedTargetExam = targetTrack
+        setMaterials(fallbackWithProgress)
+        setCache('library_target_exam', targetTrack).catch(() => { })
+        setCache('library_materials', fallbackWithProgress).catch(() => { })
+        setCache('library_videos', finalVideos).catch(() => { })
       }
     } catch (e) {
       console.error('Library load error:', e)
       setError('Failed to load materials.')
     } finally {
+      _libraryLoadedOnce = true
       setLoading(false)
     }
   }

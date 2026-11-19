@@ -19,6 +19,9 @@ const formatToLocalDateString = (d) => {
   return getPHDateKey(d)
 }
 
+// Module-level in-memory cache for instant zero-latency opening
+let _memoryCachedActivity = null
+
 export default function ActivityCalendar({ route, navigation }) {
   const insets = useSafeAreaInsets()
   const { streakDays: initialStreak = 0, cseSchedule: initialSchedule } = route.params || {}
@@ -36,11 +39,11 @@ export default function ActivityCalendar({ route, navigation }) {
     }
   })
 
-  const [loading, setLoading] = useState(true)
-  const [activityEvents, setActivityEvents] = useState({})
-  const [totalStudyDuration, setTotalStudyDuration] = useState(0) // in minutes
-  const [calculatedStreak, setCalculatedStreak] = useState(initialStreak)
-  const [activityStats, setActivityStats] = useState({
+  const [loading, setLoading] = useState(!_memoryCachedActivity)
+  const [activityEvents, setActivityEvents] = useState(_memoryCachedActivity?.activityEvents || {})
+  const [totalStudyDuration, setTotalStudyDuration] = useState(_memoryCachedActivity?.totalMinutes || 0) // in minutes
+  const [calculatedStreak, setCalculatedStreak] = useState(_memoryCachedActivity?.finalStreak || initialStreak)
+  const [activityStats, setActivityStats] = useState(_memoryCachedActivity?.activityStats || {
     practiceCount: 0,
     mcqCount: 0,
     tfCount: 0,
@@ -105,13 +108,14 @@ export default function ActivityCalendar({ route, navigation }) {
       // Fast-hydrate from local cache first so calendar renders dots instantly with zero delay
       const cacheKey = `activity_calendar_cache_${uid}`
       const cached = await getCache(cacheKey)
+      const hasAnyData = !!_memoryCachedActivity || !!cached
       if (cached) {
         if (cached.activityEvents) setActivityEvents(cached.activityEvents)
         if (cached.totalMinutes !== undefined) setTotalStudyDuration(cached.totalMinutes)
         if (cached.activityStats) setActivityStats(cached.activityStats)
         if (cached.finalStreak !== undefined) setCalculatedStreak(cached.finalStreak)
         setLoading(false)
-      } else {
+      } else if (!hasAnyData) {
         setLoading(true)
       }
 
@@ -459,13 +463,15 @@ export default function ActivityCalendar({ route, navigation }) {
       setTotalStudyDuration(Math.floor(totalMinutes))
       setActivityStats(statsObj)
 
-      // Save to local cache for instant zero-lag rendering next time
-      setCache(cacheKey, {
+      _memoryCachedActivity = {
         activityEvents: eventsMap,
         totalMinutes: Math.floor(totalMinutes),
         activityStats: statsObj,
         finalStreak,
-      }, 10 * 60 * 1000).catch(() => { })
+      }
+
+      // Save to local cache for instant zero-lag rendering next time
+      setCache(cacheKey, _memoryCachedActivity, 10 * 60 * 1000).catch(() => { })
     } catch (error) {
       console.warn('Error fetching activity:', error)
     } finally {

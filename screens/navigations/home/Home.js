@@ -79,7 +79,11 @@ export default function Home({ session, navigation, route }) {
   const [rankingsLoading, setRankingsLoading] = useState(true)
   const [rankingTimeframe, setRankingTimeframe] = useState('all_time')
   const [profileName, setProfileName] = useState(() => firstName || 'Student')
+  const profileNameRef = useRef(firstName || 'Student')
+  profileNameRef.current = profileName
   const [streakDays, setStreakDays] = useState(0)
+  const streakDaysRef = useRef(0)
+  streakDaysRef.current = streakDays
   const [targetExamType, setTargetExamType] = useState('IP')
   const [subjects, setSubjectProgress] = useState(IP_DEFAULT_SUBJECTS)
   const lastFocusFetchTimeRef = useRef(0)
@@ -177,7 +181,7 @@ export default function Home({ session, navigation, route }) {
       let currentFullName =
         currentUser?.user_metadata?.full_name ||
         currentUser?.user_metadata?.fullName ||
-        profileName ||
+        profileNameRef.current ||
         ''
       const currentEmail = currentUser?.email || ''
 
@@ -199,40 +203,45 @@ export default function Home({ session, navigation, route }) {
       const userEmailPrefix = (currentEmail.split('@')[0] || '').toLowerCase()
 
       // 2. Dynamic in-app notices based on user metrics
+      const currentStreak = streakDaysRef.current
       const generated = []
-      if (streakDays > 0) {
+      if (currentStreak > 0) {
         generated.push({
           id: 'streak_notice',
           icon: 'fire',
           iconColor: '#f59e0b',
           title: 'Study Streak!',
-          body: `You're on a ${streakDays}-day study streak. Consistency is key!`,
+          body: `You're on a ${currentStreak}-day study streak. Consistency is key!`,
           time: 'Active now',
           timestamp: Date.now(),
           isDbRead: false,
         })
       }
 
-      if (cseSchedule && cseSchedule.daysLeft !== null && cseSchedule.daysLeft >= 0) {
+      const cachedCse = await getCache('home_cse_schedule')
+      const effectiveCse = cachedCse || cseSchedule
+      if (effectiveCse && effectiveCse.daysLeft !== null && effectiveCse.daysLeft >= 0) {
         generated.push({
           id: 'exam_countdown_notice',
           icon: 'calendar-clock',
           iconColor: '#6366f1',
           title: 'PhilNITS Exam Reminder',
-          body: `The next PhilNITS exam cycle is in ${cseSchedule.daysLeft} days. Stay focused!`,
+          body: `The next PhilNITS exam cycle is in ${effectiveCse.daysLeft} days. Stay focused!`,
           time: 'Upcoming',
           timestamp: Date.now() - 60000,
           isDbRead: false,
         })
       }
 
-      if (readiness > 0) {
+      const cachedReadiness = await getCache('home_readiness')
+      const effectiveReadiness = cachedReadiness !== null && cachedReadiness !== undefined ? Number(cachedReadiness) : readiness
+      if (effectiveReadiness > 0) {
         generated.push({
           id: 'readiness_notice',
           icon: 'chart-line',
           iconColor: '#10b981',
           title: 'Exam Readiness Update',
-          body: `Your estimated readiness is ${readiness}%. Keep taking practice tests!`,
+          body: `Your estimated readiness is ${effectiveReadiness}%. Keep taking practice tests!`,
           time: 'Recent',
           timestamp: Date.now() - 120000,
           isDbRead: false,
@@ -323,7 +332,7 @@ export default function Home({ session, navigation, route }) {
     } catch (err) {
       console.warn('fetchNotifications error:', err)
     }
-  }, [user, profileName, streakDays, cseSchedule, readiness])
+  }, []) // Stable callback; reads dynamic state via refs and cache to prevent request loops
 
   useEffect(() => {
     fetchNotifications()
@@ -721,7 +730,7 @@ export default function Home({ session, navigation, route }) {
 
       // Pre-resolve current user's real first name
       const myResolvedFirstName = extractFirstName(
-        profileName || session?.user?.user_metadata?.full_name || session?.user?.user_metadata?.fullName,
+        profileNameRef.current || session?.user?.user_metadata?.full_name || session?.user?.user_metadata?.fullName,
         session?.user?.email
       )
       if (currentUserId) {
@@ -830,7 +839,7 @@ export default function Home({ session, navigation, route }) {
     } finally {
       setRankingsLoading(false)
     }
-  }, [profileName, rankingTimeframe])
+  }, [])
 
 
 
@@ -885,7 +894,7 @@ export default function Home({ session, navigation, route }) {
     } finally {
       setQuoteLoading(false)
     }
-  }, [quote])
+  }, [])
 
   // Fetch daily quote on mount & check on screen focus
   useEffect(() => {

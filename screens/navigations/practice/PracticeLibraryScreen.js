@@ -76,6 +76,7 @@ const FE_SUBJECTS = [
 let _memoryCachedPracticeActivities = null
 let _memoryCachedPracticeExam = null
 let _lastPracticeFetchTime = 0
+let _practiceLoadedOnce = false
 
 /**
  * @param {{ navigation: any }} props
@@ -83,7 +84,7 @@ let _lastPracticeFetchTime = 0
 export default function PracticeLibraryScreen({ navigation }) {
   const insets = useSafeAreaInsets();
   const [recentActivities, setRecentActivities] = useState(/** @type {any[]} */ (_memoryCachedPracticeActivities || []));
-  const [loading, setLoading] = useState(!_memoryCachedPracticeActivities || _memoryCachedPracticeActivities.length === 0);
+  const [loading, setLoading] = useState(!_practiceLoadedOnce && (!_memoryCachedPracticeActivities || _memoryCachedPracticeActivities.length === 0));
   const [userTargetExam, setUserTargetExam] = useState(_memoryCachedPracticeExam || 'IP');
 
   // Immediately resolve target exam from persistent cache / SQLite session on mount
@@ -107,6 +108,7 @@ export default function PracticeLibraryScreen({ navigation }) {
           if (cached && Array.isArray(cached) && cached.length > 0) {
             _memoryCachedPracticeActivities = cached;
             setRecentActivities(cached);
+            _practiceLoadedOnce = true;
             setLoading(false);
           }
         }).catch(() => {});
@@ -117,7 +119,7 @@ export default function PracticeLibraryScreen({ navigation }) {
   useEffect(() => {
     const unsubscribe = navigation.addListener('focus', () => {
       const now = Date.now();
-      const hasAnyData = (_memoryCachedPracticeActivities && _memoryCachedPracticeActivities.length > 0) || recentActivities.length > 0;
+      const hasAnyData = _practiceLoadedOnce || (_memoryCachedPracticeActivities && _memoryCachedPracticeActivities.length > 0) || recentActivities.length > 0;
       if (!hasAnyData || (now - _lastPracticeFetchTime > 180000)) {
         _lastPracticeFetchTime = now;
         loadRecentActivity();
@@ -131,6 +133,7 @@ export default function PracticeLibraryScreen({ navigation }) {
       const { data: sessionData } = await supabase.auth.getSession();
       const uid = sessionData?.session?.user?.id;
       if (!uid) {
+        _practiceLoadedOnce = true;
         setLoading(false);
         return;
       }
@@ -143,13 +146,16 @@ export default function PracticeLibraryScreen({ navigation }) {
         setRecentActivities(_memoryCachedPracticeActivities);
         if (_memoryCachedPracticeExam) setUserTargetExam(_memoryCachedPracticeExam);
         setLoading(false);
+      } else if (_practiceLoadedOnce) {
+        setLoading(false);
       } else {
         const cached = await getCache(cacheKey);
         if (cached && Array.isArray(cached) && cached.length > 0) {
           _memoryCachedPracticeActivities = cached;
           setRecentActivities(cached);
+          _practiceLoadedOnce = true;
           setLoading(false);
-        } else if (!hasCachedData) {
+        } else if (!hasCachedData && !_practiceLoadedOnce) {
           setLoading(true);
         }
       }
@@ -259,6 +265,7 @@ export default function PracticeLibraryScreen({ navigation }) {
     } catch (err) {
       console.error('Error loading recent activity:', err);
     } finally {
+      _practiceLoadedOnce = true;
       setLoading(false);
     }
   };

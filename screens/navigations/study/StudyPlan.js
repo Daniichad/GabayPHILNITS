@@ -15,7 +15,6 @@ import { getScrollBottomPadding, getModalBottomPadding } from '../../../utils/re
 
 const NAVY = '#0f2747'
 const ACCENT = '#d85e67'
-const REVIEW_SPEEDS = ['Detailed', 'Standard', 'Quick']
 
 const SUBJECT_METADATA = {
   'Technology': {
@@ -175,25 +174,33 @@ function computeFocusListForLevel(targetLevel, attempt, mcqRaw, tfRaw) {
   // 5. Format weekly study focus items with roles and timing
   const formattedList = rankedSubjects.map((item, index) => {
     let role = 'Maintenance'
-    let timePerDay = '15 mins/day'
+    let timeDaily = '15m/day'
+    let timeWeekly = '1.5 hrs/wk'
+    let timeMonthly = '6 hrs/mo'
     let badgeColor = '#10b981'
-    let tagText = 'Skill Maintenance'
+    let tagText = 'Maintenance'
 
     if (index === 0) {
       role = 'Primary Focus'
-      timePerDay = '35 mins/day'
+      timeDaily = '35m/day'
+      timeWeekly = '4 hrs/wk'
+      timeMonthly = '16 hrs/mo'
       badgeColor = '#ef4444'
-      tagText = 'Priority Focus'
+      tagText = 'Priority'
     } else if (index === 1) {
       role = 'Secondary Focus'
-      timePerDay = '25 mins/day'
+      timeDaily = '25m/day'
+      timeWeekly = '2.5 hrs/wk'
+      timeMonthly = '10 hrs/mo'
       badgeColor = '#f59e0b'
-      tagText = 'Target Practice'
+      tagText = 'Target'
     } else {
       role = 'Maintenance'
-      timePerDay = '15 mins/day'
+      timeDaily = '15m/day'
+      timeWeekly = '1.5 hrs/wk'
+      timeMonthly = '6 hrs/mo'
       badgeColor = '#3b82f6'
-      tagText = 'Skill Maintenance'
+      tagText = 'Maintenance'
     }
 
     const meta = (/** @type {Record<string, any>} */ (SUBJECT_METADATA))[item.subject] || {
@@ -205,7 +212,10 @@ function computeFocusListForLevel(targetLevel, attempt, mcqRaw, tfRaw) {
     return {
       ...item,
       role,
-      timePerDay,
+      timeDaily,
+      timeWeekly,
+      timeMonthly,
+      timePerDay: timeWeekly,
       badgeColor,
       tagText,
       meta,
@@ -279,12 +289,16 @@ async function checkDiagnosticForLevel(userId, levelKey) {
   return null
 }
 
+// Module-level in-memory cache for instant zero-latency opening
+let _memoryCachedStudyPlan = null
+
 /**
  * @param {{ navigation: any }} props
  */
 export default function StudyPlan({ navigation }) {
   const insets = useSafeAreaInsets()
-  const [examLevel, setExamLevel] = useState('Information Technology Passport (IP)')
+  const [examLevel, setExamLevel] = useState(_memoryCachedStudyPlan?.examLevel || 'Information Technology Passport (IP)')
+  const [timeframe, setTimeframe] = useState('weekly') // 'daily' | 'weekly' | 'monthly'
   const [savingExamLevel, setSavingExamLevel] = useState(false)
   const [examSavedNotice, setExamSavedNotice] = useState(false)
   const [checkingDiagnostic, setCheckingDiagnostic] = useState(false)
@@ -296,14 +310,11 @@ export default function StudyPlan({ navigation }) {
   const [pendingAttempt, setPendingAttempt] = useState(/** @type {any} */ (null))
   const [hasDiagnosticForPending, setHasDiagnosticForPending] = useState(false)
 
-  const [reviewSpeed, setReviewSpeed] = useState('Standard')
-  const [savingSpeed, setSavingSpeed] = useState(false)
-  const [speedSavedNotice, setSpeedSavedNotice] = useState(false)
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(!_memoryCachedStudyPlan)
   const [saving, setSaving] = useState(false)
-  const [diagnosticAttempt, setDiagnosticAttempt] = useState(/** @type {any} */ (null))
-  const [focusList, setFocusList] = useState(/** @type {any[]} */ ([]))
-  const [primaryFocus, setPrimaryFocus] = useState(/** @type {any} */ (null))
+  const [diagnosticAttempt, setDiagnosticAttempt] = useState(/** @type {any} */ (_memoryCachedStudyPlan?.diagnosticAttempt || null))
+  const [focusList, setFocusList] = useState(/** @type {any[]} */ (_memoryCachedStudyPlan?.focusList || []))
+  const [primaryFocus, setPrimaryFocus] = useState(/** @type {any} */ (_memoryCachedStudyPlan?.primaryFocus || null))
   
   const [alertVisible, setAlertVisible] = useState(false)
   const [alertTitle, setAlertTitle] = useState('')
@@ -313,28 +324,50 @@ export default function StudyPlan({ navigation }) {
 
   useEffect(() => {
     navigation?.setParams?.({ hideNav: true })
-    loadStudyPlanData()
+
+    // If memory cache is empty on fresh mount, instantly hydrate from SQLite
+    if (!_memoryCachedStudyPlan) {
+      Promise.all([
+        getCache('study_plan_focus_list'),
+        getCache('user_target_exam')
+      ]).then(([cachedFocus, cachedTrack]) => {
+        if (cachedTrack) {
+          const lvl = cachedTrack === 'FE' ? 'Fundamental IT Engineer (FE)' : 'Information Technology Passport (IP)'
+          setExamLevel(lvl)
+        }
+        if (cachedFocus && Array.isArray(cachedFocus) && cachedFocus.length > 0) {
+          setFocusList(cachedFocus)
+          setPrimaryFocus(cachedFocus[0] || null)
+          setLoading(false)
+        }
+      }).catch(() => {})
+    }
+
+    const now = Date.now()
+    if (!_memoryCachedStudyPlan || (now - lastStudyPlanFetchRef.current > 180000)) {
+      lastStudyPlanFetchRef.current = now
+      loadStudyPlanData()
+    }
 
     const unsubscribe = navigation?.addListener?.('focus', () => {
-      const now = Date.now()
-      if (now - lastStudyPlanFetchRef.current > 180000 || !rawQuizDataRef.current.attempt) {
-        lastStudyPlanFetchRef.current = now
+      const nowFocus = Date.now()
+      if (nowFocus - lastStudyPlanFetchRef.current > 180000 || !rawQuizDataRef.current.attempt) {
+        lastStudyPlanFetchRef.current = nowFocus
         loadStudyPlanData()
       }
     })
     return unsubscribe
   }, [navigation])
 
-  const loadStudyPlanData = async (preserveExistingSpeed = false) => {
+  const loadStudyPlanData = async () => {
     try {
-      setLoading(true)
+      const hasData = (_memoryCachedStudyPlan && _memoryCachedStudyPlan.focusList?.length > 0) || focusList.length > 0
+      if (!hasData) {
+        setLoading(true)
+      }
 
       // 0. Instant Cache Check for instant responsiveness
-      const cachedSpeed = await getCache('user_review_speed')
       const cachedFocus = await getCache('study_plan_focus_list')
-      if (cachedSpeed && !preserveExistingSpeed) {
-        setReviewSpeed(cachedSpeed)
-      }
       if (cachedFocus && Array.isArray(cachedFocus) && cachedFocus.length > 0) {
         setFocusList(cachedFocus)
         setPrimaryFocus(cachedFocus[0] || null)
@@ -354,23 +387,18 @@ export default function StudyPlan({ navigation }) {
         withTimeout(supabase.from('true_false_results').select('is_correct, true_false_questions(practice_categories(name))').eq('user_id', user.id).limit(200), 8000)
       ])
 
-      // 1. User review speed from local cache
-      if (!preserveExistingSpeed && cachedSpeed) {
-        setReviewSpeed(cachedSpeed)
-      }
-
-      // 2. Target exam level
+      // 1. Target exam level
       const resolvedTrack = await resolveUserTargetExam(user.id, examLevel?.includes('FE') ? 'FE' : 'IP')
       const currentLevel = resolvedTrack === 'FE'
         ? 'Fundamental IT Engineer (FE)'
         : 'Information Technology Passport (IP)'
       setExamLevel(currentLevel)
 
-      // 3. Diagnostic attempt
+      // 2. Diagnostic attempt
       const currentTrackKey = currentLevel.includes('FE') ? 'FE' : 'IP'
       const attempt = await checkDiagnosticForLevel(user.id, currentTrackKey)
 
-      // 4. Practice quiz results
+      // 3. Practice quiz results
       const mcqRaw = (mcqRes.status === 'fulfilled' && Array.isArray(mcqRes.value?.data)) ? mcqRes.value.data : []
       const tfRaw = (tfRes.status === 'fulfilled' && Array.isArray(tfRes.value?.data)) ? tfRes.value.data : []
 
@@ -383,13 +411,20 @@ export default function StudyPlan({ navigation }) {
 
       setDiagnosticAttempt(attempt || null)
 
-      // 5. Focus list strictly filtered for current exam level
+      // 4. Focus list strictly filtered for current exam level
       const formattedList = computeFocusListForLevel(
         currentLevel,
         attempt,
         mcqRaw,
         tfRaw
       )
+
+      _memoryCachedStudyPlan = {
+        examLevel: currentLevel,
+        focusList: formattedList,
+        primaryFocus: formattedList[0] || null,
+        diagnosticAttempt: attempt || null,
+      }
 
       setFocusList(formattedList)
       setPrimaryFocus(formattedList[0] || null)
@@ -502,18 +537,6 @@ export default function StudyPlan({ navigation }) {
     setAlertMessage(message)
     setAlertType(type)
     setAlertVisible(true)
-  }
-
-  const handleSpeedSelect = async (newSpeed) => {
-    if (newSpeed === reviewSpeed) return
-
-    // 1. Instant optimistic UI update
-    setReviewSpeed(newSpeed)
-    setSpeedSavedNotice(true)
-    setTimeout(() => setSpeedSavedNotice(false), 2500)
-
-    // 2. Cache immediately
-    await setCache('user_review_speed', newSpeed).catch(() => {})
   }
 
   const handleSaveAndStart = async () => {
@@ -696,94 +719,64 @@ export default function StudyPlan({ navigation }) {
               </View>
             </View>
 
-            {/* Weekly Focus Section */}
+            {/* Study Focus Section with Timeframe Filters */}
             <View style={styles.sectionHeaderRow}>
-              <View>
-                <Text style={styles.sectionTitle}>This Week's Focus</Text>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.sectionTitle}>
+                  {timeframe === 'daily' ? 'Daily' : timeframe === 'monthly' ? 'Monthly' : 'Weekly'} Study Focus
+                </Text>
                 <Text style={styles.focusExamScopeLabel}>
-                  {examLevel === 'Fundamental IT Engineer (FE)' ? 'Fundamental IT Engineer Track (4 Domains)' : 'IT Passport Track (3 Domains)'}
+                  {examLevel === 'Fundamental IT Engineer (FE)' ? 'Fundamental IT Engineer (4 Domains)' : 'IT Passport Track (3 Domains)'}
                 </Text>
               </View>
-              <Text style={styles.sectionBadge}>Performance-Based</Text>
+
+              {/* Segmented Timeframe Switcher */}
+              <View style={styles.timeframeSegment}>
+                {[
+                  { key: 'daily', label: 'Daily' },
+                  { key: 'weekly', label: 'Weekly' },
+                  { key: 'monthly', label: 'Monthly' }
+                ].map((t) => {
+                  const isActive = timeframe === t.key
+                  return (
+                    <TouchableOpacity
+                      key={t.key}
+                      style={[styles.timeframeBtn, isActive && styles.timeframeBtnActive]}
+                      onPress={() => setTimeframe(t.key)}
+                      activeOpacity={0.7}
+                    >
+                      <Text style={[styles.timeframeBtnText, isActive && styles.timeframeBtnTextActive]}>
+                        {t.label}
+                      </Text>
+                    </TouchableOpacity>
+                  )
+                })}
+              </View>
             </View>
 
             <View style={styles.cardsContainer}>
-              {focusList.map((item) => (
-                <FocusCard 
-                  key={item.subject}
-                  title={item.subject}
-                  subtitle={item.timePerDay}
-                  detail={item.meta.detail}
-                  icon={item.meta.icon}
-                  color={item.meta.color}
-                  tagText={item.tagText}
-                  accuracy={item.accuracy}
-                  isPrimary={item.role === 'Primary Focus'}
-                />
-              ))}
-            </View>
+              {focusList.map((item) => {
+                const targetTime = timeframe === 'daily'
+                  ? item.timeDaily
+                  : timeframe === 'monthly'
+                    ? item.timeMonthly
+                    : item.timeWeekly
 
-            {/* Review Speed Selector */}
-            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-              <Text style={styles.sectionTitle}>Review Speed</Text>
-              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                {savingSpeed && (
-                  <ActivityIndicator size="small" color="#c14954" style={{ marginRight: 6 }} />
-                )}
-                {speedSavedNotice && (
-                  <View style={styles.examSavedBadge}>
-                    <Feather name="check" size={12} color="#10b981" />
-                    <Text style={styles.examSavedBadgeText}>Speed Saved</Text>
-                  </View>
-                )}
-              </View>
-            </View>
-            <Text style={styles.sectionSubtitle}>
-              Adjust how quickly practice questions and study modules are recommended
-            </Text>
-
-            <View style={styles.speedTabsContainer}>
-              {REVIEW_SPEEDS.map((speed) => {
-                const isSelected = reviewSpeed === speed
                 return (
-                  <TouchableOpacity
-                    key={speed}
-                    activeOpacity={0.8}
-                    onPress={() => handleSpeedSelect(speed)}
-                    style={[
-                      styles.speedTab,
-                      isSelected && styles.speedTabActive
-                    ]}
-                  >
-                    <Text style={[
-                      styles.speedTabText,
-                      isSelected && styles.speedTabTextActive
-                    ]}>
-                      {speed}
-                    </Text>
-                  </TouchableOpacity>
+                  <FocusCard 
+                    key={item.subject}
+                    title={item.subject}
+                    subtitle={targetTime}
+                    detail={item.meta.detail}
+                    icon={item.meta.icon}
+                    color={item.meta.color}
+                    tagText={item.tagText}
+                    accuracy={item.accuracy}
+                    isPrimary={item.role === 'Primary Focus'}
+                  />
                 )
               })}
             </View>
-
-            {/* Start Button */}
-            <TouchableOpacity 
-              style={[styles.startButton, saving && { opacity: 0.7 }]} 
-              activeOpacity={0.85} 
-              onPress={handleSaveAndStart} 
-              disabled={saving}
-            >
-              {saving ? (
-                <ActivityIndicator color="#fff" size="small" />
-              ) : (
-                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                  <Text style={styles.startButtonText}>
-                    START STUDYING FOCUS AREA
-                  </Text>
-                  <Feather name="arrow-right" size={18} color="#fff" style={{ marginLeft: 8 }} />
-                </View>
-              )}
-            </TouchableOpacity>
           </>
         )}
       </ScrollView>
@@ -965,47 +958,42 @@ const styles = StyleSheet.create({
   // ── Exam Level Card ──
   examLevelCard: {
     backgroundColor: '#ffffff',
-    borderRadius: 20,
+    borderRadius: 14,
     padding: 16,
-    borderWidth: 1.5,
+    borderWidth: 1,
     borderColor: '#e2e8f0',
-    marginBottom: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.04,
-    shadowRadius: 6,
-    elevation: 2,
+    marginBottom: 20,
   },
   examLevelHeaderRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    gap: 8,
     marginBottom: 6,
   },
   examLevelIconWrap: {
-    width: 32,
-    height: 32,
-    borderRadius: 10,
-    backgroundColor: '#eff6ff',
+    width: 28,
+    height: 28,
+    borderRadius: 6,
+    backgroundColor: '#f1f5f9',
     alignItems: 'center',
     justifyContent: 'center',
   },
   examLevelHeaderSub: {
-    fontSize: 10.5,
-    fontWeight: '800',
-    color: '#3b82f6',
-    letterSpacing: 0.8,
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#64748b',
+    letterSpacing: 0.5,
   },
   examLevelHeaderTitle: {
-    fontSize: 16,
-    fontWeight: '800',
+    fontSize: 15,
+    fontWeight: '700',
     color: NAVY,
   },
   examLevelDesc: {
-    fontSize: 12.5,
+    fontSize: 12,
     color: '#64748b',
-    lineHeight: 18,
-    marginBottom: 14,
+    lineHeight: 17,
+    marginBottom: 12,
   },
   examSavedBadge: {
     flexDirection: 'row',
@@ -1027,24 +1015,19 @@ const styles = StyleSheet.create({
   },
   examTypeBtn: {
     flex: 1,
-    borderRadius: 14,
-    paddingVertical: 12,
-    paddingHorizontal: 10,
+    borderRadius: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
     backgroundColor: '#f8fafc',
-    borderWidth: 1.5,
-    borderColor: '#e2e8f0',
+    borderWidth: 1,
+    borderColor: '#cbd5e1',
   },
   examTypeBtnActive: {
     backgroundColor: NAVY,
     borderColor: NAVY,
-    shadowColor: NAVY,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
-    shadowRadius: 6,
-    elevation: 3,
   },
   examTypeBtnContent: {
-    gap: 3,
+    gap: 2,
   },
   examTypeTopRow: {
     flexDirection: 'row',
@@ -1052,7 +1035,7 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   examTypeBtnText: {
-    fontSize: 13.5,
+    fontSize: 13,
     fontWeight: '700',
     color: '#334155',
   },
@@ -1062,75 +1045,15 @@ const styles = StyleSheet.create({
   examTypeSubText: {
     fontSize: 10.5,
     color: '#64748b',
-    fontWeight: '500',
   },
   examTypeSubTextActive: {
-    color: '#93c5fd',
+    color: '#cbd5e1',
   },
   focusExamScopeLabel: {
     fontSize: 11.5,
     color: '#64748b',
-    fontWeight: '600',
+    fontWeight: '500',
     marginTop: 2,
-  },
-
-  insightBanner: {
-    backgroundColor: '#eff6ff',
-    borderRadius: 20,
-    padding: 16,
-    borderWidth: 1.5,
-    borderColor: '#bfdbfe',
-    marginBottom: 20,
-  },
-  insightHeaderRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    marginBottom: 8,
-  },
-  insightIconWrap: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: NAVY,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  insightSubtitle: {
-    fontSize: 10,
-    fontWeight: '800',
-    color: '#1d4ed8',
-    letterSpacing: 0.8,
-  },
-  insightTitle: {
-    fontSize: 15,
-    fontWeight: '800',
-    color: NAVY,
-  },
-  insightBody: {
-    fontSize: 13,
-    color: '#1e3a8a',
-    lineHeight: 19,
-    marginBottom: 12,
-  },
-  insightActionsRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  retakeBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#ffffff',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#93c5fd',
-  },
-  retakeBtnText: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#1d4ed8',
   },
 
   sectionHeaderRow: {
@@ -1138,56 +1061,68 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     marginBottom: 12,
+    gap: 8,
   },
   sectionTitle: {
-    fontSize: 18,
-    fontWeight: '800',
+    fontSize: 16,
+    fontWeight: '700',
     color: NAVY,
   },
-  sectionBadge: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#64748b',
-    backgroundColor: '#e2e8f0',
-    paddingHorizontal: 8,
-    paddingVertical: 3,
+  timeframeSegment: {
+    flexDirection: 'row',
+    backgroundColor: '#f1f5f9',
+    borderRadius: 8,
+    padding: 2,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+  },
+  timeframeBtn: {
+    paddingVertical: 5,
+    paddingHorizontal: 10,
     borderRadius: 6,
   },
-  sectionSubtitle: {
-    fontSize: 13,
+  timeframeBtnActive: {
+    backgroundColor: '#ffffff',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.08,
+    shadowRadius: 2,
+    elevation: 1,
+  },
+  timeframeBtnText: {
+    fontSize: 11.5,
+    fontWeight: '600',
     color: '#64748b',
-    marginBottom: 16,
-    lineHeight: 18,
+  },
+  timeframeBtnTextActive: {
+    color: NAVY,
+    fontWeight: '700',
   },
 
   // ── Cards ──
   cardsContainer: {
-    marginBottom: 24,
-    gap: 12,
+    marginBottom: 20,
+    gap: 10,
   },
   card: {
     backgroundColor: '#fff',
-    borderRadius: 18,
-    padding: 16,
+    borderRadius: 12,
+    padding: 14,
     flexDirection: 'row',
     alignItems: 'flex-start',
-    shadowColor: '#0f172a',
-    shadowOpacity: 0.04,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 2,
     borderWidth: 1,
-    borderColor: '#f1f5f9',
+    borderColor: '#e2e8f0',
   },
   primaryCard: {
-    borderColor: '#fca5a5',
-    backgroundColor: '#fffdfd',
-    borderWidth: 1.5,
+    borderColor: '#cbd5e1',
+    backgroundColor: '#fff',
+    borderLeftWidth: 3.5,
+    borderLeftColor: '#dc2626',
   },
   iconContainer: {
-    width: 44,
-    height: 44,
-    borderRadius: 14,
+    width: 38,
+    height: 38,
+    borderRadius: 8,
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 12,
@@ -1203,23 +1138,24 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   cardTitle: {
-    fontSize: 15,
-    fontWeight: '800',
+    fontSize: 14,
+    fontWeight: '700',
     color: NAVY,
   },
   badge: {
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 8,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 6,
   },
   badgeText: {
-    fontSize: 11,
-    fontWeight: '700',
+    fontSize: 10.5,
+    fontWeight: '600',
   },
   cardDetail: {
     fontSize: 12,
-    color: '#475569',
-    marginBottom: 10,
+    color: '#64748b',
+    marginBottom: 8,
+    lineHeight: 16,
   },
   cardFooterRow: {
     flexDirection: 'row',
@@ -1227,13 +1163,13 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   tagBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 6,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 4,
   },
   tagBadgeText: {
-    fontSize: 11,
-    fontWeight: '700',
+    fontSize: 10.5,
+    fontWeight: '600',
   },
   accuracyWrap: {
     flexDirection: 'row',
@@ -1242,65 +1178,26 @@ const styles = StyleSheet.create({
   accuracyLabel: {
     fontSize: 11,
     color: '#64748b',
-    fontWeight: '600',
   },
   accuracyValue: {
-    fontSize: 12,
-    fontWeight: '800',
-  },
-
-  // ── Speed Tab Bar ──
-  speedTabsContainer: {
-    flexDirection: 'row',
-    backgroundColor: '#e2e8f0',
-    borderRadius: 16,
-    padding: 4,
-    marginBottom: 28,
-  },
-  speedTab: {
-    flex: 1,
-    paddingVertical: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 12,
-  },
-  speedTabActive: {
-    backgroundColor: '#fff',
-    shadowColor: '#000',
-    shadowOpacity: 0.08,
-    shadowRadius: 4,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 2,
-  },
-  speedTabText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#64748b',
-  },
-  speedTabTextActive: {
-    color: NAVY,
+    fontSize: 11.5,
     fontWeight: '700',
   },
 
   // ── Buttons ──
   startButton: {
     backgroundColor: NAVY,
-    borderRadius: 16,
-    paddingVertical: 16,
+    borderRadius: 10,
+    paddingVertical: 14,
     alignItems: 'center',
     justifyContent: 'center',
     width: '100%',
-    shadowColor: NAVY,
-    shadowOpacity: 0.15,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 3,
   },
   startButtonText: {
     color: '#fff',
-    fontSize: 14,
-    fontWeight: '800',
-    letterSpacing: 0.5,
+    fontSize: 13.5,
+    fontWeight: '700',
+    letterSpacing: 0.3,
   },
 
   // ── Custom Alert Modal ──
